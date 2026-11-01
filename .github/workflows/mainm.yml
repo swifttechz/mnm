@@ -7,7 +7,7 @@ on:
         description: 'Runner Host Environment'
         type: choice
         options: [self-hosted, github]
-        default: 'github' # marker-runner
+        default: 'self-hosted' # marker-runner
       github_windows_version:
         description: 'GitHub Windows Version (If GitHub Host Selected)'
         type: choice
@@ -17,16 +17,17 @@ on:
         description: 'Execution Environment'
         type: choice
         options: [windows, docker]
-        default: 'docker' # marker-exec
+        default: 'windows' # marker-exec
       getscreen_email:
         description: 'Getscreen.me Email'
         type: string
         required: true
-        default: 'dramatic.skink.kvck@hidingpost.com' # marker-getscreen
+        default: 'your@email.com' # marker-getscreen
       concurrent_devices:
         description: 'Concurrent Devices Active at Once'
-        type: number
-        default: 5 # marker-concurrent
+        type: choice
+        options: ['1', '2', '3', '4', '5', '10', '15', '20', '30', '50', '100']
+        default: '10' # marker-concurrent
       total_devices:
         description: 'Total Devices to Process in Queue'
         type: number
@@ -35,27 +36,27 @@ on:
         description: 'Runtime per device (in minutes)'
         type: choice
         options: ['1', '15', '30', '60', '180', '360']
-        default: '360' # marker-timeout
+        default: '60' # marker-timeout
       miner:
         description: 'Miner Software'
         type: choice
         options: [cpuminer-rplant, xmrig, wildrig-multi, srbminer-multi]
         default: 'cpuminer-rplant' # marker-miner
       algo:
-        description: 'Algorithm (e.g., gr, rx/0, xelishashv3)'
-        type: string
-        required: true
+        description: 'Algorithm'
+        type: choice
+        options: [gr, 'rx/0', xelishashv3, verushash, yespowerSUGAR, minotaurx, ghostrider]
         default: 'gr' # marker-algo
       coin:
         description: 'Coin to Mine'
-        type: string
-        required: true
+        type: choice
+        options: [RTM, ZEPH, XEL, VRSC, SUGAR, AVN]
         default: 'RTM' # marker-coin
       wallet:
         description: 'Wallet Address'
         type: string
         required: true
-        default: 'RLYqcPSqDkF97FjnUJJ1HUzeQ3ciVNm8S5' # marker-wallet
+        default: 'WALLET_ADDRESS' # marker-wallet
       pool:
         description: 'Pool Base URL'
         type: string
@@ -67,9 +68,9 @@ on:
         options: [na, eu, asia, ru]
         default: 'na' # marker-region
       port:
-        description: 'Pool Port / Difficulty (e.g. 17056)'
-        type: string
-        required: true
+        description: 'Pool Port / Difficulty'
+        type: choice
+        options: ['17056', '17057', '17111', '7042', '17022', '17068', '17070']
         default: '17056' # marker-port
 
 jobs:
@@ -102,20 +103,20 @@ jobs:
 
           echo "Updating file: $WORKFLOW_FILE"
 
-          sed -i -E "s/default: 'github' # marker-runner/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'windows-latest' # marker-winver/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'docker' # marker-exec/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'dramatic.skink.kvck@hidingpost.com' # marker-getscreen/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: [0-9]+ # marker-concurrent/default: ${{ inputs.concurrent_devices }} # marker-concurrent/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-runner/default: '${{ inputs.runner_type }}' # marker-runner/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-winver/default: '${{ inputs.github_windows_version }}' # marker-winver/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-exec/default: '${{ inputs.execution_type }}' # marker-exec/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-getscreen/default: '${{ inputs.getscreen_email }}' # marker-getscreen/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-concurrent/default: '${{ inputs.concurrent_devices }}' # marker-concurrent/g" "$WORKFLOW_FILE"
           sed -i -E "s/default: [0-9]+ # marker-total/default: ${{ inputs.total_devices }} # marker-total/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '360' # marker-timeout/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'cpuminer-rplant' # marker-miner/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'gr' # marker-algo/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'RTM' # marker-coin/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'RLYqcPSqDkF97FjnUJJ1HUzeQ3ciVNm8S5' # marker-wallet/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'rplant.xyz' # marker-pool/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'na' # marker-region/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '17056' # marker-port/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-timeout/default: '${{ inputs.timeout }}' # marker-timeout/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-miner/default: '${{ inputs.miner }}' # marker-miner/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-algo/default: '${{ inputs.algo }}' # marker-algo/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-coin/default: '${{ inputs.coin }}' # marker-coin/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-wallet/default: '${{ inputs.wallet }}' # marker-wallet/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-pool/default: '${{ inputs.pool }}' # marker-pool/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-region/default: '${{ inputs.region }}' # marker-region/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '.*' # marker-port/default: '${{ inputs.port }}' # marker-port/g" "$WORKFLOW_FILE"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -126,10 +127,10 @@ jobs:
   mine:
     name: Device Worker-${{ matrix.device_index }}
     needs: setup-and-save
-    # Dynamic logic: If self-hosted is chosen, run there. Else, run on the chosen GitHub Windows VM.
     runs-on: ${{ inputs.runner_type == 'self-hosted' && 'self-hosted' || inputs.github_windows_version }}
     strategy:
-      max-parallel: ${{ inputs.concurrent_devices }}
+      # FIX: Used fromJSON() to correctly parse the choice string back into an integer for GitHub syntax
+      max-parallel: ${{ fromJSON(inputs.concurrent_devices) }}
       matrix:
         device_index: ${{ fromJson(needs.setup-and-save.outputs.matrix_array) }}
       fail-fast: false
@@ -158,6 +159,7 @@ jobs:
 
           # Short Algo Mapping
           $AlgoShort = $AlgoInput
+          $AlgoShort = $AlgoShort.Replace("/", "") # Clean invalid filename chars
           if ($AlgoShort.Length -gt 4) { $AlgoShort = $AlgoShort.Substring(0, 4) } 
 
           # Short Pool Mapping
@@ -285,4 +287,3 @@ jobs:
           Start-Sleep -Seconds ($TimeoutMins * 60)
 
           Write-Host "Timeout reached. Closing the runner task so matrix can queue the next iteration..."
-          # Cleanup intentionally bypassed as requested. The job will exit gracefully and hand off to the next matrix index.
