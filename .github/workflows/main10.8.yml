@@ -1,4 +1,4 @@
-name: Parallel mx10.8
+name: Parallel mx10.5
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ on:
         description: 'Getscreen.me Account Email'
         required: true
         type: string
-        default: 'dramatic.skink.kvck@hidingpost.com'
+        default: 'techx@ccmail.online'
       num_devices:
         description: 'Number of Devices'
         required: true
@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '3'
+        default: '1'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -62,17 +62,17 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '0'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '0'
+        default: '45'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '10'
+        default: '0'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZTcyOTA3Mjg2MTNmNTZlMjRiM2I2YiIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlNzI5MDcyODYxM2Y1NmUyNGIzYjY3In0.7iRO8JvFWRw8hx83cqPGC4e3OlgMI6Wz6qNhkZ3Ju2k'
+        default: 'geolocation://Gtyn93jqLGcuPT2K:ibxoCWEAuxDwgnGV@geo.floppydata.com:10080:AUSTRALIA geolocation://if7Ycx2owx0M9mDm:bGHJRR4veVcOjUx0@geo.floppydata.com:10080:CANADA geolocation://GvvbbmAXZJiqYSYF:Q7Hiuu5sfzPRbIdx@geo.floppydata.com:10080:FRANCE geolocation://aYQOtQJm0WxS53sM:hanX5EL1SwfHg2Lu@geo.floppydata.com:10080:UNITED geolocation://asCFLL8qDKqCvMsh:DjLrRhWKacehSzFx@geo.floppydata.com:10080:UNITED geolocation://MX8BCSrFwiMeYgSq:SgOD8DM3ZFopm6Jq@geo.floppydata.com:10080:United geolocation://2lU2DcFxC9a2SFUu:Crj6Bo2KbxTIZzDg@geo.floppydata.com:10080:United geolocation://R8UKZfAh6rkLLlJ9:gsQ7omdRaVaf5o1S@geo.floppydata.com:10080:United http://cRYDtQL7x6PftyDC:L9StzPID3x5IwCyE@geo.floppydata.com:10080:United http://pDN6Ff3rb4yD4iUa:sHaOBzrqVhgP5W4z@geo.floppydata.com:10080:United http://IDkuElbdeJxDWdeB:MJODxSMfjf8Ap7rh@geo.floppydata.com:10080:United http://FnW1s8mhjMh1i3l9:kY1f6Vi3OAdIK4Oc@geo.floppydata.com:10080:United http://oEMLDNcckdm1RTq1:gPvTQflqvdMfQRiH@geo.floppydata.com:10080:United http://MWHDelulNOMZCoY5:KQZsUbIYgW01tuMZ@geo.floppydata.com:10080:United http://T4YftqXqpRYRZ0HI:HOU4ET4pPs8ioA4d@geo.floppydata.com:10080:United http://oj7IkzwTcyK15HPc:rLGmS4YlzRFWY0PA@geo.floppydata.com:10080:United http://itomc3mtB65YJgi2:eUHkcJiOd5470X1s@geo.floppydata.com:10080:United http://kdR1fnhiNvh52NAH:I2NqfGbrAvblbGvj@geo.floppydata.com:10080:United http://8RMbngVsnnmfHHdU:xwhi9xcRJPz8DuUD@geo.floppydata.com:10080:United http://QQ1lm8yaSB5onueL:TihPwegyggKvnKrg@geo.floppydata.com:10080:United http://hmquLVZq72bl4WZW:jO0V3CXlhRIxiCLw@geo.floppydata.com:10080:United http://Tn0lvhfjhORWIQCJ:qw5T5pqmph3IYI7p@geo.floppydata.com:10080:United http://7PCmtnmgXKDHLokm:wWwX5eM63ycsrpnF@geo.floppydata.com:10080:United http://cYfjVnzlqzbnyjYk:Ez2w6NSQM7K3W3ly@geo.floppydata.com:10080:United http://ccZMxYKrnMmvQ1dM:FoQ4MA4wdjc5SyMH@geo.floppydata.com:10080:United http://KiieEHooOr26szjg:eULomStOkCsUgCDv@geo.floppydata.com:10080:United http://M3WIRftwXqcWOl8g:s8UgNKkmV51QlvQ4@geo.floppydata.com:10080:United http://4ei9NvCG87vK9gq9:hQW7pn2L68IbknUH@geo.floppydata.com:10080:United http://Pkwrb5q2xyYHQTgD:51rBCYbg3hiSeOvv@geo.floppydata.com:10080:United http://HYrDJojqNEJUQdzZ:xfriIPh0gZsC7Uer@geo.floppydata.com:10080:United http://yloysXIBDf9RmCDh:1WyRpATf0JHI19oI@geo.floppydata.com:10080:United http://oiFQQxNWfOVcOwTy:Gbe108VWd0lqCEcL@geo.floppydata.com:10080:United http://kQk49MWNm0t6v7gP:7TAcytAu8knldUQO@geo.floppydata.com:10080:United http://eZzqleMCVk2Lpzel:k3HU0VmbzvDF2GqB@geo.floppydata.com:10080:United http://6NvljgZgWYWe7lVy:69yK71bdksepErtX@geo.floppydata.com:10080:United http://sPeFLR7CUmns57FY:CHikSpUMRWHwhheT@geo.floppydata.com:10080:United http://pS0mEVp6DK0Crji0:QV785BwkYtDvodPD@geo.floppydata.com:10080:United http://lmbpPIeBquCzqDF2:YZCqOcsVX0NMdvad@geo.floppydata.com:10080:United http://q5ctPUmyjK3JglLm:FfXKjUyRPSHm9eW0@geo.floppydata.com:10080:United http://KMeyAipfIaKlVdfk:bKzrqnw73Ux0jRFn@geo.floppydata.com:10080:United http://f1pmoNC7d2vnPfaB:nBehJ889opfIT4NV@geo.floppydata.com:10080:United http://Nw8VufaVmOleFVWi:thrA9gFMlGJXbDll@geo.floppydata.com:10080:United http://uF3VE7PRvzksM358:OMMIPDki6AYc9NQ4@geo.floppydata.com:10080:United http://GJKky7ddMgOw9cAG:eB1JGFmHYY2H4dWc@geo.floppydata.com:10080:United http://W1WU7Hj8MYsgNyxR:3o8KlVBbf4LWZme6@geo.floppydata.com:10080:United http://IG2Gk7qfRZdyIKWM:5HvJnleIwHFhVTDH@geo.floppydata.com:10080:United http://gitw0smGSdttIU5r:v9RVECa2dVxu3wTE@geo.floppydata.com:10080:United http://6BDTyfB13PkK2RdD:JKa33yyhgMdFiAJW@geo.floppydata.com:10080:United http://0BkfNbEsSths11gy:7yjEdcuiakaD6SAq@geo.floppydata.com:10080:United http://lWbnd9XdFUSUHxsy:dUkYugC25GYPfrNl@geo.floppydata.com:10080:United http://DFt5gQ6BmxNNHoDD:L9CzpvWk0PqY2wc5@geo.floppydata.com:10080:United http://6nRh2n90iVCYutmi:1vBfypFM5e9tJQi3@geo.floppydata.com:10080:United http://HCqO92aCW5YPB2Fg:VSojXstWkC14HrXq@geo.floppydata.com:10080:United http://2aTWrm833M9UPEbg:HQ20cf44lXFdCazi@geo.floppydata.com:10080:United http://fy4d8AhBvPtA3jRb:3p1fxqSSoHZdUrb6@geo.floppydata.com:10080:United http://Ye0D8HqtARWPPfbq:XGic4doXI22BMV6B@geo.floppydata.com:10080:United http://xqBVm5apU5Jm4k4K:XZgtviWnHJ1cqKlb@geo.floppydata.com:10080:United http://DKqGlHhjSPlbMOWg:zjDWrwe2FzFxAjBC@geo.floppydata.com:10080:United'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -217,7 +217,7 @@ jobs:
         run: |
           import os, re, glob
 
-          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.8")
+          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.5")
           workflow_dir = ".github/workflows"
           target_file = None
 
@@ -538,6 +538,10 @@ jobs:
 
               delay_sec = batch_delays.get(batch_idx, 0) if batch_idx > 0 else 0
 
+              profile_id = random.randint(1, 100) if action_mode == "surf" else None
+              profile_tag = f"P{profile_id}" if profile_id else ""
+              display_name = f"{absolute_idx}-{short_os_tag}-{short_sw_tag}-{action_mode.capitalize()}" + (f"-{profile_tag}" if profile_tag else "")
+
               includes.append({
                   "task_index":    absolute_idx,
                   "absolute_idx":  absolute_idx,
@@ -551,9 +555,11 @@ jobs:
                   "action_mode":   action_mode,
                   "action_cap":    action_mode.capitalize(),
                   "short_os_tag":  short_os_tag,
-                  "short_sw_tag":  short_sw_tag
+                  "short_sw_tag":  short_sw_tag,
+                  "profile_tag":   profile_tag,
+                  "display_name":  display_name
               })
-              print(f"[Task Queued] Task {absolute_idx} | Batch: {batch_idx} | Delay: {delay_sec}s | Action: {action_mode}")
+              print(f"[Task Queued] {display_name} | Batch: {batch_idx} | Delay: {delay_sec}s | Action: {action_mode}")
 
           if not includes:
               print("Error: Valid configuration could not be generated. Exiting.")
@@ -564,7 +570,7 @@ jobs:
           print("========== MATRIX GENERATION COMPLETE ==========")
 
   remote_session:
-    name: ${{ matrix.absolute_idx }}-${{ matrix.short_os_tag }}-${{ matrix.short_sw_tag }}-${{ matrix.action_cap }}
+    name: ${{ matrix.display_name }}
     needs: prepare_matrix
     if: needs.prepare_matrix.outputs.has_tasks == 'true'
     runs-on: ${{ matrix.os }}
@@ -619,6 +625,7 @@ jobs:
           SHORT_OS: ${{ matrix.short_os_tag }}
           SHORT_SW: ${{ matrix.short_sw_tag }}
           ACTION: ${{ matrix.action_mode }}
+          PROFILE_TAG: ${{ matrix.profile_tag }}
         run: |
           import os, time, sys, uuid, json, re, random
 
@@ -661,6 +668,7 @@ jobs:
           short_os = os.environ.get("SHORT_OS", "OS")
           short_sw = os.environ.get("SHORT_SW", "SW")
           action_cap = os.environ.get("ACTION", "task").capitalize()
+          profile_tag = os.environ.get("PROFILE_TAG", "").strip()
 
           country_map = {
               "USA": "us", "UK": "gb", "Canada": "ca", "Australia": "au", "Germany": "de", "France": "fr",
@@ -1331,7 +1339,7 @@ jobs:
               }
 
           cc_final = (active_proxy.get('country_code') or 'US').upper()
-          device_name = f"T{task_index}-{short_os}-{short_sw}-{action_cap}-{cc_final}"
+          device_name = f"T{task_index}-{short_os}-{short_sw}-{action_cap}-{cc_final}" + (f"-{profile_tag}" if profile_tag else "")
           print(f"Assigned Identity: {device_name}")
 
           env_file = os.environ.get('GITHUB_ENV')
@@ -1350,6 +1358,7 @@ jobs:
               f.write(f"WINDOWS_LOCALE={active_proxy.get('windows_locale', 'en-US')}\n")
               f.write(f"WINDOWS_KEYBOARD={active_proxy.get('windows_keyboard', '0409:00000409')}\n")
               f.write(f"DEVICE_NAME={device_name}\n")
+              f.write(f"PROFILE_TAG={profile_tag}\n")
 
       - name: Disable Windows Defender & Edge SmartScreen
         shell: pwsh
@@ -1513,6 +1522,7 @@ jobs:
           SOFTWARE_TYPE: ${{ matrix.software_type }}
           EXE_FILTER: ${{ matrix.exe_filter }}
           ACTION_MODE: ${{ matrix.action_mode }}
+          PROFILE_TAG: ${{ matrix.profile_tag }}
           APPLY_MASKING: ${{ inputs.apply_masking }}
         run: |
           $edgePolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"
@@ -1537,6 +1547,9 @@ jobs:
           Write-Host " Target URL: $env:TARGET_URL" -ForegroundColor Gray
           Write-Host " Category  : $env:SOFTWARE_TYPE" -ForegroundColor Cyan
           Write-Host " Action    : $($env:ACTION_MODE.ToUpper()) PATHWAY ASSIGNED" -ForegroundColor Magenta
+          if ($env:PROFILE_TAG) {
+              Write-Host " Profile   : $($env:PROFILE_TAG.ToUpper()) VISITOR SIMULATION" -ForegroundColor Yellow
+          }
           Write-Host " Masking   : $($env:APPLY_MASKING) | Locale: $env:WINDOWS_LOCALE | Country: $env:PROXY_COUNTRY_CODE" -ForegroundColor DarkCyan
 
           if ($useProxy) {
@@ -1579,6 +1592,7 @@ jobs:
               accept_lang   = $acceptLang
               apply_masking = ($env:APPLY_MASKING -eq 'true')
               tz_iana       = $env:TIMEZONE_IANA
+              profile_tag   = $env:PROFILE_TAG
           }
           $credJson = $credObj | ConvertTo-Json -Depth 2
           [System.IO.File]::WriteAllText($credFile, $credJson, [System.Text.UTF8Encoding]::new($false))
@@ -1620,6 +1634,7 @@ jobs:
           ACCEPT_LANG   = _CREDS.get("accept_lang", "en-US,en;q=0.9")
           APPLY_MASKING = _CREDS.get("apply_masking", True)
           TZ_IANA       = _CREDS.get("tz_iana", "UTC")
+          PROFILE_TAG_PARAM = _CREDS.get("profile_tag", "P1")
 
           DOWNLOAD_DONE_TITLES = [
               "Thanks for downloading Opera", "Thanks for downloadin",
@@ -2026,49 +2041,6 @@ jobs:
               except Exception as e:
                   log_msg("DL-Engine", f"Pass 2 failed: {e}")
 
-              log_msg("DL-Engine", f"Pass 3: Scanning automation IDs for download hints...")
-              dl_id_hints = ["download", "cta", "btn-download", "hero-btn", "get-btn", "install-btn", "download-btn", "dl-btn"]
-              try:
-                  for el in edge_window.descendants():
-                      try:
-                          aid = (el.element_info.automation_id or "").lower()
-                          cls = (el.element_info.class_name or "").lower()
-                      except Exception:
-                          continue
-                      if any(hint in aid or hint in cls for hint in dl_id_hints):
-                          log_msg("DL-Engine", f"Pass 3 match via ID/class: aid='{aid}' cls='{cls}'")
-                          if click_element_robust(el, "DL-Engine-P3"):
-                              return True
-              except Exception as e:
-                  log_msg("DL-Engine", f"Pass 3 failed: {e}")
-
-              log_msg("DL-Engine", f"Pass 4: Visual region scan for large buttons in hero area...")
-              try:
-                  candidate_buttons = []
-                  for el in edge_window.descendants(control_type="Button"):
-                      try:
-                          rect = el.rectangle()
-                          cx_el = rect.mid_point().x
-                          cy_el = rect.mid_point().y
-                          width = rect.right - rect.left
-                          height = rect.bottom - rect.top
-                          if width > 80 and height > 25 and cy_el < (sh * 0.75) and cx_el > (sw * 0.15) and cx_el < (sw * 0.85):
-                              txt = (el.window_text() or "").strip()
-                              nm  = (el.element_info.name or "").strip()
-                              candidate_buttons.append((width * height, el, cx_el, cy_el, txt or nm))
-                      except Exception:
-                          continue
-                  candidate_buttons.sort(key=lambda x: x[0], reverse=True)
-                  skip_kw = ["menu", "nav", "close", "sign", "log", "cookie", "privacy", "search", "home", "back", "settings"]
-                  for area, el, cx_el, cy_el, label in candidate_buttons[:5]:
-                      log_msg("DL-Engine", f"Pass 4 candidate: '{label[:40]}' size={area} at ({cx_el},{cy_el})")
-                      if any(s in label.lower() for s in skip_kw):
-                          continue
-                      if click_element_robust(el, "DL-Engine-P4"):
-                          return True
-              except Exception as e:
-                  log_msg("DL-Engine", f"Pass 4 failed: {e}")
-
               return False
 
           def _is_address_bar_control(ctrl):
@@ -2459,20 +2431,6 @@ jobs:
                               return True
                           except Exception: pass
 
-                  for el in target.descendants():
-                      try: ctrl_type = el.element_info.control_type
-                      except Exception: continue
-                      if ctrl_type not in ["Button", "Hyperlink", "Text", "Custom"]: continue
-                      try: txt = (el.window_text() or "").strip()
-                      except Exception: txt = ""
-                      if not txt or len(txt) > 80: continue
-                      if _matches_any(txt, keyword_list):
-                          if physical_click(el, "Pass3 Descendant"): return True
-                          try:
-                              el.click_input()
-                              return True
-                          except Exception: pass
-
               except Exception as e:
                   log_msg("MLBtn", f"[{label}] Exception: {e}")
 
@@ -2581,14 +2539,15 @@ jobs:
                   return False
 
           # =========================================================================
-          # REALISTIC HUMAN BROWSING & SURFING SIMULATION ENGINE
+          # 100 VISITOR PROFILES ENGINE (P1 - P100) & ADVANCED SURF SIMULATOR
           # =========================================================================
 
           SAFE_SURF_KEYWORDS = [
               "about", "features", "overview", "product", "learn more", "explore",
               "details", "specs", "guide", "faq", "help", "support", "community",
-              "read more", "compare", "more", "security", "privacy policy", "terms",
-              "blog", "news", "updates", "menu", "documentation", "resources"
+              "read more", "compare", "more", "security", "privacy", "terms",
+              "blog", "news", "updates", "menu", "documentation", "resources",
+              "why us", "how it works", "preview", "highlights", "changelog"
           ]
 
           DANGEROUS_CLICK_KEYWORDS = [
@@ -2597,14 +2556,124 @@ jobs:
               "quit", "sign out", "logout", "delete", "remove"
           ]
 
+          def get_visitor_profile(profile_tag):
+              try:
+                  p_id = int(re.sub(r"[^\d]", "", profile_tag))
+              except Exception:
+                  p_id = random.randint(1, 100)
+
+              p_id = max(1, min(100, p_id))
+
+              # Procedurally determine 1 of 5 behavioral archetypes
+              if 1 <= p_id <= 20:
+                  archetype = "Deep Content Reader"
+                  duration_min, duration_max = 160, 360
+                  scroll_speed = "slow"
+                  pause_min, pause_max = 4.0, 9.0
+                  down_scroll_prob = 0.82
+                  link_click_target = random.randint(1, 2)
+                  subpage_stay = random.uniform(14.0, 28.0)
+                  text_select_prob = 0.40
+              elif 21 <= p_id <= 40:
+                  archetype = "Fast Skimmer / Scanner"
+                  duration_min, duration_max = 60, 150
+                  scroll_speed = "fast"
+                  pause_min, pause_max = 1.2, 3.5
+                  down_scroll_prob = 0.75
+                  link_click_target = random.randint(2, 4)
+                  subpage_stay = random.uniform(8.0, 16.0)
+                  text_select_prob = 0.10
+              elif 41 <= p_id <= 60:
+                  archetype = "Interactive Explorer"
+                  duration_min, duration_max = 120, 280
+                  scroll_speed = "medium"
+                  pause_min, pause_max = 2.5, 6.0
+                  down_scroll_prob = 0.70
+                  link_click_target = random.randint(3, 5)
+                  subpage_stay = random.uniform(12.0, 24.0)
+                  text_select_prob = 0.25
+              elif 61 <= p_id <= 80:
+                  archetype = "Downside & Footer Researcher"
+                  duration_min, duration_max = 140, 320
+                  scroll_speed = "medium"
+                  pause_min, pause_max = 3.0, 7.5
+                  down_scroll_prob = 0.88
+                  link_click_target = random.randint(2, 3)
+                  subpage_stay = random.uniform(12.0, 22.0)
+                  text_select_prob = 0.20
+              else:
+                  archetype = "Casual Wandering Visitor"
+                  duration_min, duration_max = 90, 240
+                  scroll_speed = "random"
+                  pause_min, pause_max = 2.0, 5.5
+                  down_scroll_prob = 0.68
+                  link_click_target = random.randint(1, 3)
+                  subpage_stay = random.uniform(10.0, 20.0)
+                  text_select_prob = 0.30
+
+              return {
+                  "profile_id": f"P{p_id}",
+                  "archetype": archetype,
+                  "duration_min": duration_min,
+                  "duration_max": duration_max,
+                  "scroll_speed": scroll_speed,
+                  "pause_min": pause_min,
+                  "pause_max": pause_max,
+                  "down_scroll_prob": down_scroll_prob,
+                  "link_click_target": link_click_target,
+                  "subpage_stay": subpage_stay,
+                  "text_select_prob": text_select_prob
+              }
+
+          def wait_for_page_to_fully_load(edge_window, timeout=35):
+              log_msg("PageVerifier", "Verifying webpage load and DOM stabilization...")
+              start_check = time.time()
+              last_descendant_count = -1
+              stable_ticks = 0
+
+              while (time.time() - start_check) < timeout:
+                  try:
+                      wt = (edge_window.window_text() or "").strip()
+                      wt_lower = wt.lower()
+                      if wt_lower in ["microsoft edge", "edge", "new tab", "about:blank", ""]:
+                          time.sleep(1)
+                          continue
+
+                      # Count active UI elements in Edge Document container
+                      count = 0
+                      for doc in edge_window.descendants(control_type="Document"):
+                          count += len(doc.children())
+
+                      if count > 0:
+                          if count == last_descendant_count:
+                              stable_ticks += 1
+                              if stable_ticks >= 3:
+                                  log_msg("PageVerifier", f"Page verified as fully loaded and stable. Title: '{wt[:50]}' (Elements: {count})")
+                                  return True
+                          else:
+                              stable_ticks = 0
+                              last_descendant_count = count
+                      else:
+                          # Fallback checking descendants count
+                          desc_cnt = len(edge_window.descendants())
+                          if desc_cnt > 15:
+                              log_msg("PageVerifier", f"DOM elements active ({desc_cnt} nodes). Page ready.")
+                              return True
+                  except Exception:
+                      pass
+                  time.sleep(1)
+
+              log_msg("PageVerifier", "Timeout reached waiting for page load. Proceeding with best-effort state.")
+              return True
+
           def human_smooth_move(x, y, duration=None):
               try:
                   if duration is None:
-                      duration = random.uniform(0.3, 0.75)
+                      duration = random.uniform(0.35, 0.75)
                   pyautogui.moveTo(x, y, duration=duration, tween=pyautogui.easeInOutQuad)
-                  if random.random() < 0.4:
-                      jx = random.randint(-4, 4)
-                      jy = random.randint(-4, 4)
+                  if random.random() < 0.45:
+                      jx = random.randint(-5, 5)
+                      jy = random.randint(-5, 5)
                       pyautogui.moveRel(jx, jy, duration=random.uniform(0.1, 0.2))
               except Exception:
                   pass
@@ -2613,9 +2682,9 @@ jobs:
               try:
                   if intensity == "short":
                       ticks_count = random.randint(2, 4)
-                      step_size = random.randint(70, 130)
+                      step_size = random.randint(70, 120)
                   elif intensity == "long":
-                      ticks_count = random.randint(6, 11)
+                      ticks_count = random.randint(6, 12)
                       step_size = random.randint(120, 220)
                   else:
                       ticks_count = random.randint(3, 7)
@@ -2625,113 +2694,138 @@ jobs:
 
                   for _ in range(ticks_count):
                       pyautogui.scroll(multiplier * step_size)
-                      time.sleep(random.uniform(0.05, 0.16))
+                      time.sleep(random.uniform(0.06, 0.18))
 
-                  time.sleep(random.uniform(0.3, 0.9))
+                  time.sleep(random.uniform(0.3, 0.8))
               except Exception:
                   pass
 
-          def human_reading_pause(min_s=2.0, max_s=6.0):
+          def human_reading_pause(min_s=2.5, max_s=6.5):
               pause_time = random.uniform(min_s, max_s)
+              log_msg("Reader", f"Pausing to read content ({pause_time:.1f}s)...")
               start_p = time.time()
               while time.time() - start_p < pause_time:
-                  if random.random() < 0.25:
-                      dx = random.randint(-15, 15)
-                      dy = random.randint(-10, 10)
-                      pyautogui.moveRel(dx, dy, duration=random.uniform(0.2, 0.4))
+                  if random.random() < 0.35:
+                      dx = random.randint(-20, 20)
+                      dy = random.randint(-12, 12)
+                      pyautogui.moveRel(dx, dy, duration=random.uniform(0.2, 0.45))
                   time.sleep(random.uniform(0.4, 0.9))
 
           def human_text_selection_simulation():
               try:
                   sw, sh = pyautogui.size()
                   sx = random.randint(int(sw * 0.25), int(sw * 0.65))
-                  sy = random.randint(int(sh * 0.35), int(sh * 0.70))
-                  human_smooth_move(sx, sy, duration=0.3)
+                  sy = random.randint(int(sh * 0.35), int(sh * 0.75))
+                  human_smooth_move(sx, sy, duration=0.35)
                   pyautogui.mouseDown()
-                  drag_len = random.randint(50, 180)
+                  drag_len = random.randint(60, 220)
                   pyautogui.moveRel(drag_len, 0, duration=random.uniform(0.3, 0.6))
                   pyautogui.mouseUp()
-                  time.sleep(random.uniform(0.5, 1.4))
+                  log_msg("Reader", f"Simulated text highlighting ({drag_len}px).")
+                  time.sleep(random.uniform(0.6, 1.4))
                   pyautogui.click()
               except Exception:
                   pass
 
-          def find_and_interact_safe_elements(edge_window):
+          def find_and_interact_middle_or_downside(edge_window):
               sw, sh = pyautogui.size()
               candidate_links = []
+
+              log_msg("LinkFinder", "Searching for interactive elements strictly in MIDDLE or DOWNSIDE...")
 
               try:
                   for el in edge_window.descendants():
                       try:
                           ctrl_type = el.element_info.control_type
-                          if ctrl_type not in ["Hyperlink", "Button", "MenuItem", "TabItem", "Text"]:
+                          if ctrl_type not in ["Hyperlink", "Button", "MenuItem", "TabItem", "Text", "Custom"]:
                               continue
                           txt = (el.window_text() or "").strip()
                           nm = (el.element_info.name or "").strip()
                           combined = f"{txt} {nm}".lower()
-                          if not combined or len(combined) > 60:
+                          if not combined or len(combined) > 70:
+                              continue
+
+                          # Avoid header / top menu area strictly (y > 25% of screen height)
+                          rect = el.rectangle()
+                          cx = rect.mid_point().x
+                          cy = rect.mid_point().y
+
+                          if cy < (sh * 0.25):
                               continue
 
                           if any(bad in combined for bad in DANGEROUS_CLICK_KEYWORDS):
                               continue
 
-                          rect = el.rectangle()
-                          cx = rect.mid_point().x
-                          cy = rect.mid_point().y
-                          if (sw * 0.05) < cx < (sw * 0.95) and (sh * 0.12) < cy < (sh * 0.88):
+                          # Accept items in middle (30% to 70%) or downside (> 70%)
+                          if (sw * 0.08) < cx < (sw * 0.92) and (sh * 0.28) < cy < (sh * 0.90):
                               is_safe_kw = any(good in combined for good in SAFE_SURF_KEYWORDS)
                               candidate_links.append((is_safe_kw, el, cx, cy, combined))
                       except Exception:
                           continue
 
                   if candidate_links:
-                      candidate_links.sort(key=lambda x: x[0], reverse=True)
-                      chosen = random.choice(candidate_links[:min(8, len(candidate_links))])
+                      # Prioritize safe content keywords and lower position
+                      candidate_links.sort(key=lambda x: (x[0], x[3]), reverse=True)
+                      chosen = random.choice(candidate_links[:min(10, len(candidate_links))])
                       _, target_el, cx, cy, label = chosen
-                      log_msg("HumanSurf", f"Selected interactive element: '{label[:40]}' at ({cx}, {cy})")
+                      log_msg("LinkFinder", f"Found middle/downside link: '{label[:40]}' at ({cx}, {cy}). Moving mouse...")
 
-                      human_smooth_move(cx, cy, duration=random.uniform(0.4, 0.8))
+                      human_smooth_move(cx, cy, duration=random.uniform(0.45, 0.85))
                       time.sleep(random.uniform(0.2, 0.5))
 
                       clicked = False
-                      if random.random() < 0.8:
+                      if random.random() < 0.85:
                           try:
                               target_el.click_input()
                               clicked = True
+                              log_msg("LinkFinder", f"Clicked target link successfully.")
                           except Exception:
                               pass
                       if not clicked:
                           pyautogui.click(cx, cy)
+                          log_msg("LinkFinder", f"Clicked target link via PyAutoGUI coordinates.")
                       return True
               except Exception as e:
-                  log_msg("HumanSurf", f"Safe element search failed: {e}")
+                  log_msg("LinkFinder", f"Middle/downside search failed: {e}")
               return False
 
-          def run_human_surfing_simulation(desktop, edge_window, total_duration=85):
+          def run_human_surfing_simulation(desktop, edge_window, profile_tag="P1"):
+              profile = get_visitor_profile(profile_tag)
               log_msg("HumanSurf", "============================================================")
-              log_msg("HumanSurf", " Realistic Human Browsing & Surfing Simulation Initiated")
+              log_msg("HumanSurf", f" VISITOR PROFILE LOADED: [{profile['profile_id']}] {profile['archetype'].upper()}")
               log_msg("HumanSurf", "============================================================")
 
-              personas = ["reader", "skimmer", "explorer", "casual"]
-              persona = random.choice(personas)
-              log_msg("HumanSurf", f"Assigned behavioral persona: {persona.upper()}")
+              wait_for_page_to_fully_load(edge_window, timeout=30)
+
+              # Random surfing duration calculated dynamically upon page load
+              session_duration = random.randint(profile['duration_min'], profile['duration_max'])
+              log_msg("HumanSurf", f"Dynamic surfing session duration assigned: {session_duration} seconds (Range: {profile['duration_min']}-{profile['duration_max']}s)")
+
+              # Broadcast planned duration to PowerShell watcher
+              try:
+                  with open(os.path.join(tempfile.gettempdir(), "surf_duration.txt"), "w") as f:
+                      f.write(str(session_duration))
+              except Exception: pass
 
               start_time = time.time()
               sw, sh = pyautogui.size()
 
-              try:
-                  edge_window.set_focus()
-                  time.sleep(0.5)
-                  human_smooth_move(sw // 2 + random.randint(-100, 100), sh // 3 + random.randint(-50, 50))
-              except Exception:
-                  pass
+              # Step 1: Initial glance at content
+              log_msg("HumanSurf", "Initial landing glance. User observing top content...")
+              human_reading_pause(min_s=2.0, max_s=4.0)
 
+              # Step 2: First deliberate scroll down to middle section
+              log_msg("HumanSurf", "Beginning first natural scroll down into middle content...")
+              human_natural_scroll(direction="down", intensity="medium")
+              human_reading_pause(min_s=profile['pause_min'], max_s=profile['pause_max'])
+
+              clicks_executed = 0
               subpage_depth = 0
               subpage_entered_time = 0
 
-              while (time.time() - start_time) < total_duration:
+              while (time.time() - start_time) < session_duration:
                   elapsed = time.time() - start_time
-                  remaining = total_duration - elapsed
+                  remaining = session_duration - elapsed
                   if remaining <= 0:
                       break
 
@@ -2740,346 +2834,74 @@ jobs:
                   except Exception:
                       pass
 
-                  action_choice = random.random()
+                  action_roll = random.random()
 
-                  if persona == "reader":
-                      if action_choice < 0.45:
-                          log_msg("HumanSurf", "[Reader] Steady reading pause with eye-tracking mouse movement...")
-                          human_reading_pause(min_s=3.0, max_s=7.0)
-                      elif action_choice < 0.75:
-                          direction = "down" if random.random() < 0.82 else "up"
-                          log_msg("HumanSurf", f"[Reader] Gentle scroll {direction}...")
-                          human_natural_scroll(direction=direction, intensity="short")
-                      elif action_choice < 0.88:
-                          log_msg("HumanSurf", "[Reader] Simulating text highlighting while reading...")
-                          human_text_selection_simulation()
-                      else:
-                          log_msg("HumanSurf", "[Reader] Exploring article link or detail tab...")
-                          if find_and_interact_safe_elements(edge_window):
-                              subpage_depth += 1
-                              subpage_entered_time = time.time()
-                              human_reading_pause(min_s=4.0, max_s=8.0)
+                  # 1. Scroll action (Downwards or back Up to re-read)
+                  if action_roll < 0.45:
+                      direction = "down" if random.random() < profile['down_scroll_prob'] else "up"
+                      intensity = random.choice(["short", "medium"]) if profile['scroll_speed'] != "fast" else "long"
+                      log_msg("HumanSurf", f"Scrolling {direction.upper()} ({intensity} intensity)...")
+                      human_natural_scroll(direction=direction, intensity=intensity)
 
-                  elif persona == "skimmer":
-                      if action_choice < 0.55:
-                          direction = "down" if random.random() < 0.75 else "up"
-                          intensity = random.choice(["medium", "long"])
-                          log_msg("HumanSurf", f"[Skimmer] Rapid skimming scroll {direction} ({intensity})...")
-                          human_natural_scroll(direction=direction, intensity=intensity)
-                      elif action_choice < 0.80:
-                          log_msg("HumanSurf", "[Skimmer] Quick scanning pause...")
-                          human_reading_pause(min_s=1.2, max_s=3.0)
-                      elif action_choice < 0.92:
-                          rx = random.randint(int(sw * 0.2), int(sw * 0.8))
-                          ry = random.randint(int(sh * 0.2), int(sh * 0.8))
-                          log_msg("HumanSurf", f"[Skimmer] Wandering mouse hover at ({rx}, {ry})...")
-                          human_smooth_move(rx, ry)
-                          time.sleep(random.uniform(0.6, 1.5))
-                      else:
-                          log_msg("HumanSurf", "[Skimmer] Clicking nav header or section button...")
-                          if find_and_interact_safe_elements(edge_window):
-                              subpage_depth += 1
-                              subpage_entered_time = time.time()
-                              human_reading_pause(min_s=2.0, max_s=4.0)
+                  # 2. Reading pause
+                  elif action_roll < 0.70:
+                      human_reading_pause(min_s=profile['pause_min'], max_s=profile['pause_max'])
 
-                  elif persona == "explorer":
-                      if action_choice < 0.35:
-                          direction = "down" if random.random() < 0.7 else "up"
-                          log_msg("HumanSurf", f"[Explorer] Section scrolling {direction}...")
-                          human_natural_scroll(direction=direction, intensity="medium")
-                      elif action_choice < 0.65:
-                          log_msg("HumanSurf", "[Explorer] Scanning interactive elements...")
-                          if find_and_interact_safe_elements(edge_window):
-                              subpage_depth += 1
-                              subpage_entered_time = time.time()
-                              human_reading_pause(min_s=3.0, max_s=6.0)
-                      elif action_choice < 0.85:
-                          log_msg("HumanSurf", "[Explorer] Examining sub-content...")
-                          human_reading_pause(min_s=2.0, max_s=4.5)
-                      else:
-                          rx = random.randint(int(sw * 0.15), int(sw * 0.85))
-                          ry = random.randint(int(sh * 0.15), int(sh * 0.85))
-                          human_smooth_move(rx, ry)
-                          time.sleep(0.5)
+                  # 3. Text selection simulation
+                  elif action_roll < (0.70 + profile['text_select_prob'] * 0.3):
+                      human_text_selection_simulation()
 
+                  # 4. Interactive exploration: Click middle or downside links
+                  elif clicks_executed < profile['link_click_target'] and remaining > 25:
+                      log_msg("HumanSurf", f"Attempting link interaction ({clicks_executed+1}/{profile['link_click_target']})...")
+                      if find_and_interact_middle_or_downside(edge_window):
+                          clicks_executed += 1
+                          subpage_depth += 1
+                          subpage_entered_time = time.time()
+                          log_msg("HumanSurf", "Waiting for subpage to load...")
+                          time.sleep(3)
+                          wait_for_page_to_fully_load(edge_window, timeout=15)
+                          # Scroll subpage
+                          human_natural_scroll(direction="down", intensity="short")
+                          human_reading_pause(min_s=4.0, max_s=8.0)
+
+                  # 5. Natural mouse roving across content
                   else:
-                      if action_choice < 0.40:
-                          direction = "down" if random.random() < 0.65 else "up"
-                          log_msg("HumanSurf", f"[Casual] Casual scroll {direction}...")
-                          human_natural_scroll(direction=direction, intensity="short")
-                      elif action_choice < 0.70:
-                          log_msg("HumanSurf", "[Casual] Pausing and viewing media...")
-                          human_reading_pause(min_s=2.0, max_s=5.0)
-                      elif action_choice < 0.85:
-                          rx = random.randint(int(sw * 0.25), int(sw * 0.75))
-                          ry = random.randint(int(sh * 0.25), int(sh * 0.75))
-                          human_smooth_move(rx, ry)
-                          time.sleep(random.uniform(0.4, 1.0))
-                      else:
-                          find_and_interact_safe_elements(edge_window)
+                      rx = random.randint(int(sw * 0.15), int(sw * 0.85))
+                      ry = random.randint(int(sh * 0.30), int(sh * 0.80))
+                      log_msg("HumanSurf", f"Eye-tracking mouse move to ({rx}, {ry})...")
+                      human_smooth_move(rx, ry)
+                      time.sleep(random.uniform(0.5, 1.2))
 
-                  if subpage_depth > 0 and (time.time() - subpage_entered_time) > 12:
-                      if random.random() < 0.65:
-                          log_msg("HumanSurf", "Navigating back to main page (Alt + Left Arrow)...")
+                  # Back navigation logic if subpage time expires
+                  if subpage_depth > 0 and (time.time() - subpage_entered_time) > profile['subpage_stay']:
+                      if random.random() < 0.75:
+                          log_msg("HumanSurf", "Subpage inspection finished. Navigating Back (Alt + Left Arrow)...")
                           try:
                               edge_window.set_focus()
                               send_keys('%{LEFT}')
-                              time.sleep(random.uniform(2.0, 3.5))
+                              time.sleep(3)
+                              wait_for_page_to_fully_load(edge_window, timeout=12)
                               subpage_depth = max(0, subpage_depth - 1)
                           except Exception:
                               pass
 
-                  time.sleep(random.uniform(0.6, 1.5))
+                  time.sleep(random.uniform(0.6, 1.4))
 
-              log_msg("HumanSurf", f"Human browsing session completed. Surfed for {time.time() - start_time:.1f}s.")
-
-          def opera_one_post_install_sequence(opera_window, software_type="opera_one"):
-              log_msg("PostInstall-OP1", "=== Opera One Post-Install Sequence Starting ===")
-              desktop = Desktop(backend="uia")
-
-              log_msg("PostInstall-OP1", "STEP 1: Waiting 25 seconds for Opera One to initialize...")
-              for s in range(1, 26):
-                  log_msg("PostInstall-OP1", f"  Init wait: {s}/25s...")
-                  time.sleep(1)
-
-              log_msg("PostInstall-OP1", "STEP 2: Locating Opera One window and maximizing...")
-              desktop = Desktop(backend="uia")
-              opera_window = robust_maximize_opera_window(desktop, software_type, label="step2")
-              if opera_window is None:
-                  log_msg("PostInstall-OP1", "STEP 2 WARNING: Could not find Opera window. Proceeding anyway...")
-
-              log_msg("PostInstall-OP1", "STEP 3: Waiting 5 seconds after maximize...")
-              for s in range(1, 6):
-                  time.sleep(1)
-
-              log_msg("PostInstall-OP1", "STEP 4: Settle wait (5 seconds)...")
-              for s in range(1, 6):
-                  time.sleep(1)
-
-              sw, sh = pyautogui.size()
-              cx, cy = sw // 2, sh // 2
-              log_msg("PostInstall-OP1", f"STEP 5: Clicking center screen at ({cx}, {cy})...")
-              desktop = Desktop(backend="uia")
-              opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label="step5")
+              # Signal completion to PowerShell
               try:
-                  pyautogui.moveTo(cx, cy, duration=0.3); time.sleep(0.2)
-                  pyautogui.click(cx, cy)
-              except Exception as e:
-                  log_msg("PostInstall-OP1", f"STEP 5 ERROR: {e}")
+                  with open(os.path.join(tempfile.gettempdir(), "surf_done.flag"), "w") as f:
+                      f.write("done")
+              except Exception: pass
 
-              log_msg("PostInstall-OP1", "STEP 6: Waiting 5 seconds...")
-              for s in range(1, 6):
-                  time.sleep(1)
+              log_msg("HumanSurf", f"Surfing session complete. Total active browsing duration: {time.time() - start_time:.1f}s.")
 
-              log_msg("PostInstall-OP1", "STEP 7: Clicking 'Next' 6 times...")
-              for i in range(1, 7):
-                  desktop = Desktop(backend="uia")
-                  opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label=f"step7-NEXT-{i}")
-                  sw_now, sh_now = pyautogui.size()
-                  fallback_next = (int(sw_now * 0.85), int(sh_now * 0.85))
-                  clicked = click_opera_button_multilingual(desktop, opera_window, software_type,
-                      keyword_list=OPERA_NEXT_KEYWORDS, label=f"NEXT-{i}", fallback_coords=fallback_next)
-                  log_msg("PostInstall-OP1", f"  Next {i}/6 {'clicked' if clicked else 'fallback attempted'}.")
-                  time.sleep(0.5)
-
-              log_msg("PostInstall-OP1", "STEP 7b: Clicking 'Done'/'Finish'...")
-              desktop = Desktop(backend="uia")
-              opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label="step7b-DONE")
-              sw_now, sh_now = pyautogui.size()
-              fallback_done = (int(sw_now * 0.85), int(sh_now * 0.85))
-              click_opera_button_multilingual(desktop, opera_window, software_type,
-                  keyword_list=OPERA_DONE_KEYWORDS, label="DONE", fallback_coords=fallback_done)
-
-              log_msg("PostInstall-OP1", "STEP 8: Waiting 5 seconds...")
-              for s in range(1, 6):
-                  time.sleep(1)
-
-              log_msg("PostInstall-OP1", "STEP 8b: Backup keyboard navigation (Right Arrow x2)...")
-              desktop = Desktop(backend="uia")
-              opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label="step8b")
-              send_keys('{RIGHT}'); time.sleep(0.5)
-              send_keys('{RIGHT}'); time.sleep(0.5)
-
-              log_msg("PostInstall-OP1", "STEP 9: Pressing ENTER...")
-              desktop = Desktop(backend="uia")
-              opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label="step9")
-              send_keys('{ENTER}')
-
-              log_msg("PostInstall-OP1", "STEP 10: Waiting 2 seconds...")
-              time.sleep(2)
-
-              log_msg("PostInstall-OP1", "STEP 11: Clicking 'Submit'...")
-              desktop = Desktop(backend="uia")
-              opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label="step11-SUBMIT")
-              sw_now, sh_now = pyautogui.size()
-              fallback_submit = (sw_now // 2, int(sh_now * 0.85))
-              click_opera_button_multilingual(desktop, opera_window, software_type,
-                  keyword_list=OPERA_SUBMIT_KEYWORDS, label="SUBMIT", fallback_coords=fallback_submit)
-
-              log_msg("PostInstall-OP1", "STEP 12: Waiting 5 seconds...")
-              for s in range(1, 6):
-                  time.sleep(1)
-
-              log_msg("PostInstall-OP1", "STEP 13: Starting TAB cycle sequence (10 cycles, start=6)...")
-              tab_count = 6
-              for cycle in range(1, 11):
-                  log_msg("PostInstall-OP1", f"--- TAB CYCLE {cycle}/10: {tab_count} TAB presses ---")
-                  desktop = Desktop(backend="uia")
-                  opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label=f"cycle-CtrlT-{cycle}")
-                  send_keys('^t')
-                  log_msg("PostInstall-OP1", f"  Ctrl+T sent. Waiting 5 seconds...")
-                  for s in range(1, 6): time.sleep(1)
-
-                  log_msg("PostInstall-OP1", f"  Pressing TAB {tab_count} times...")
-                  for i in range(1, tab_count + 1):
-                      desktop = Desktop(backend="uia")
-                      opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label=f"cycle-TAB-{cycle}-{i}")
-                      send_keys('{TAB}')
-                      time.sleep(1)
-
-                  desktop = Desktop(backend="uia")
-                  opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label=f"cycle-ENTER-{cycle}")
-                  send_keys('{ENTER}')
-
-                  step = random.choices([1, 2], weights=[0.6, 0.4], k=1)[0]
-                  tab_count += step
-
-                  if cycle < 10:
-                      log_msg("PostInstall-OP1", f"  Waiting 5 seconds before next cycle...")
-                      for s in range(1, 6): time.sleep(1)
-
-              log_msg("PostInstall-OP1", "=== Opera One Post-Install Sequence Completed ===")
-
-          def opera_gx_post_install_sequence(opera_window):
-              log_msg("PostInstall-OPGX", "=== Opera GX Post-Install Sequence Starting ===")
-              desktop = Desktop(backend="uia")
-
-              opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label="init")
-              time.sleep(0.5)
-
-              sw, sh = pyautogui.size()
-              cx, cy = sw // 2, sh // 2
-
-              try:
-                  opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label="pre-dblclick")
-                  pyautogui.click(cx, cy); time.sleep(0.15)
-                  pyautogui.click(cx, cy)
-                  log_msg("PostInstall-OPGX", f"Double-click at ({cx}, {cy}) executed.")
-              except Exception as e:
-                  log_msg("PostInstall-OPGX", f"Double-click failed: {e}")
-
-              time.sleep(random.uniform(2.0, 3.0))
-
-              log_msg("PostInstall-OPGX", "Pressing TAB key 4 times...")
-              for i in range(1, 5):
-                  opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"TAB4-{i}")
-                  send_keys('{TAB}')
-                  time.sleep(random.uniform(1.0, 2.0))
-
-              log_msg("PostInstall-OPGX", "Pressing ENTER key 8 times...")
-              for i in range(1, 9):
-                  opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"ENTER8-{i}")
-                  send_keys('{ENTER}')
-                  time.sleep(random.uniform(1.0, 2.0))
-
-              time.sleep(random.uniform(2.0, 3.0))
-
-              log_msg("PostInstall-OPGX", "Pressing TAB key 6 times...")
-              for i in range(1, 7):
-                  opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"TAB6-{i}")
-                  send_keys('{TAB}')
-                  time.sleep(random.uniform(1.0, 2.0))
-
-              opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label="post-TAB6-ENTER")
-              send_keys('{ENTER}')
-              log_msg("PostInstall-OPGX", "Waiting 5 seconds...")
-              for s in range(1, 6):
-                  if s % 2 == 0:
-                      opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"wait5-{s}")
-                  time.sleep(1)
-
-              log_msg("PostInstall-OPGX", "Starting TAB cycle sequence (10 cycles, start=5)...")
-              tab_count = 5
-              for cycle in range(1, 11):
-                  opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"pre-CtrlT-{cycle}")
-                  log_msg("PostInstall-OPGX", f"--- TAB CYCLE {cycle}/10: {tab_count} TAB presses ---")
-                  send_keys('^t')
-                  for i in range(1, tab_count + 1):
-                      opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"TAB{tab_count}-{i}")
-                      send_keys('{TAB}')
-                      time.sleep(random.uniform(1.0, 2.0))
-
-                  opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"ENTER-{cycle}")
-                  send_keys('{ENTER}')
-                  step = random.choices([1, 2], weights=[0.6, 0.4], k=1)[0]
-                  tab_count += step
-
-                  if cycle < 10:
-                      for s in range(1, 6):
-                          if s % 2 == 0:
-                              opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"wait-{cycle}-{s}")
-                          time.sleep(1)
-
-              log_msg("PostInstall-OPGX", "=== Opera GX Post-Install Sequence Completed ===")
-
-          def avg_post_install_sequence(avg_window):
-              log_msg("PostInstall-AVG", "=== AVG Post-Install Sequence Starting ===")
-              desktop = Desktop(backend="uia")
-
-              avg_window = force_maximize_and_focus_target(desktop, avg_window, "avg", label="init")
-              time.sleep(0.5)
-
-              sw, sh = pyautogui.size()
-              cx, cy = sw // 2, sh // 2
-
-              try:
-                  avg_window = force_maximize_and_focus_target(desktop, avg_window, "avg", label="pre-dblclick")
-                  pyautogui.click(cx, cy); time.sleep(0.15)
-                  pyautogui.click(cx, cy)
-              except Exception as e:
-                  log_msg("PostInstall-AVG", f"Double-click failed: {e}")
-
-              log_msg("PostInstall-AVG", "Waiting 5 seconds...")
-              for s in range(1, 6):
-                  if s % 2 == 0:
-                      avg_window = force_maximize_and_focus_target(desktop, avg_window, "avg", label=f"init-wait-{s}")
-                  time.sleep(1)
-
-              tab_count = 6
-              tab_ceiling = 17
-
-              while tab_count <= tab_ceiling:
-                  log_msg("PostInstall-AVG", f"--- Cycle: {tab_count} TAB presses ---")
-                  avg_window = force_maximize_and_focus_target(desktop, avg_window, "avg", label=f"pre-CtrlT-{tab_count}")
-                  send_keys('^t')
-
-                  for i in range(1, tab_count + 1):
-                      avg_window = force_maximize_and_focus_target(desktop, avg_window, "avg", label=f"TAB{tab_count}-{i}")
-                      send_keys('{TAB}')
-                      time.sleep(random.uniform(1.0, 2.0))
-
-                  avg_window = force_maximize_and_focus_target(desktop, avg_window, "avg", label=f"ENTER-{tab_count}")
-                  send_keys('{ENTER}')
-
-                  step = random.randint(1, 2)
-                  tab_count += step
-
-                  if tab_count <= tab_ceiling:
-                      for s in range(1, 6):
-                          if s % 2 == 0:
-                              avg_window = force_maximize_and_focus_target(desktop, avg_window, "avg", label=f"cycle-wait-{tab_count}-{s}")
-                          time.sleep(1)
-
-              log_msg("PostInstall-AVG", "=== AVG Post-Install Sequence Completed ===")
-
-          def handle_automation(software_type, action_mode, timeout=450):
+          def handle_automation(software_type, action_mode, profile_tag="P1", timeout=450):
               desktop = Desktop(backend="uia")
               start_time = time.time()
               proxy_auth_time = start_time
 
-              log_msg("UI-Engine", f"Started. Action: {action_mode.upper()} | Type: {software_type} | "
-                      f"ProxyType: {PROXY_TYPE} | UseProxy: {USE_PROXY}")
-              log_msg("UI-Engine", f"Proxy: User={PROXY_USER[:25]}... | Server={PROXY_SERVER}")
+              log_msg("UI-Engine", f"Started. Action: {action_mode.upper()} | Type: {software_type} | Profile: {profile_tag}")
               log_msg("UI-Engine", f"Target URL: {TARGET_URL}")
 
               if not TARGET_URL or TARGET_URL.strip() == "":
@@ -3093,27 +2915,16 @@ jobs:
 
               download_clicked = False
               download_started = False
-
-              keep_mouse_sequence_done = False
               last_dl_click_time = time.time()
+              keep_mouse_sequence_done = False
               keep_mouse_step = 0
               keep_mouse_last_try = 0
-
               download_click_attempts = 0
               MAX_DOWNLOAD_CLICK_ATTEMPTS = 3
               last_download_reattempt_time = 0
 
               smart_link_interstitial_done = False
               smart_link_interstitial_time = 0
-
-              opera_one_installer_executed_time = None
-              opera_one_post_install_done = False
-
-              opera_gx_installer_executed_time = None
-              opera_gx_post_install_done = False
-
-              avg_installer_executed_time = None
-              avg_post_install_done = False
 
               sentinel_path = os.path.join(tempfile.gettempdir(), "download_done.flag")
               installer_executed_sentinel = os.path.join(tempfile.gettempdir(), "installer_executed.flag")
@@ -3175,11 +2986,6 @@ jobs:
                               download_started = False
                               download_click_attempts = 0
                               keep_mouse_sequence_done = False
-                              keep_mouse_step = 0
-                              keep_mouse_last_try = 0
-                              last_dl_click_time = time.time()
-                              smart_link_interstitial_done = False
-                              smart_link_interstitial_time = 0
                               download_windows_closed = False
                               time.sleep(2)
                               continue
@@ -3220,67 +3026,16 @@ jobs:
                                               break
                               except Exception: pass
 
-                          if not auth_injected_this_tick and edge_window:
-                              try:
-                                  u_struct, p_struct = _is_auth_dialog_by_structure(edge_window)
-                                  if u_struct and p_struct:
-                                      if not _is_address_bar_control(u_struct) and not _is_address_bar_control(p_struct):
-                                          last_auth_inject_time = now
-                                          log_msg("ProxyAuth", "[EdgeStructural] 2-field dialog inside Edge — structural inject.")
-                                          injected = inject_proxy_auth(edge_window, label="edge-structural")
-                                          if injected:
-                                              proxy_auth_time = time.time()
-                              except Exception: pass
-
                       if not download_windows_closed and os.path.exists(sentinel_path):
                           log_msg("Sentinel", "Download flag detected. Initiating Edge cleanup sequence...")
                           for attempt in range(1, 8):
                               still_open = close_download_windows(desktop, attempt_label=f"#{attempt}")
                               time.sleep(2)
                               if not still_open:
-                                  log_msg("Sentinel", f"Cleanup successful on attempt #{attempt}.")
                                   break
                           download_windows_closed = True
                           download_started = True
                           edge_window = None
-
-                      if not sentinel_read_done and os.path.exists(installer_executed_sentinel):
-                          try:
-                              with open(installer_executed_sentinel, "r") as f:
-                                  flag_content = f.read().strip()
-                                  if flag_content in ["opera_one", "opera_gx", "avg"]:
-                                      actual_software = flag_content
-                                      log_msg("UI-Engine", f"Actual software resolved from sentinel: {actual_software}")
-                          except Exception: pass
-                          sentinel_read_done = True
-
-                      if action_mode == "install":
-                          if actual_software == "opera_one" and not opera_one_post_install_done:
-                              if opera_one_installer_executed_time is None and sentinel_read_done:
-                                  opera_one_installer_executed_time = time.time()
-                                  log_msg("PostInstall-OP1", "Installer sentinel detected. Post-install fires in 25s.")
-                              elif opera_one_installer_executed_time is not None and (time.time() - opera_one_installer_executed_time) >= 25:
-                                  log_msg("PostInstall-OP1", "25s threshold reached. Launching Opera One post-install.")
-                                  opera_one_post_install_sequence(opera_window, software_type=actual_software)
-                                  opera_one_post_install_done = True
-
-                          if actual_software == "opera_gx" and not opera_gx_post_install_done:
-                              if opera_gx_installer_executed_time is None and sentinel_read_done:
-                                  opera_gx_installer_executed_time = time.time()
-                                  log_msg("PostInstall-OPGX", "Installer sentinel detected. Post-install fires in 40s.")
-                              elif opera_gx_installer_executed_time is not None and (time.time() - opera_gx_installer_executed_time) >= 40:
-                                  log_msg("PostInstall-OPGX", "40s threshold reached. Launching Opera GX post-install.")
-                                  opera_gx_post_install_sequence(opera_window)
-                                  opera_gx_post_install_done = True
-
-                          if actual_software == "avg" and not avg_post_install_done:
-                              if avg_installer_executed_time is None and sentinel_read_done:
-                                  avg_installer_executed_time = time.time()
-                                  log_msg("PostInstall-AVG", "Sentinel detected. Post-install fires in 60s.")
-                              elif avg_installer_executed_time is not None and (time.time() - avg_installer_executed_time) >= 60:
-                                  log_msg("PostInstall-AVG", "60s threshold reached. Launching AVG post-install.")
-                                  avg_post_install_sequence(avg_window)
-                                  avg_post_install_done = True
 
                       if edge_window:
                           try:
@@ -3304,7 +3059,6 @@ jobs:
                                   edge_window.set_focus(); time.sleep(0.5)
                                   send_keys('{TAB}'); time.sleep(1)
                                   send_keys('{ENTER}')
-                                  log_msg("SmartLink", "TAB + ENTER injected. Waiting 15s for redirect.")
                               except Exception as e:
                                   log_msg("SmartLink", f"Bypass failed: {e}")
                               smart_link_interstitial_done = True
@@ -3320,9 +3074,9 @@ jobs:
                               continue
 
                           elapsed_surf = time.time() - proxy_auth_time
-                          if not surf_simulation_executed and elapsed_surf > 8 and edge_window:
+                          if not surf_simulation_executed and elapsed_surf > 6 and edge_window:
                               surf_simulation_executed = True
-                              run_human_surfing_simulation(desktop, edge_window, total_duration=85)
+                              run_human_surfing_simulation(desktop, edge_window, profile_tag=profile_tag)
                               log_msg("UI-Engine", "Surf pathway complete. Terminating python loop cleanly.")
                               sys.exit(0)
 
@@ -3367,32 +3121,14 @@ jobs:
                               download_click_attempts = 1
                               last_dl_click_time = time.time()
                               last_download_reattempt_time = time.time()
-                              keep_mouse_step = 0
-                              keep_mouse_last_try = 0
-
-                          elif (download_clicked and not download_started
-                                and download_click_attempts < MAX_DOWNLOAD_CLICK_ATTEMPTS
-                                and (time.time() - last_download_reattempt_time) > 20
-                                and not keep_mouse_sequence_done):
-                              log_msg("DL-Engine", f"Re-attempt {download_click_attempts + 1}/{MAX_DOWNLOAD_CLICK_ATTEMPTS}...")
-                              try: edge_window.set_focus()
-                              except Exception: pass
-                              time.sleep(0.5)
-                              robust_click_download_button(edge_window, software_type)
-                              download_click_attempts += 1
-                              last_download_reattempt_time = time.time()
 
                       if download_clicked and not keep_mouse_sequence_done and edge_window:
                           elapsed_since_dl = now - last_dl_click_time
-
                           if elapsed_since_dl >= 5 and keep_mouse_step < 4:
                               if (now - keep_mouse_last_try) >= 5:
                                   keep_mouse_step += 1
-                                  log_msg("KeepMouse", f"Attempt {keep_mouse_step}/4: Ctrl+J then searching Keep button via UI...")
-
                                   try: edge_window.set_focus()
                                   except Exception: pass
-
                                   time.sleep(0.5)
                                   send_keys('^j')
                                   time.sleep(1.5)
@@ -3406,46 +3142,19 @@ jobs:
                                           if any(kw in combined for kw in KEEP_KW):
                                               if click_element_robust(btn, "KeepMouse"):
                                                   clicked_keep = True
-                                                  log_msg("KeepMouse", f"Keep button clicked on attempt {keep_mouse_step}.")
                                                   break
-                                  except Exception as e:
-                                      log_msg("KeepMouse", f"UI Keep search failed: {e}")
+                                  except Exception: pass
 
                                   if clicked_keep:
                                       keep_mouse_sequence_done = True
                                       download_started = True
-                                      log_msg("KeepMouse", "Keep sequence completed.")
                                   else:
                                       keep_mouse_last_try = time.time()
 
                           if keep_mouse_step >= 4 and not keep_mouse_sequence_done:
-                              log_msg("KeepMouse", "All 4 UI attempts done. Proceeding.")
                               keep_mouse_sequence_done = True
 
-                      if edge_window and action_mode == "install":
-                          add_ext_btns = edge_window.descendants(control_type="Button", title="Add extension")
-                          if add_ext_btns:
-                              try:
-                                  edge_window.set_focus(); time.sleep(0.5)
-                                  add_ext_btns[0].click_input()
-                                  log_msg("Extension", "Clicked 'Add extension'. Waiting 2s...")
-                                  time.sleep(2)
-                              except Exception as e:
-                                  log_msg("Extension", f"Failed to click 'Add extension': {e}")
-                          else:
-                              for btn_name in ["Add to Chrome", "Get"]:
-                                  install_btns = edge_window.descendants(control_type="Button", title=btn_name)
-                                  if install_btns:
-                                      try:
-                                          edge_window.set_focus(); time.sleep(0.5)
-                                          install_btns[0].click_input()
-                                          log_msg("Extension", f"Clicked '{btn_name}'. Waiting 2s...")
-                                          time.sleep(2)
-                                          break
-                                      except Exception as e:
-                                          log_msg("Extension", f"Failed to click '{btn_name}': {e}")
-
-                  except Exception as e:
+                  except Exception:
                       pass
                   time.sleep(1)
 
@@ -3453,7 +3162,8 @@ jobs:
               software_choice_raw = sys.argv[1] if len(sys.argv) > 1 else "01. Opera OfferGate - Ahmad"
               software_type = sys.argv[2] if len(sys.argv) > 2 else "opera_one"
               action_mode   = sys.argv[3] if len(sys.argv) > 3 else "install"
-              handle_automation(software_type, action_mode)
+              profile_tag   = sys.argv[4] if len(sys.argv) > 4 else "P1"
+              handle_automation(software_type, action_mode, profile_tag=profile_tag)
           '@
 
           $handlerPyBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($handlerPy)
@@ -3461,7 +3171,7 @@ jobs:
 
           Write-Host "[UI-Engine] Spinning up background Python process..." -ForegroundColor DarkGray
           Start-Process -FilePath "python" `
-              -ArgumentList "-u `"$env:TEMP\auto_handler.py`" `"$env:SOFTWARE_CHOICE`" `"$env:SOFTWARE_TYPE`" `"$env:ACTION_MODE`"" `
+              -ArgumentList "-u `"$env:TEMP\auto_handler.py`" `"$env:SOFTWARE_CHOICE`" `"$env:SOFTWARE_TYPE`" `"$env:ACTION_MODE`" `"$env:PROFILE_TAG`"" `
               -WindowStyle Hidden
 
           $dlFolder    = "$env:USERPROFILE\Downloads"
@@ -3523,18 +3233,14 @@ jobs:
                                   Start-Sleep -Milliseconds 800
                                   $remaining = Get-Process -Name "msedge" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 }
                                   if (-not $remaining) {
-                                      Write-Output "[$($softwareType.ToUpper())-WATCHER] Edge fully closed on attempt $closeAttempt."
                                       break
                                   }
-                              } catch {
-                                  Write-Output "[$($softwareType.ToUpper())-WATCHER] Close attempt $closeAttempt failed: $_"
-                              }
+                              } catch {}
                               Start-Sleep -Milliseconds 500
                           }
 
                           $remainingAfter = Get-Process -Name "msedge" -ErrorAction SilentlyContinue
                           if ($remainingAfter) {
-                              Write-Output "[$($softwareType.ToUpper())-WATCHER] Force killing remaining msedge processes."
                               Stop-Process -Name "msedge" -Force -ErrorAction SilentlyContinue
                           }
 
@@ -3544,89 +3250,28 @@ jobs:
                               elseif ($file.Name -match "Opera.*Setup|Opera") { $actualSoftware = "opera_one" }
                               elseif ($file.Name -match "avg") { $actualSoftware = "avg" }
                               else { $actualSoftware = "opera_one" }
-                          } elseif ($softwareType -eq "opera_gx") {
-                              if ($file.Name -match "OperaGX") { $actualSoftware = "opera_gx" }
-                              elseif ($file.Name -match "Opera.*Setup") { $actualSoftware = "opera_one" }
-                          } elseif ($softwareType -eq "opera_one") {
-                              if ($file.Name -match "OperaGX") { $actualSoftware = "opera_gx" }
-                              else { $actualSoftware = "opera_one" }
                           }
 
                           Write-Output "[$($actualSoftware.ToUpper())-INSTALL] Fingerprinted as: $actualSoftware"
-
-                          Write-Output "[$($actualSoftware.ToUpper())-INSTALL] Verifying file I/O lock status..."
                           $locked = $true
                           while ($locked) {
                               Start-Sleep -Seconds 2
                               try {
                                   $s = [System.IO.File]::Open($file.FullName, 'Open', 'Read', 'None')
                                   $s.Close(); $locked = $false
-                                  Write-Output "[$($actualSoftware.ToUpper())-INSTALL] File unlocked and ready."
                               } catch { }
                           }
 
-                          Write-Output "[$($actualSoftware.ToUpper())-INSTALL] Writing installer sentinel: $actualSoftware"
                           try { Set-Content -Path $installerExecutedSentinel -Value $actualSoftware -ErrorAction SilentlyContinue } catch {}
-
-                          Write-Output "[$($actualSoftware.ToUpper())-INSTALL] Executing: $($file.FullName) /silent"
                           try {
                               Start-Process -FilePath $file.FullName -ArgumentList "/silent" -Wait
-                              Write-Output "[$($actualSoftware.ToUpper())-INSTALL] Binary deployed successfully."
                               Set-Content -Path "$env:TEMP\software_downloaded_success.flag" -Value "true" -ErrorAction SilentlyContinue
-                          } catch {
-                              Write-Output "[$($actualSoftware.ToUpper())-INSTALL] EXCEPTION running installer: $_"
-                          }
-
-                          Write-Output "[$($actualSoftware.ToUpper())-POST] Scanning for executable..."
-                          if ($actualSoftware -eq "opera_gx") {
-                              $appPaths = @(
-                                  "$env:LOCALAPPDATA\Programs\Opera GX\launcher.exe",
-                                  "$env:LOCALAPPDATA\Programs\Opera GX\opera.exe",
-                                  "C:\Program Files\Opera GX\launcher.exe",
-                                  "C:\Program Files (x86)\Opera GX\launcher.exe"
-                              )
-                          } elseif ($actualSoftware -eq "opera_one") {
-                              $appPaths = @(
-                                  "$env:LOCALAPPDATA\Programs\Opera\launcher.exe",
-                                  "$env:LOCALAPPDATA\Programs\Opera\opera.exe",
-                                  "C:\Program Files\Opera\launcher.exe",
-                                  "C:\Program Files (x86)\Opera\launcher.exe"
-                              )
-                          } else {
-                              $appPaths = @(
-                                  "C:\Program Files\AVG\Browser\Application\AVGBrowser.exe",
-                                  "C:\Program Files (x86)\AVG\Browser\Application\AVGBrowser.exe",
-                                  "C:\Program Files\AVG\Antivirus\AVGUI.exe",
-                                  "C:\Program Files (x86)\AVG\Antivirus\AVGUI.exe"
-                              )
-                          }
-
-                          $launched = $false
-                          for ($i = 0; $i -lt 300; $i++) {
-                              foreach ($p in $appPaths) {
-                                  if (Test-Path $p) {
-                                      Start-Sleep -Seconds 3
-                                      Write-Output "[$($actualSoftware.ToUpper())-POST] Spawning: $p"
-                                      Start-Process -FilePath $p
-                                      $launched = $true
-                                      break
-                                  }
-                              }
-                              if ($launched) { break }
-                              Start-Sleep -Seconds 2
-                          }
-
-                          if (-not $launched) {
-                              Write-Output "[$($actualSoftware.ToUpper())-POST] FATAL: Executable not found within timeout."
-                          }
+                          } catch {}
 
                           $installed = $true
                       } else {
                           Start-Sleep -Seconds 5
                       }
-                  }
-                  if (-not $installed -and -not (Test-Path "$env:TEMP\abort_install.flag")) {
-                      Write-Output "[$($softwareType.ToUpper())-WATCHER] Timeout reached. No files downloaded."
                   }
               } -ArgumentList $dlFolder, $timeoutSecs, $softwareType, $exeFilter, $sentinelPath, $installerExecutedSentinel
           }
@@ -3653,18 +3298,43 @@ jobs:
                   Write-Host "[Runtime] Software downloaded and installed successfully." -ForegroundColor Green
                   "SOFTWARE_DOWNLOADED=true" | Out-File -FilePath $env:GITHUB_ENV -Append
               } else {
-                  Write-Host "[Runtime] Software NOT downloaded (timeout or abort). Skipping Keep-Alive margin." -ForegroundColor Yellow
+                  Write-Host "[Runtime] Software NOT downloaded. Skipping Keep-Alive." -ForegroundColor Yellow
               }
 
           } elseif ($env:ACTION_MODE -eq "surf") {
               Write-Host "============================================================" -ForegroundColor Cyan
-              Write-Host " Operating in SURF pathway. Human browsing simulation active." -ForegroundColor Cyan
+              Write-Host " Operating in SURF pathway. Visitor Simulation Engine Active." -ForegroundColor Cyan
+              Write-Host " Visitor Profile: $env:PROFILE_TAG" -ForegroundColor Yellow
               Write-Host "============================================================" -ForegroundColor Cyan
 
-              $surfTotal = 95
-              $step = 10
-              for ($s = 0; $s -lt $surfTotal; $s += $step) {
-                  Write-Host "[SURF-RUNTIME] Surfing session active: $s / $surfTotal seconds..." -ForegroundColor Cyan
+              $surfDurationFile = "$env:TEMP\surf_duration.txt"
+              $surfDoneFlag     = "$env:TEMP\surf_done.flag"
+              $maxSurfCeiling   = 420
+              $elapsed          = 0
+              $step             = 5
+              $resolvedDuration = 180
+
+              while ($elapsed -lt $maxSurfCeiling) {
+                  if (Test-Path $surfDurationFile) {
+                      try {
+                          $val = [int](Get-Content -Path $surfDurationFile -Raw).Trim()
+                          if ($val -ge 50 -and $val -le 400) {
+                              $resolvedDuration = $val
+                          }
+                      } catch {}
+                  }
+
+                  if (Test-Path $surfDoneFlag) {
+                      Write-Host "[SURF-RUNTIME] Profile $env:PROFILE_TAG reported task completion at ${elapsed}s." -ForegroundColor Green
+                      break
+                  }
+
+                  if ($elapsed -ge ($resolvedDuration + 15)) {
+                      Write-Host "[SURF-RUNTIME] Surfing duration budget reached (${resolvedDuration}s). Concluding session." -ForegroundColor Cyan
+                      break
+                  }
+
+                  Write-Host "[SURF-RUNTIME] Browsing active [$env:PROFILE_TAG]: $elapsed / $resolvedDuration seconds elapsed..." -ForegroundColor Cyan
 
                   $unexpectedDownloads = Get-ChildItem -Path $dlFolder -File -ErrorAction SilentlyContinue
                   if ($unexpectedDownloads.Count -gt 0) {
@@ -3673,9 +3343,10 @@ jobs:
                   }
 
                   Start-Sleep -Seconds $step
+                  $elapsed += $step
               }
 
-              Write-Host "[Runtime] Surf tracking duration complete ($surfTotal s). All browsing actions finished." -ForegroundColor Green
+              Write-Host "[Runtime] Surf tracking duration complete ($elapsed s). All actions finished." -ForegroundColor Green
               Write-Host "[Runtime] Surf pathway exiting cleanly." -ForegroundColor Magenta
               exit 0
 
