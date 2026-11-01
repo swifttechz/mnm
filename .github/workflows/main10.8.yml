@@ -16,7 +16,7 @@ on:
         description: 'Getscreen.me Account Email'
         required: true
         type: string
-        default: 'techx@ccmail.online'
+        default: 'dramatic.skink.kvck@hidingpost.com'
       num_devices:
         description: 'Number of Devices'
         required: true
