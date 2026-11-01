@@ -17,7 +17,7 @@ on:
         description: 'Primary Execution Environment'
         type: choice
         options: [windows, docker, wsl]
-        default: 'docker' # marker-exec
+        default: 'wsl' # marker-exec
       enable_fallback:
         description: 'Enable Fallback (If Primary Fails, try others)'
         type: boolean
