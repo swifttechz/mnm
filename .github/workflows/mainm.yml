@@ -7,7 +7,7 @@ on:
         description: 'Runner Host Environment'
         type: choice
         options: [self-hosted, github]
-        default: 'github' # marker-runner
+        default: 'self-hosted' # marker-runner
       github_windows_version:
         description: 'GitHub Windows Version (If GitHub Host Selected)'
         type: choice
@@ -17,17 +17,17 @@ on:
         description: 'Execution Environment'
         type: choice
         options: [windows, docker, wsl]
-        default: 'docker' # marker-exec
+        default: 'windows' # marker-exec
       getscreen_email:
         description: 'Getscreen.me Email'
         type: string
         required: true
-        default: 'dramatic.skink.kvck@hidingpost.com' # marker-getscreen
+        default: 'your@email.com' # marker-getscreen
       concurrent_devices:
         description: 'Concurrent Devices Active at Once'
         type: choice
         options: ['1', '2', '3', '4', '5', '10', '15', '20', '30', '50', '100']
-        default: '5' # marker-concurrent
+        default: '10' # marker-concurrent
       total_devices:
         description: 'Total Devices to Process in Queue'
         type: number
@@ -56,7 +56,7 @@ on:
         description: 'Wallet Address'
         type: string
         required: true
-        default: 'RLYqcPSqDkF97FjnUJJ1HUzeQ3ciVNm8S5' # marker-wallet
+        default: 'WALLET_ADDRESS' # marker-wallet
       pool:
         description: 'Pool Base URL'
         type: string
@@ -103,20 +103,21 @@ jobs:
 
           echo "Updating file: $WORKFLOW_FILE"
 
-          sed -i -E "s/default: 'github' # marker-runner/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'windows-latest' # marker-winver/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'docker' # marker-exec/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'dramatic.skink.kvck@hidingpost.com' # marker-getscreen/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '5' # marker-concurrent/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: [0-9]+ # marker-total/default: ${{ inputs.total_devices }} # marker-total/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '60' # marker-timeout/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'cpuminer-rplant' # marker-miner/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'gr' # marker-algo/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'RTM' # marker-coin/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'RLYqcPSqDkF97FjnUJJ1HUzeQ3ciVNm8S5' # marker-wallet/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'rplant.xyz' # marker-pool/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: 'na' # marker-region/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '17056' # marker-port/g" "$WORKFLOW_FILE"
+          # Using '|' delimiter instead of '/' to prevent inputs like 'rx/0' from breaking sed
+          sed -i -E "s|default: '.*' # marker-runner|default: '${{ inputs.runner_type }}' # marker-runner|g" "$WORKFLOW_FILE"
+          sed -i -E "s|default: '.*' # marker-winver|default: '${{ inputs.github_windows_version }}' # marker-winver|g" "$WORKFLOW_FILE"
+          sed -i -E "s|default: '.*' # marker-exec|default: '${{ inputs.execution_type }}' # marker-exec|g" "$WORKFLOW_FILE"
+          sed -i -E "s|default: '.*' # marker-getscreen|default: '${{ inputs.getscreen_email }}' # marker-getscreen|g" "$WORKFLOW_FILE"
+          sed -i -E "s|default: '.*' # marker-concurrent|default: '${{ inputs.concurrent_devices }}' # marker-concurrent|g" "$WORKFLOW_FILE"
+          sed -i -E "s|default: [0-9]+ # marker-total|default: ${{ inputs.total_devices }} # marker-total|g" "$WORKFLOW_FILE"
+          sed -i -E "s|default: '.*' # marker-timeout|default: '${{ inputs.timeout }}' # marker-timeout|g" "$WORKFLOW_FILE"
+          sed -i -E "s|default: '.*' # marker-miner|default: '${{ inputs.miner }}' # marker-miner|g" "$WORKFLOW_FILE"
+          sed -i -E "s|default: '.*' # marker-algo|default: '${{ inputs.algo }}' # marker-algo|g" "$WORKFLOW_FILE"
+          sed -i -E "s|default: '.*' # marker-coin|default: '${{ inputs.coin }}' # marker-coin|g" "$WORKFLOW_FILE"
+          sed -i -E "s|default: '.*' # marker-wallet|default: '${{ inputs.wallet }}' # marker-wallet|g" "$WORKFLOW_FILE"
+          sed -i -E "s|default: '.*' # marker-pool|default: '${{ inputs.pool }}' # marker-pool|g" "$WORKFLOW_FILE"
+          sed -i -E "s|default: '.*' # marker-region|default: '${{ inputs.region }}' # marker-region|g" "$WORKFLOW_FILE"
+          sed -i -E "s|default: '.*' # marker-port|default: '${{ inputs.port }}' # marker-port|g" "$WORKFLOW_FILE"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -178,12 +179,10 @@ jobs:
           Write-Host "Connecting Getscreen.me as $($env:DEVICE_NAME)..."
           Invoke-WebRequest -Uri "https://getscreen.me/download/getscreen.exe" -OutFile "getscreen.exe" -UseBasicParsing
           
-          # Install and register cleanly
           .\getscreen.exe -install
           .\getscreen.exe -register "${{ inputs.getscreen_email }}"
           .\getscreen.exe -name "$env:DEVICE_NAME"
           
-          # Force a successful exit code so the GitHub Action job does not crash if setting the name fails
           $global:LASTEXITCODE = 0
           Write-Host "Getscreen successfully attached!"
 
@@ -235,63 +234,16 @@ jobs:
              exit 1
           }
 
-      - name: Run Miner (Docker on Linux)
-        if: ${{ inputs.execution_type == 'docker' }}
+      - name: Run Miner (Docker on Linux / Auto-Fallback to WSL)
+        if: ${{ inputs.execution_type == 'docker' || inputs.execution_type == 'wsl' }}
         shell: powershell
         run: |
-          Write-Host "Building Docker Image for Linux Mining..."
-          $DockerFile = @"
-          FROM public.ecr.aws/lts/ubuntu:latest
-          ENV DEBIAN_FRONTEND=noninteractive
-          RUN apt-get update && apt-get -y install wget tar ca-certificates xz-utils
-          WORKDIR /miner
-          "@
-
-          $Miner = "${{ inputs.miner }}"
-          
-          if ($Miner -eq "cpuminer-rplant") {
-            $DockerFile += @"
-            
-          RUN wget https://github.com/rplant8/cpuminer-opt-rplant/releases/download/5.0.36/cpuminer-opt-linux.tar.gz && tar xf cpuminer-opt-linux.tar.gz
-          CMD ["./cpuminer-sse2", "-a", "$($env:ALGO)", "-o", "stratum+tcps://$($env:POOL_URL)", "-u", "${{ inputs.wallet }}.$($env:DEVICE_NAME)"]
-          "@
-          } 
-          elseif ($Miner -eq "srbminer-multi") {
-            $DockerFile += @"
-            
-          RUN wget https://github.com/doktor83/SRBMiner-Multi/releases/download/2.4.6/SRBMiner-Multi-2-4-6-Linux.tar.xz && tar -xf SRBMiner-Multi-2-4-6-Linux.tar.xz
-          CMD ["./SRBMiner-Multi-2-4-6/SRBMiner-MULTI", "--disable-gpu", "--algorithm", "$($env:ALGO)", "--pool", "$($env:POOL_URL)", "--wallet", "${{ inputs.wallet }}.$($env:DEVICE_NAME)"]
-          "@
-          }
-          elseif ($Miner -eq "xmrig") {
-            $DockerFile += @"
-            
-          RUN wget https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-linux-x64.tar.gz && tar xf xmrig-6.21.0-linux-x64.tar.gz
-          CMD ["./xmrig-6.21.0/xmrig", "-a", "$($env:ALGO)", "-o", "$($env:POOL_URL)", "-u", "${{ inputs.wallet }}.$($env:DEVICE_NAME)"]
-          "@
-          }
-          elseif ($Miner -eq "wildrig-multi") {
-            $DockerFile += @"
-            
-          RUN wget https://github.com/andru-kun/wildrig-multi/releases/download/0.40.8/wildrig-multi-linux-0.40.8.tar.xz && tar -xf wildrig-multi-linux-0.40.8.tar.xz
-          CMD ["./wildrig-multi", "--algo", "$($env:ALGO)", "--url", "stratum+tcps://$($env:POOL_URL)", "--user", "${{ inputs.wallet }}.$($env:DEVICE_NAME)"]
-          "@
-          }
-
-          Set-Content -Path "Dockerfile" -Value $DockerFile
-          
-          # Fix for Docker error: Convert the tag name strictly to lowercase
+          $ExecType = "${{ inputs.execution_type }}"
           $DockerName = "miner-$($env:DEVICE_NAME)".ToLower()
-          
-          docker build -t $DockerName .
-          docker run -d --name $DockerName $DockerName
-
-      - name: Run Miner (WSL / Linux Subsystem)
-        if: ${{ inputs.execution_type == 'wsl' }}
-        shell: powershell
-        run: |
-          Write-Host "Setting up Linux Miner inside WSL..."
           $Miner = "${{ inputs.miner }}"
+          $IsDockerSuccess = $false
+          
+          # Setup common Linux variables
           $DownloadUrl = ""
           $ExtractCmd = "tar -xf miner.archive"
           $RunCmd = ""
@@ -313,17 +265,44 @@ jobs:
             $RunCmd = "./wildrig-multi --algo $($env:ALGO) --url stratum+tcps://$($env:POOL_URL) --user ${{ inputs.wallet }}.$($env:DEVICE_NAME)"
           }
 
-          # Execute inside WSL to ensure proper Linux permissions and execution paths
-          wsl bash -c "mkdir -p /tmp/miner && cd /tmp/miner && wget -qO miner.archive $DownloadUrl && $ExtractCmd"
-          
-          # Create execution script inside WSL
-          wsl bash -c "echo '#!/bin/bash' > /tmp/miner/run.sh"
-          wsl bash -c "echo 'cd /tmp/miner' >> /tmp/miner/run.sh"
-          wsl bash -c "echo 'while true; do $RunCmd; sleep 5; done' >> /tmp/miner/run.sh"
-          wsl bash -c "chmod +x /tmp/miner/run.sh"
-          
-          Write-Host "Launching WSL Miner Process..."
-          Start-Process wsl -ArgumentList "-e bash /tmp/miner/run.sh" -WindowStyle Hidden
+          if ($ExecType -eq 'docker') {
+             Write-Host "Building Docker Image for Linux Mining..."
+             $DockerFile = @"
+             FROM public.ecr.aws/lts/ubuntu:latest
+             ENV DEBIAN_FRONTEND=noninteractive
+             RUN apt-get update && apt-get -y install wget tar ca-certificates xz-utils
+             WORKDIR /miner
+             RUN wget -qO miner.archive $DownloadUrl && $ExtractCmd
+             CMD ["sh", "-c", "$RunCmd"]
+"@
+             Set-Content -Path "Dockerfile" -Value $DockerFile
+             
+             # Wrap in Start-Process to safely catch errors if Windows mode is active
+             $DockerBuild = Start-Process docker -ArgumentList "build -t $DockerName ." -NoNewWindow -Wait -PassThru
+             
+             if ($DockerBuild.ExitCode -eq 0) {
+                Write-Host "Docker build successful! Launching container..."
+                docker run -d --name $DockerName $DockerName
+                $IsDockerSuccess = $true
+             } else {
+                Write-Host "WARNING: Docker Build Failed! (Often caused by Windows Container Mode)"
+                Write-Host "FALLBACK ENABLED: Switching to WSL Linux Subsystem Execution automatically..."
+             }
+          }
+
+          if (($ExecType -eq 'wsl') -or (($ExecType -eq 'docker') -and ($IsDockerSuccess -eq $false))) {
+             Write-Host "Setting up Linux Miner inside WSL native environment..."
+             wsl bash -c "mkdir -p /tmp/miner && cd /tmp/miner && wget -qO miner.archive $DownloadUrl && $ExtractCmd"
+             
+             # Create background runner script
+             wsl bash -c "echo '#!/bin/bash' > /tmp/miner/run.sh"
+             wsl bash -c "echo 'cd /tmp/miner' >> /tmp/miner/run.sh"
+             wsl bash -c "echo 'while true; do $RunCmd; sleep 5; done' >> /tmp/miner/run.sh"
+             wsl bash -c "chmod +x /tmp/miner/run.sh"
+             
+             Write-Host "Launching WSL Miner Process..."
+             Start-Process wsl -ArgumentList "-e bash /tmp/miner/run.sh" -WindowStyle Hidden
+          }
 
       - name: Runtime Timer & Job Completion
         shell: powershell
@@ -332,4 +311,18 @@ jobs:
           Write-Host "Mining active. Task is sleeping for $TimeoutMins minutes to keep job alive..."
           Start-Sleep -Seconds ($TimeoutMins * 60)
 
-          Write-Host "Timeout reached. Closing the runner task so matrix can queue the next iteration..."
+          Write-Host "Timeout reached. Attempting graceful cleanup..."
+          $ExecType = "${{ inputs.execution_type }}"
+          
+          if ($ExecType -eq "windows") {
+             Stop-Process -Name "cpuminer-sse2", "SRBMiner-MULTI", "xmrig", "wildrig-multi", "powershell" -Force -ErrorAction SilentlyContinue
+          } else {
+             # Gracefully attempt to clear docker containers OR wsl tasks regardless of fallback paths
+             $DockerName = "miner-$($env:DEVICE_NAME)".ToLower()
+             docker stop $DockerName -t 0 2>$null
+             docker rm $DockerName 2>$null
+             
+             wsl bash -c "pkill -f miner" 2>$null
+          }
+          
+          Write-Host "Closing runner task so matrix can queue the next iteration..."
