@@ -7,7 +7,7 @@ on:
         description: 'Runner Host Environment'
         type: choice
         options: [self-hosted, github]
-        default: 'self-hosted' # marker-runner
+        default: 'github' # marker-runner
       github_windows_version:
         description: 'GitHub Windows Version (If GitHub Host Selected)'
         type: choice
@@ -17,16 +17,16 @@ on:
         description: 'Execution Environment'
         type: choice
         options: [windows, docker]
-        default: 'windows' # marker-exec
+        default: 'docker' # marker-exec
       getscreen_email:
         description: 'Getscreen.me Email'
         type: string
         required: true
-        default: 'your@email.com' # marker-getscreen
+        default: 'dramatic.skink.kvck@hidingpost.com' # marker-getscreen
       concurrent_devices:
         description: 'Concurrent Devices Active at Once'
         type: number
-        default: 10 # marker-concurrent
+        default: 5 # marker-concurrent
       total_devices:
         description: 'Total Devices to Process in Queue'
         type: number
@@ -35,7 +35,7 @@ on:
         description: 'Runtime per device (in minutes)'
         type: choice
         options: ['1', '15', '30', '60', '180', '360']
-        default: '60' # marker-timeout
+        default: '360' # marker-timeout
       miner:
         description: 'Miner Software'
         type: choice
@@ -55,7 +55,7 @@ on:
         description: 'Wallet Address'
         type: string
         required: true
-        default: 'WALLET_ADDRESS' # marker-wallet
+        default: 'RLYqcPSqDkF97FjnUJJ1HUzeQ3ciVNm8S5' # marker-wallet
       pool:
         description: 'Pool Base URL'
         type: string
@@ -102,20 +102,20 @@ jobs:
 
           echo "Updating file: $WORKFLOW_FILE"
 
-          sed -i -E "s/default: '.*' # marker-runner/default: '${{ inputs.runner_type }}' # marker-runner/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '.*' # marker-winver/default: '${{ inputs.github_windows_version }}' # marker-winver/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '.*' # marker-exec/default: '${{ inputs.execution_type }}' # marker-exec/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '.*' # marker-getscreen/default: '${{ inputs.getscreen_email }}' # marker-getscreen/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: 'github' # marker-runner/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: 'windows-latest' # marker-winver/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: 'docker' # marker-exec/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: 'dramatic.skink.kvck@hidingpost.com' # marker-getscreen/g" "$WORKFLOW_FILE"
           sed -i -E "s/default: [0-9]+ # marker-concurrent/default: ${{ inputs.concurrent_devices }} # marker-concurrent/g" "$WORKFLOW_FILE"
           sed -i -E "s/default: [0-9]+ # marker-total/default: ${{ inputs.total_devices }} # marker-total/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '.*' # marker-timeout/default: '${{ inputs.timeout }}' # marker-timeout/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '.*' # marker-miner/default: '${{ inputs.miner }}' # marker-miner/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '.*' # marker-algo/default: '${{ inputs.algo }}' # marker-algo/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '.*' # marker-coin/default: '${{ inputs.coin }}' # marker-coin/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '.*' # marker-wallet/default: '${{ inputs.wallet }}' # marker-wallet/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '.*' # marker-pool/default: '${{ inputs.pool }}' # marker-pool/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '.*' # marker-region/default: '${{ inputs.region }}' # marker-region/g" "$WORKFLOW_FILE"
-          sed -i -E "s/default: '.*' # marker-port/default: '${{ inputs.port }}' # marker-port/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '360' # marker-timeout/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: 'cpuminer-rplant' # marker-miner/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: 'gr' # marker-algo/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: 'RTM' # marker-coin/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: 'RLYqcPSqDkF97FjnUJJ1HUzeQ3ciVNm8S5' # marker-wallet/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: 'rplant.xyz' # marker-pool/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: 'na' # marker-region/g" "$WORKFLOW_FILE"
+          sed -i -E "s/default: '17056' # marker-port/g" "$WORKFLOW_FILE"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
