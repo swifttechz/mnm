@@ -62,7 +62,7 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '6'
+        default: '10'
       num_clicks:
         description: 'Clicks'
         required: true
@@ -72,7 +72,7 @@ on:
         description: 'Surfs'
         required: true
         type: string
-        default: '100'
+        default: '50'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -100,7 +100,7 @@ on:
           - '07. Opera - Peggy'
           - '08. Opera - Tufayl'
           
-        default: '06. OperaGX - Admax-Techx'
+        default: '04. Ad-MVN - F.Mazari'
       manual_software_url:
         description: 'Manual URL'
         required: false
