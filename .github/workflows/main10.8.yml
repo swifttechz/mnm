@@ -67,7 +67,7 @@ on:
         description: 'Clicks'
         required: true
         type: string
-        default: '100'
+        default: '150'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZTgxNzYzOGNhMzU2ZTE0ZjAzYzQ0OSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlODE3NjM4Y2EzNTZlMTRmMDNjNDNiIn0.X30sqylYCMnGSeHQwUvp2gzepQZOYTFasKDrXlINVPc'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZTgxZDYzYzM0ZGQ4Mzg1Yjg0YzdmOSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlODFkNjNjMzRkZDgzODViODRjN2Y1In0.-3omSIozLWx7xOU_DLmerMtqMYv5BHo-7Al1TfMIIc8'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -168,7 +168,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'No Fallback'
+        default: 'USA'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
