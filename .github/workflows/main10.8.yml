@@ -67,12 +67,12 @@ on:
         description: 'Clicks'
         required: true
         type: string
-        default: '200'
+        default: '100'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '0'
+        default: '100'
       software_choice:
         description: 'Software & Link'
         required: true
