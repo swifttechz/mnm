@@ -62,7 +62,7 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '20'
+        default: '0'
       num_clicks:
         description: 'Clicks'
         required: true
@@ -72,7 +72,7 @@ on:
         description: 'Surfs'
         required: true
         type: string
-        default: '0'
+        default: '50'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -146,7 +146,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Indonesia'
+        default: 'USA'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -168,7 +168,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Vietnam'
+        default: 'USA'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
