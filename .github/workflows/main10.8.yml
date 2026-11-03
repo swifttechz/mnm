@@ -67,7 +67,7 @@ on:
         description: 'Clicks'
         required: true
         type: string
-        default: '250'
+        default: '230'
       num_surfs:
         description: 'Surfs'
         required: true
