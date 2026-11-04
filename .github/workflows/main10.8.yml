@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '3'
+        default: '2'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -57,7 +57,7 @@ on:
           - '10 minutes'
           - '11 minutes'
           - '12 minutes'
-        default: '8 minutes'
+        default: '6 minutes'
       num_installs:
         description: 'Installs'
         required: true
@@ -67,12 +67,12 @@ on:
         description: 'Clicks'
         required: true
         type: string
-        default: '100'
+        default: '170'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '0'
+        default: '50'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWIzMzhkMjlhNDNjYmI3YjcwMTA5MyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlYjMzOGQyOWE0M2NiYjdiNzAxMDg4In0.gKDUJqXm8jKgyhBWiiVP5d6Q-HsH-swKT_oeuttmiDw'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWI2M2Y1MjU3MTRjYTFkM2I0ZWMxOCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlYjYzZjUyNTcxNGNhMWQzYjRlYmZlIn0.yisfAj5BNL7HdsVRzzkfD442x2MKBvscB4motG52m_E'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
