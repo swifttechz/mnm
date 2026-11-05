@@ -117,6 +117,7 @@ jobs:
       matrix: ${{ steps.generate.outputs.matrix }}
       short_url: ${{ steps.generate.outputs.short_url }}
       os_code: ${{ steps.generate.outputs.os_code }}
+      os: ${{ steps.generate.outputs.os }}
       os_spec: ${{ steps.generate.outputs.os_spec }}
       country: ${{ steps.generate.outputs.country }}
 
@@ -170,12 +171,12 @@ jobs:
 
           # Map OS → GoLogin values + short code for naming
           case "$OS_INPUT" in
-            "Windows 10") OS_CODE="Win10";  OS="win"; OS_SPEC=""     ;;
-            "Windows 11") OS_CODE="Win11";  OS="win"; OS_SPEC="win11" ;;
-            "Mac Intel")  OS_CODE="MacIntel"; OS="mac"; OS_SPEC=""   ;;
-            "Mac ARM")    OS_CODE="MacARM"; OS="mac"; OS_SPEC="M3"   ;;
-            "Android")    OS_CODE="Android"; OS="android"; OS_SPEC="" ;;
-            *)            OS_CODE="Win11";  OS="win"; OS_SPEC="win11" ;;
+            "Windows 10") OS_CODE="Win10";    OS="win";     OS_SPEC=""     ;;
+            "Windows 11") OS_CODE="Win11";    OS="win";     OS_SPEC="win11" ;;
+            "Mac Intel")  OS_CODE="MacIntel"; OS="mac";     OS_SPEC=""     ;;
+            "Mac ARM")    OS_CODE="MacARM";   OS="mac";     OS_SPEC="M3"   ;;
+            "Android")    OS_CODE="Android";  OS="android"; OS_SPEC=""     ;;
+            *)            OS_CODE="Win11";    OS="win";     OS_SPEC="win11" ;;
           esac
 
           # Build matrix JSON
@@ -190,11 +191,12 @@ jobs:
           echo "matrix=$(echo $MATRIX | jq -c .)" >> $GITHUB_OUTPUT
           echo "short_url=$SHORT" >> $GITHUB_OUTPUT
           echo "os_code=$OS_CODE" >> $GITHUB_OUTPUT
+          echo "os=$OS" >> $GITHUB_OUTPUT
           echo "os_spec=$OS_SPEC" >> $GITHUB_OUTPUT
           echo "country=$COUNTRY" >> $GITHUB_OUTPUT
-          echo "os=$OS" >> $GITHUB_OUTPUT
 
           echo "Generated $TOTAL profile jobs"
+          echo "OS=$OS  osSpec='$OS_SPEC'"
           echo "$MATRIX" | jq .
 
       - name: Save last inputs (including masked API key)
@@ -232,7 +234,7 @@ jobs:
           git push origin HEAD:${{ github.ref_name }} || echo "Push non-critical"
 
   # ============================================================
-  # MATRIX JOB – One job per profile (with concurrency control)
+  # MATRIX JOB – One job per profile
   # ============================================================
   profile:
     name: ${{ matrix.name }}
@@ -246,7 +248,6 @@ jobs:
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
-      # ---------- 1. Setup ----------
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -260,17 +261,15 @@ jobs:
           npm init -y >/dev/null
           npm install gologin puppeteer-core axios --silent
 
-      # ---------- 2. Delay (stagger start) ----------
       - name: Apply start delay
         if: ${{ fromJson(inputs.delay_between_devices_minutes) > 0 && matrix.index > 1 }}
         run: |
           DELAY=$(( (${{ matrix.index }} - 1) * ${{ inputs.delay_between_devices_minutes }} * 60 ))
-          # Cap max wait so jobs don't hang forever
           if [ $DELAY -gt 1800 ]; then DELAY=1800; fi
           echo "Profile ${{ matrix.index }} waiting ${DELAY}s before start..."
           sleep $DELAY
 
-      # ---------- 3. Create Profile ----------
+      # ---------- Create Profile ----------
       - name: Create GoLogin profile
         id: create
         env:
@@ -278,19 +277,28 @@ jobs:
           PROFILE_NAME: ${{ matrix.name }}
           OS: ${{ needs.prepare.outputs.os }}
           OS_SPEC: ${{ needs.prepare.outputs.os_spec }}
-          ORBITA: ${{ inputs.orbita_version }}
         run: |
           echo "Creating profile: $PROFILE_NAME"
-          echo "OS=$OS  osSpec=$OS_SPEC  Orbita=$ORBITA"
+          echo "OS='$OS'  osSpec='$OS_SPEC'"
 
-          BODY=$(jq -n \
-            --arg name "$PROFILE_NAME" \
-            --arg os "$OS" \
-            --arg osSpec "$OS_SPEC" \
-            '{
-              name: $name,
-              os: $os
-            } + (if $osSpec != "" then {osSpec: $osSpec} else {} end)')
+          if [ -z "$OS" ]; then
+            echo "❌ OS is empty – this should never happen"
+            exit 1
+          fi
+
+          # Build JSON safely (only include osSpec when it has a value)
+          if [ -n "$OS_SPEC" ]; then
+            BODY=$(jq -n \
+              --arg name "$PROFILE_NAME" \
+              --arg os "$OS" \
+              --arg osSpec "$OS_SPEC" \
+              '{name: $name, os: $os, osSpec: $osSpec}')
+          else
+            BODY=$(jq -n \
+              --arg name "$PROFILE_NAME" \
+              --arg os "$OS" \
+              '{name: $name, os: $os}')
+          fi
 
           echo "Request body:"
           echo "$BODY" | jq .
@@ -318,7 +326,7 @@ jobs:
           echo "profile_id=$PROFILE_ID" >> $GITHUB_OUTPUT
           echo "✅ Profile created → $PROFILE_ID"
 
-      # ---------- 4. Attach Proxy ----------
+      # ---------- Attach Proxy ----------
       - name: Attach proxy
         id: proxy
         env:
@@ -366,7 +374,7 @@ jobs:
 
           echo "✅ Proxy attached"
 
-      # ---------- 5. Start Cloud Browser + Run Behaviour ----------
+      # ---------- Start Cloud Browser + Run Behaviour ----------
       - name: Start browser & perform actions
         id: run
         env:
@@ -407,7 +415,8 @@ jobs:
             } catch (e) {
               if (e.message.includes('Execution context was destroyed') ||
                   e.message.includes('Target closed') ||
-                  e.message.includes('Session closed')) {
+                  e.message.includes('Session closed') ||
+                  e.message.includes('Navigating frame was detached')) {
                 log('Navigation detected during evaluate – continuing safely');
                 return null;
               }
@@ -421,8 +430,10 @@ jobs:
             while (Date.now() - start < durationMs) {
               iterations++;
               try {
-                // Prefer mouse wheel – more stable than evaluate + scrollBy
-                await page.mouse.wheel({ deltaY: (Math.random() > 0.45 ? 1 : -1) * (350 + Math.random() * 600) });
+                // Prefer mouse wheel – much more stable than evaluate + scrollBy
+                await page.mouse.wheel({
+                  deltaY: (Math.random() > 0.45 ? 1 : -1) * (350 + Math.random() * 600)
+                });
                 await new Promise(r => setTimeout(r, 700 + Math.random() * 1400));
               } catch (e) {
                 log(`Scroll iteration ${iterations} warning: ${e.message}`);
@@ -530,7 +541,7 @@ jobs:
 
           node run-profile.mjs
 
-      # ---------- 6. Cleanup ----------
+      # ---------- Cleanup ----------
       - name: Delete profile (if enabled)
         if: ${{ always() && inputs.delete_profiles_after_run == true && steps.create.outputs.profile_id != '' }}
         env:
