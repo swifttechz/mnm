@@ -111,7 +111,7 @@ permissions:
 
 jobs:
   # ============================================================
-  # JOB 0 – Validate + prepare matrix + save last inputs (runs once)
+  # JOB 0 – Runs once: validate + matrix + save last inputs
   # ============================================================
   prepare:
     name: Prepare & Validate
@@ -130,6 +130,7 @@ jobs:
         with:
           token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
+          persist-credentials: false   # we set the remote ourselves with the PAT
 
       - name: Validate GoLogin API Key
         id: validate
@@ -200,7 +201,7 @@ jobs:
           echo "$MATRIX" | jq .
 
       # ============================================================
-      # SAVE LAST INPUTS (robust)
+      # SAVE LAST INPUTS – robust GH_PAT version
       # ============================================================
       - name: Save last inputs
         env:
@@ -213,9 +214,14 @@ jobs:
           echo "Saving last used inputs..."
           echo "========================================"
 
+          if [ -z "$GH_PAT" ]; then
+            echo "❌ secrets.GH_PAT is empty or not set"
+            exit 1
+          fi
+
           mkdir -p .gologin-last-inputs
 
-          # Mask API key
+          # Mask API key for the saved files
           if [ ${#TOKEN} -gt 12 ]; then
             MASKED="${TOKEN:0:6}...${TOKEN: -4}"
           else
@@ -288,12 +294,12 @@ jobs:
           cat .gologin-last-inputs/last-run.txt
           echo ""
 
-          # Configure git
+          # Git identity
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Force remote to use the PAT
-          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git
+          # Force the remote to use the PAT (most reliable way)
+          git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git"
 
           echo "Remote after update:"
           git remote -v
@@ -307,8 +313,16 @@ jobs:
             git commit -m "chore(gologin): save last inputs - run #${{ github.run_number }} [skip ci]"
 
             echo "Pushing to ${{ github.ref_name }}..."
-            git push origin HEAD:${{ github.ref_name }}
-            echo "✅ Successfully pushed last inputs to repository"
+            if git push origin "HEAD:${{ github.ref_name }}"; then
+              echo "✅ Successfully pushed last inputs to repository"
+            else
+              echo "❌ git push failed"
+              echo "Possible causes:"
+              echo "  - secrets.GH_PAT is missing, expired, or lacks 'repo' scope"
+              echo "  - Branch protection rules require a pull request"
+              echo "  - PAT does not have permission to push to this branch"
+              exit 1
+            fi
           fi
 
           echo "========================================"
@@ -316,7 +330,8 @@ jobs:
           echo "========================================"
 
   # ============================================================
-  # MATRIX JOB – One job per profile (only the steps that must run per profile)
+  # MATRIX JOB – One named job per profile
+  # Only the steps that must run per profile are here
   # ============================================================
   profile:
     name: ${{ matrix.name }}
@@ -330,7 +345,7 @@ jobs:
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
-      # No Checkout – not needed. Script is generated inline.
+      # No Checkout – not needed (script is generated inline)
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -474,6 +489,12 @@ jobs:
 
           const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
 
+          // Random helpers
+          const rand = (min, max) => Math.random() * (max - min) + min;
+          const randInt = (min, max) => Math.floor(rand(min, max + 1));
+          const chance = (p) => Math.random() < p;
+          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
           async function stopProfile() {
             try {
               await axios.delete(`https://api.gologin.com/browser/${PROFILE_ID}/web`, {
@@ -500,58 +521,165 @@ jobs:
             }
           }
 
+          // More human-like mouse movement
+          async function humanMouseMove(page, toX, toY) {
+            try {
+              const steps = randInt(8, 18);
+              for (let i = 1; i <= steps; i++) {
+                const x = toX * (i / steps) + rand(-8, 8);
+                const y = toY * (i / steps) + rand(-6, 6);
+                await page.mouse.move(x, y);
+                await sleep(rand(8, 25));
+              }
+            } catch (_) {}
+          }
+
+          // Realistic scrolling with variable style
           async function humanScroll(page, durationMs) {
             const start = Date.now();
             let iterations = 0;
+
+            // Pick a "personality" for this session
+            const style = chance(0.5) ? 'curious' : chance(0.5) ? 'skimmer' : 'reader';
+
+            log(`Scroll style: ${style}`);
+
             while (Date.now() - start < durationMs) {
               iterations++;
+
               try {
-                await page.mouse.wheel({
-                  deltaY: (Math.random() > 0.45 ? 1 : -1) * (350 + Math.random() * 600)
-                });
-                await new Promise(r => setTimeout(r, 700 + Math.random() * 1400));
+                // Direction & distance depend on style + randomness
+                let deltaY;
+                if (style === 'skimmer') {
+                  deltaY = (chance(0.75) ? 1 : -1) * rand(450, 1100);
+                } else if (style === 'reader') {
+                  deltaY = (chance(0.65) ? 1 : -1) * rand(180, 480);
+                } else { // curious
+                  deltaY = (chance(0.6) ? 1 : -1) * rand(280, 750);
+                }
+
+                // Occasional bigger jump or micro scroll
+                if (chance(0.12)) deltaY *= rand(1.4, 2.1);
+                if (chance(0.08)) deltaY *= 0.3;
+
+                await page.mouse.wheel({ deltaY });
+
+                // Variable pause (reading / thinking)
+                let pause;
+                if (style === 'reader') {
+                  pause = chance(0.25) ? rand(1800, 4200) : rand(600, 1600);
+                } else if (style === 'skimmer') {
+                  pause = chance(0.15) ? rand(1200, 2800) : rand(350, 900);
+                } else {
+                  pause = chance(0.2) ? rand(1400, 3500) : rand(500, 1400);
+                }
+
+                await sleep(pause);
+
+                // Rare longer "distraction" pause
+                if (chance(0.06)) {
+                  await sleep(rand(2500, 5500));
+                }
               } catch (e) {
                 log(`Scroll iteration ${iterations} warning: ${e.message}`);
-                await new Promise(r => setTimeout(r, 1000));
+                await sleep(1000);
               }
             }
-            log(`Scroll finished (${iterations} moves)`);
+            log(`Scroll finished (${iterations} moves, style=${style})`);
           }
 
+          // More human surfing: mix of scroll, mouse move, click, skip
           async function humanSurf(page, durationMs) {
             const start = Date.now();
             let clicks = 0;
+            let scrolls = 0;
+
+            const style = chance(0.4) ? 'explorer' : chance(0.5) ? 'casual' : 'focused';
+            log(`Surf style: ${style}`);
+
             while (Date.now() - start < durationMs) {
               try {
-                await page.mouse.wheel({ deltaY: 250 + Math.random() * 400 });
-                await new Promise(r => setTimeout(r, 500 + Math.random() * 800));
+                // Always do some scrolling first
+                const scrollAmount = style === 'explorer'
+                  ? rand(200, 700)
+                  : style === 'focused'
+                    ? rand(150, 400)
+                    : rand(250, 600);
 
-                const clicked = await safeEvaluate(page, () => {
-                  const els = Array.from(document.querySelectorAll(
-                    'a[href], button, [role="button"], input[type="submit"], [onclick]'
-                  )).filter(el => {
-                    const r = el.getBoundingClientRect();
-                    return r.width > 8 && r.height > 8 &&
-                           r.top >= 0 && r.bottom <= (window.innerHeight || 800);
-                  });
-                  if (!els.length) return false;
-                  const el = els[Math.floor(Math.random() * els.length)];
-                  el.click();
-                  return true;
+                await page.mouse.wheel({
+                  deltaY: (chance(0.7) ? 1 : -1) * scrollAmount
                 });
+                scrolls++;
+                await sleep(rand(400, 1100));
 
-                if (clicked) {
-                  clicks++;
-                  await new Promise(r => setTimeout(r, 1800 + Math.random() * 2200));
+                // Decide whether to try a click this cycle
+                const clickChance = style === 'explorer' ? 0.55
+                                  : style === 'focused'  ? 0.35
+                                  : 0.45;
+
+                if (chance(clickChance)) {
+                  const clicked = await safeEvaluate(page, () => {
+                    const els = Array.from(document.querySelectorAll(
+                      'a[href], button, [role="button"], input[type="submit"], [onclick], [data-testid], .btn, .button'
+                    )).filter(el => {
+                      const r = el.getBoundingClientRect();
+                      const style = window.getComputedStyle(el);
+                      return r.width > 10 && r.height > 10 &&
+                             r.top >= 0 && r.bottom <= (window.innerHeight || 900) &&
+                             style.visibility !== 'hidden' && style.display !== 'none' &&
+                             style.opacity !== '0';
+                    });
+
+                    if (!els.length) return null;
+
+                    // Prefer larger / more central elements a bit
+                    els.sort((a, b) => {
+                      const ra = a.getBoundingClientRect();
+                      const rb = b.getBoundingClientRect();
+                      const areaA = ra.width * ra.height;
+                      const areaB = rb.width * rb.height;
+                      return areaB - areaA;
+                    });
+
+                    const pick = els[Math.floor(Math.random() * Math.min(els.length, 6))];
+                    const rect = pick.getBoundingClientRect();
+                    return {
+                      x: rect.left + rect.width / 2 + (Math.random() - 0.5) * 10,
+                      y: rect.top + rect.height / 2 + (Math.random() - 0.5) * 8
+                    };
+                  });
+
+                  if (clicked && clicked.x && clicked.y) {
+                    // Move mouse human-like then click
+                    await humanMouseMove(page, clicked.x, clicked.y);
+                    await sleep(rand(120, 380));
+                    await page.mouse.click(clicked.x, clicked.y, { delay: rand(40, 120) });
+                    clicks++;
+
+                    // After click – sometimes stay, sometimes continue quickly
+                    if (chance(0.6)) {
+                      await sleep(rand(1600, 3800));
+                    } else {
+                      await sleep(rand(700, 1500));
+                    }
+                  } else {
+                    await sleep(rand(600, 1200));
+                  }
                 } else {
-                  await new Promise(r => setTimeout(r, 900 + Math.random() * 1100));
+                  // Just keep scrolling / looking
+                  await sleep(rand(500, 1300));
+                }
+
+                // Occasional longer pause (like reading or deciding)
+                if (chance(0.09)) {
+                  await sleep(rand(2200, 5000));
                 }
               } catch (e) {
                 log(`Surf warning: ${e.message}`);
-                await new Promise(r => setTimeout(r, 1200));
+                await sleep(1200);
               }
             }
-            log(`Surf finished (${clicks} clicks)`);
+            log(`Surf finished – ${clicks} clicks, ${scrolls} scrolls (style=${style})`);
           }
 
           (async () => {
@@ -581,10 +709,11 @@ jobs:
               });
               log('Page loaded');
 
-              await new Promise(r => setTimeout(r, 2000));
+              // Small random settle time
+              await sleep(rand(1500, 3200));
 
               const runtimeMs = Math.max(30, RUNTIME_MIN * 60 * 1000);
-              log(`Starting behaviour for ${Math.round(runtimeMs/1000)}s...`);
+              log(`Starting behaviour for ${Math.round(runtimeMs / 1000)}s...`);
 
               if (DO_SURF) {
                 await humanSurf(page, runtimeMs);
@@ -592,7 +721,7 @@ jobs:
                 await humanScroll(page, runtimeMs);
               } else {
                 log('Idle mode – just waiting');
-                await new Promise(r => setTimeout(r, runtimeMs));
+                await sleep(runtimeMs);
               }
 
               log('Behaviour completed successfully');
