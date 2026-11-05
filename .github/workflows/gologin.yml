@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       gologin_api_key:
-        description: "GoLogin API Token"
+        description: "GoLogin API Token (paste the FULL key each run - the prefilled value is only a masked reminder of the last key used)"
         required: true
         type: string
 
@@ -52,14 +52,14 @@ on:
         description: "Target URL"
         required: true
         type: string
-        default: "https://techxfa.s.gy/exjp"
+        default: "https://example.com"
 
       number_of_devices:
         description: "Total profiles / devices"
         required: true
         type: choice
         options: ["1","2","3","4","5","6","7","8","9","10","15","20","25","30","40","50"]
-        default: "50"
+        default: "5"
 
       concurrent_devices:
         description: "Concurrent devices (max parallel)"
@@ -73,7 +73,7 @@ on:
         required: true
         type: choice
         options: ["0","1","2","3","4","5","6","7","8","9","10"]
-        default: "0"
+        default: "1"
 
       run_time_minutes:
         description: "How long each profile stays open (minutes)"
@@ -98,7 +98,7 @@ on:
         description: "Delete profile after it finishes"
         required: true
         type: boolean
-        default: false
+        default: true
 
       proxy_country:
         description: "Proxy country code (us, uk, de, in, pk, etc.)"
@@ -114,6 +114,9 @@ permissions:
 #  PRIMARY : the workflow file itself is located BY ITS NAME (the
 #            "name:" line above) using the GitHub API + GH_PAT, and its
 #            `default:` values are rewritten to the last-used inputs.
+#            The GoLogin API key is saved ONLY in MASKED form
+#            (first 6 + "..." + last 6 characters) so you can recognise
+#            which key was used. The real key is never written to the repo.
 #  BACKUP 1: if the API lookup fails, the path from github.workflow_ref
 #            is used.
 #  BACKUP 2: if that fails, FALLBACK_WORKFLOW_PATH below is used.
@@ -149,6 +152,19 @@ jobs:
           TOKEN: ${{ inputs.gologin_api_key }}
         run: |
           echo "::add-mask::$TOKEN"
+
+          if [ -z "$TOKEN" ]; then
+            echo "❌ API key is empty"
+            exit 1
+          fi
+
+          # The saved default is only a masked reminder (abc123...xyz789).
+          if [[ "$TOKEN" == *"..."* ]] || [[ "$TOKEN" == "***"* ]]; then
+            echo "❌ The API key field still contains the MASKED reminder from the last run."
+            echo "   Paste the FULL GoLogin API token and run again."
+            exit 1
+          fi
+
           echo "Validating API token..."
           HTTP_CODE=$(curl -s -o /tmp/gl_resp.json -w "%{http_code}" \
             -H "Authorization: Bearer $TOKEN" \
@@ -410,14 +426,21 @@ jobs:
         run: |
           set -euo pipefail
 
+          TOKEN=$(echo "$INPUTS_JSON" | jq -r '.gologin_api_key // ""')
+          if [ -n "$TOKEN" ]; then echo "::add-mask::$TOKEN"; fi
+
           mkdir -p "$LAST_INPUTS_DIR"
           JSON_PATH="$LAST_INPUTS_DIR/$LAST_INPUTS_JSON_FILE"
           TXT_PATH="$LAST_INPUTS_DIR/$LAST_INPUTS_TXT_FILE"
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-          TOKEN=$(echo "$INPUTS_JSON" | jq -r '.gologin_api_key // ""')
-          if [ ${#TOKEN} -gt 12 ]; then
-            MASKED="${TOKEN:0:6}...${TOKEN: -4}"
+          # Same masking rule as the workflow default: first 6 ... last 6
+          if [[ "$TOKEN" == *"..."* ]]; then
+            MASKED="$TOKEN"
+          elif [ ${#TOKEN} -ge 20 ]; then
+            MASKED="${TOKEN:0:6}...${TOKEN: -6}"
+          elif [ ${#TOKEN} -ge 10 ]; then
+            MASKED="${TOKEN:0:3}...${TOKEN: -3}"
           else
             MASKED="***masked***"
           fi
@@ -459,12 +482,28 @@ jobs:
           INPUTS_JSON: ${{ toJson(inputs) }}
           WORKFLOW_FILE: ${{ steps.resolve.outputs.path }}
         run: |
+          RAW_KEY=$(echo "$INPUTS_JSON" | jq -r '.gologin_api_key // ""')
+          if [ -n "$RAW_KEY" ]; then echo "::add-mask::$RAW_KEY"; fi
+
           python3 - << 'PYEOF'
           import json, os, re, sys
 
           path = os.environ["WORKFLOW_FILE"]
           inputs = json.loads(os.environ["INPUTS_JSON"])
-          SKIP = {"gologin_api_key"}   # never write the API key into the repo
+          KEY_INPUT = "gologin_api_key"
+
+          def mask_secret(s):
+              """first 6 + ... + last 6 (JWT starts are identical, so the tail matters)"""
+              s = (s or "").strip()
+              if len(s) >= 20:
+                  return f"{s[:6]}...{s[-6:]}"
+              if len(s) >= 10:
+                  return f"{s[:3]}...{s[-3:]}"
+              return "***masked***"
+
+          def is_placeholder(s):
+              s = (s or "").strip()
+              return (not s) or ("..." in s) or s.startswith("***")
 
           with open(path, encoding="utf-8") as f:
               original = f.read()
@@ -497,7 +536,7 @@ jobs:
           for idx in range(len(starts) - 1, -1, -1):   # reverse: inserts don't shift earlier blocks
               s, key = starts[idx]
               e = starts[idx + 1][0] if idx + 1 < len(starts) else end
-              if key in SKIP or key not in inputs:
+              if key not in inputs:
                   continue
 
               typ, opts, dline = "string", None, None
@@ -527,6 +566,16 @@ jobs:
                               k += 1
 
               val = inputs[key]
+
+              # ---- API key: store ONLY a masked version -------------------
+              if key == KEY_INPUT:
+                  raw = "" if val is None else str(val)
+                  if is_placeholder(raw):
+                      print("API key input was empty/already masked - keeping the existing masked default")
+                      continue
+                  val = mask_secret(raw)
+                  print(f"API key will be saved masked as: {val}")
+
               if typ == "boolean":
                   if isinstance(val, str):
                       val = val.strip().lower() == "true"
@@ -556,6 +605,11 @@ jobs:
                   changes.append(f"{key}: (new) {newline.strip()}")
 
           new_text = "\n".join(lines)
+
+          # HARD SAFETY: the real key must never end up in the repo
+          real_key = str(inputs.get(KEY_INPUT) or "").strip()
+          if len(real_key) >= 8 and real_key in new_text:
+              sys.exit("refusing to write: the real API key would appear in the workflow file")
 
           # Safety check: result must still be a valid workflow with valid choice defaults
           try:
@@ -855,9 +909,28 @@ jobs:
           RUNTIME_MIN: ${{ inputs.run_time_minutes }}
           DO_SCROLL: ${{ inputs.enable_scroll }}
           DO_SURF: ${{ inputs.enable_surf }}
+          OS_KIND: ${{ needs.prepare.outputs.os }}
         run: |
           echo "::add-mask::$TOKEN"
           cat > run-profile.mjs << 'EOF'
+          // =====================================================================
+          //  VISITOR SIMULATION
+          //  Every profile run gets its own randomly generated "visitor":
+          //    persona    : skimmer / reader / scanner / explorer / researcher /
+          //                 distracted / bouncer  (weighted random)
+          //    per-visit  : reading speed (wpm), skim ratio, target scroll depth,
+          //                 step size, tempo, pause habits, back-scroll habit,
+          //                 keyboard use, hover habit, tab-away habit, click habit,
+          //                 per-page dwell time, link preference
+          //    input      : mouse-wheel notches (100/120px), trackpad momentum,
+          //                 or touch swipes (Android profiles)
+          //  Behaviour is built from reading-time estimates (text on screen vs
+          //  reading speed), log-normal pauses, curved mouse paths, depth
+          //  targets, re-reads, jumps to top/footer, idle gaze and tab switching.
+          //  Surf adds weighted link choice (internal first, avoids logout /
+          //  delete / checkout / forms / downloads), new-tab handling, back
+          //  navigation and off-site recovery.
+          // =====================================================================
           import puppeteer from 'puppeteer-core';
           import axios from 'axios';
 
@@ -867,15 +940,108 @@ jobs:
           const RUNTIME_MIN = parseFloat(process.env.RUNTIME_MIN);
           const DO_SCROLL   = process.env.DO_SCROLL === 'true';
           const DO_SURF     = process.env.DO_SURF === 'true';
+          const OS_KIND     = (process.env.OS_KIND || 'win').toLowerCase();
+          const IS_MOBILE   = OS_KIND === 'android';
+          const IS_MAC      = OS_KIND === 'mac';
 
           const MAX_CONNECT_ATTEMPTS = 6;
 
           const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
 
+          // ---------- random helpers ----------
           const rand = (min, max) => Math.random() * (max - min) + min;
           const randInt = (min, max) => Math.floor(rand(min, max + 1));
           const chance = (p) => Math.random() < p;
-          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+          const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+          const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
+          const sleepUntil = (ms, deadline) => sleep(Math.min(ms, Math.max(0, deadline - Date.now())));
+
+          function gaussian() {
+            let u = 0, v = 0;
+            while (u === 0) u = Math.random();
+            while (v === 0) v = Math.random();
+            return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+          }
+          const logNormal = (median, sigma) => median * Math.exp(gaussian() * sigma);
+
+          function weightedPick(items, weightFn) {
+            const ws = items.map((i) => Math.max(0, weightFn(i)));
+            const total = ws.reduce((a, b) => a + b, 0);
+            if (total <= 0) return items[Math.floor(Math.random() * items.length)];
+            let r = Math.random() * total;
+            for (let i = 0; i < items.length; i++) {
+              r -= ws[i];
+              if (r <= 0) return items[i];
+            }
+            return items[items.length - 1];
+          }
+
+          function normUrl(u) {
+            try {
+              const x = new URL(u);
+              return x.origin + x.pathname.replace(/\/+$/, '') + x.search;
+            } catch (_) {
+              return String(u);
+            }
+          }
+
+          // ---------- visitor personas ----------
+          // hover/keys/idle/away/back are PER-STEP probabilities,
+          // click/backNav are PER-PAGE probabilities, dwell = median seconds per page.
+          const PERSONAS = [
+            { name: 'skimmer',    weight: 22, wpm: [600, 1100], skim: [0.05, 0.20], depth: [0.50, 1.00], step: [500, 1200], back: 0.12, hover: 0.10, keys: 0.15, idle: 0.03, away: 0.008, click: 0.45, dwell: 14, backNav: 0.15 },
+            { name: 'reader',     weight: 22, wpm: [200, 300],  skim: [0.50, 0.90], depth: [0.60, 1.00], step: [180, 480],  back: 0.18, hover: 0.06, keys: 0.08, idle: 0.08, away: 0.012, click: 0.25, dwell: 45, backNav: 0.10 },
+            { name: 'scanner',    weight: 20, wpm: [350, 550],  skim: [0.20, 0.45], depth: [0.35, 0.85], step: [300, 800],  back: 0.15, hover: 0.14, keys: 0.12, idle: 0.05, away: 0.010, click: 0.50, dwell: 24, backNav: 0.12 },
+            { name: 'explorer',   weight: 14, wpm: [300, 500],  skim: [0.15, 0.40], depth: [0.30, 0.80], step: [250, 700],  back: 0.10, hover: 0.25, keys: 0.08, idle: 0.04, away: 0.010, click: 0.75, dwell: 16, backNav: 0.20 },
+            { name: 'researcher', weight: 10, wpm: [220, 320],  skim: [0.60, 1.00], depth: [0.80, 1.00], step: [150, 400],  back: 0.25, hover: 0.08, keys: 0.18, idle: 0.10, away: 0.015, click: 0.40, dwell: 70, backNav: 0.18 },
+            { name: 'distracted', weight: 8,  wpm: [250, 450],  skim: [0.10, 0.50], depth: [0.20, 0.70], step: [200, 700],  back: 0.15, hover: 0.10, keys: 0.05, idle: 0.20, away: 0.040, click: 0.30, dwell: 20, backNav: 0.12 },
+            { name: 'bouncer',    weight: 4,  wpm: [700, 1200], skim: [0.02, 0.10], depth: [0.10, 0.35], step: [400, 900],  back: 0.05, hover: 0.05, keys: 0.05, idle: 0.02, away: 0.000, click: 0.12, dwell: 6,  backNav: 0.30 }
+          ];
+
+          function createVisitor() {
+            const p = weightedPick(PERSONAS, (x) => x.weight);
+            const j = (v, lo = 0.8, hi = 1.25) => v * rand(lo, hi);
+            const f = rand(0.8, 1.25);
+
+            let input;
+            if (IS_MOBILE) input = 'touch';
+            else if (IS_MAC) input = chance(0.75) ? 'trackpad' : 'wheel';
+            else input = chance(0.2) ? 'trackpad' : 'wheel';
+
+            return {
+              persona: p.name,
+              input,
+              notch: chance(0.5) ? 100 : 120,
+              wpm: rand(p.wpm[0], p.wpm[1]),
+              skim: rand(p.skim[0], p.skim[1]),
+              depth: rand(p.depth[0], p.depth[1]),
+              step: [p.step[0] * f, p.step[1] * f],
+              back: clamp(j(p.back), 0, 0.6),
+              hover: IS_MOBILE ? 0 : clamp(j(p.hover), 0, 0.6),
+              keys: IS_MOBILE ? 0 : clamp(j(p.keys), 0, 0.5),
+              idle: clamp(j(p.idle), 0, 0.5),
+              away: clamp(j(p.away), 0, 0.1),
+              click: clamp(j(p.click), 0, 0.95),
+              backNav: clamp(j(p.backNav), 0, 0.6),
+              dwell: j(p.dwell, 0.6, 1.6),
+              tempo: clamp(logNormal(1, 0.22), 0.6, 1.7),
+              navBias: rand(0.7, 1.8),
+              allowExternal: chance(0.08),
+              touchBroken: false
+            };
+          }
+
+          // ---------- shared state ----------
+          let mouse = { x: 0, y: 0, placed: false };
+          let view = { vw: 1280, vh: 800 };
+          const cdpCache = new WeakMap();
+          const dialogHooked = new WeakSet();
+
+          function hookPage(page) {
+            if (dialogHooked.has(page)) return;
+            dialogHooked.add(page);
+            page.on('dialog', (d) => { d.dismiss().catch(() => {}); });
+          }
 
           async function stopProfile() {
             try {
@@ -957,10 +1123,12 @@ jobs:
             try {
               return await page.evaluate(fn, ...args);
             } catch (e) {
-              if (e.message.includes('Execution context was destroyed') ||
-                  e.message.includes('Target closed') ||
-                  e.message.includes('Session closed') ||
-                  e.message.includes('Navigating frame was detached')) {
+              const m = (e && e.message) ? e.message : '';
+              if (m.includes('Execution context was destroyed') ||
+                  m.includes('Target closed') ||
+                  m.includes('Session closed') ||
+                  m.includes('Cannot find context') ||
+                  m.includes('Navigating frame was detached')) {
                 log('Navigation detected during evaluate – continuing safely');
                 return null;
               }
@@ -968,158 +1136,516 @@ jobs:
             }
           }
 
-          async function humanMouseMove(page, toX, toY) {
+          async function getMetrics(page) {
+            const m = await safeEvaluate(page, () => ({
+              y: window.scrollY,
+              h: Math.max(
+                document.documentElement ? document.documentElement.scrollHeight : 0,
+                document.body ? document.body.scrollHeight : 0
+              ),
+              vh: window.innerHeight,
+              vw: window.innerWidth,
+              chars: (document.body && document.body.innerText) ? document.body.innerText.length : 0
+            }));
+            if (!m) return { y: 0, h: view.vh, vh: view.vh, vw: view.vw, chars: 0 };
+            if (m.vh > 100) view = { vw: m.vw, vh: m.vh };
+            return m;
+          }
+
+          // ---------- mouse ----------
+          async function ensureMouse(page) {
+            if (mouse.placed) return;
+            mouse = { x: rand(0.3, 0.7) * view.vw, y: rand(0.3, 0.7) * view.vh, placed: true };
+            try { await page.mouse.move(mouse.x, mouse.y); } catch (_) {}
+          }
+
+          function resetMouse() {
+            mouse = { x: 0, y: 0, placed: false };
+          }
+
+          async function moveMouse(page, toX, toY) {
+            if (IS_MOBILE) { mouse = { x: toX, y: toY, placed: true }; return; }
             try {
-              const steps = randInt(8, 18);
+              await ensureMouse(page);
+              const fromX = mouse.x, fromY = mouse.y;
+              const dist = Math.hypot(toX - fromX, toY - fromY);
+              const steps = clamp(Math.round(dist / rand(18, 40)) + randInt(4, 8), 6, 45);
+              const cx = (fromX + toX) / 2 + rand(-0.2, 0.2) * dist;
+              const cy = (fromY + toY) / 2 + rand(-0.2, 0.2) * dist;
               for (let i = 1; i <= steps; i++) {
-                const x = toX * (i / steps) + rand(-8, 8);
-                const y = toY * (i / steps) + rand(-6, 6);
-                await page.mouse.move(x, y);
-                await sleep(rand(8, 25));
+                const t = i / steps;
+                const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;   // ease in/out
+                const x = (1 - e) * (1 - e) * fromX + 2 * (1 - e) * e * cx + e * e * toX;
+                const y = (1 - e) * (1 - e) * fromY + 2 * (1 - e) * e * cy + e * e * toY;
+                const jitter = i < steps ? 1.5 : 0;
+                await page.mouse.move(x + rand(-jitter, jitter), y + rand(-jitter, jitter));
+                await sleep(rand(6, 22));
               }
+              mouse = { x: toX, y: toY, placed: true };
             } catch (_) {}
           }
 
-          async function humanScroll(page, durationMs) {
-            const start = Date.now();
-            let iterations = 0;
-            const style = chance(0.5) ? 'curious' : chance(0.5) ? 'skimmer' : 'reader';
-            log(`Scroll style: ${style}`);
-
-            while (Date.now() - start < durationMs) {
-              iterations++;
-              try {
-                let deltaY;
-                if (style === 'skimmer') {
-                  deltaY = (chance(0.75) ? 1 : -1) * rand(450, 1100);
-                } else if (style === 'reader') {
-                  deltaY = (chance(0.65) ? 1 : -1) * rand(180, 480);
-                } else {
-                  deltaY = (chance(0.6) ? 1 : -1) * rand(280, 750);
-                }
-
-                if (chance(0.12)) deltaY *= rand(1.4, 2.1);
-                if (chance(0.08)) deltaY *= 0.3;
-
-                await page.mouse.wheel({ deltaY });
-
-                let pause;
-                if (style === 'reader') {
-                  pause = chance(0.25) ? rand(1800, 4200) : rand(600, 1600);
-                } else if (style === 'skimmer') {
-                  pause = chance(0.15) ? rand(1200, 2800) : rand(350, 900);
-                } else {
-                  pause = chance(0.2) ? rand(1400, 3500) : rand(500, 1400);
-                }
-
-                // never sleep past the end of the requested time
-                const left = durationMs - (Date.now() - start);
-                await sleep(Math.max(0, Math.min(pause, left)));
-
-                if (chance(0.06)) {
-                  const left2 = durationMs - (Date.now() - start);
-                  await sleep(Math.max(0, Math.min(rand(2500, 5500), left2)));
-                }
-              } catch (e) {
-                log(`Scroll iteration ${iterations} warning: ${e.message}`);
-                await sleep(1000);
-              }
+          async function mouseDrift(page) {
+            if (IS_MOBILE) return;
+            const n = randInt(2, 5);
+            for (let i = 0; i < n; i++) {
+              const x = clamp(mouse.x + rand(-60, 60), 5, view.vw - 5);
+              const y = clamp(mouse.y + rand(-45, 45), 5, view.vh - 5);
+              await moveMouse(page, x, y);
+              await sleep(rand(80, 400));
             }
-            log(`Scroll finished (${iterations} moves, style=${style})`);
           }
 
-          async function humanSurf(browser, page, durationMs) {
-            const start = Date.now();
-            let clicks = 0;
-            let scrolls = 0;
-            const style = chance(0.4) ? 'explorer' : chance(0.5) ? 'casual' : 'focused';
-            log(`Surf style: ${style}`);
+          async function hoverSomething(page) {
+            if (IS_MOBILE) return;
+            const pt = await safeEvaluate(page, () => {
+              const els = Array.from(document.querySelectorAll('a[href], img, h1, h2, h3, p, button, li')).filter((el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 20 && r.height > 10 && r.top >= 0 && r.left >= 0 &&
+                       r.bottom <= window.innerHeight && r.right <= window.innerWidth;
+              });
+              if (!els.length) return null;
+              const el = els[Math.floor(Math.random() * els.length)];
+              const r = el.getBoundingClientRect();
+              return { x: r.left + r.width * (0.2 + Math.random() * 0.6), y: r.top + r.height * (0.2 + Math.random() * 0.6) };
+            });
+            if (pt) {
+              await moveMouse(page, pt.x, pt.y);
+              await sleep(rand(250, 1400));
+            }
+          }
 
-            while (Date.now() - start < durationMs) {
+          // ---------- scrolling primitives ----------
+          async function getCdp(page) {
+            let c = cdpCache.get(page);
+            if (!c) {
+              c = page.createCDPSession ? await page.createCDPSession() : await page.target().createCDPSession();
+              cdpCache.set(page, c);
+            }
+            return c;
+          }
+
+          async function touchScroll(page, delta) {
+            const cdp = await getCdp(page);
+            await cdp.send('Input.synthesizeScrollGesture', {
+              x: Math.round(view.vw * rand(0.3, 0.7)),
+              y: Math.round(view.vh * rand(0.4, 0.8)),
+              yDistance: -delta,            // CDP: positive = scroll up
+              xDistance: 0,
+              speed: Math.round(rand(800, 2600)),
+              gestureSourceType: 'touch',
+              preventFling: chance(0.5)
+            });
+          }
+
+          async function wheelScroll(page, delta, visitor) {
+            const dir = delta > 0 ? 1 : -1;
+            const total = Math.abs(delta);
+            if (visitor.input === 'trackpad') {
+              // momentum: many small deltas that decay like an inertial swipe
+              const frames = randInt(14, 30);
+              const ws = Array.from({ length: frames }, (_, i) => Math.pow(1 - i / frames, 1.7));
+              const sum = ws.reduce((a, b) => a + b, 0);
+              for (const w of ws) {
+                await page.mouse.wheel({ deltaY: (dir * total * w) / sum });
+                await sleep(rand(11, 22));
+              }
+            } else {
+              // classic wheel: discrete notches
+              const ticks = Math.max(1, Math.round(total / visitor.notch));
+              for (let i = 0; i < ticks; i++) {
+                await page.mouse.wheel({ deltaY: dir * visitor.notch });
+                await sleep(chance(0.12) ? rand(80, 220) : rand(16, 70));
+              }
+            }
+          }
+
+          async function scrollByPixels(page, delta, visitor) {
+            if (Math.abs(delta) < 1) return;
+            if (visitor.input === 'touch' && !visitor.touchBroken) {
               try {
-                const scrollAmount = style === 'explorer'
-                  ? rand(200, 700)
-                  : style === 'focused'
-                    ? rand(150, 400)
-                    : rand(250, 600);
+                await touchScroll(page, delta);
+                return;
+              } catch (e) {
+                visitor.touchBroken = true;
+                log(`Touch gesture unavailable (${e.message}) – falling back to wheel`);
+              }
+            }
+            await ensureMouse(page);
+            await wheelScroll(page, delta, visitor);
+          }
 
-                await page.mouse.wheel({
-                  deltaY: (chance(0.7) ? 1 : -1) * scrollAmount
-                });
-                scrolls++;
-                await sleep(rand(400, 1100));
+          async function keyScroll(page, down) {
+            const r = Math.random();
+            if (r < 0.45) {
+              await page.keyboard.press(down ? 'PageDown' : 'PageUp', { delay: rand(30, 90) });
+            } else if (r < 0.7 && down) {
+              await page.keyboard.press('Space', { delay: rand(30, 90) });
+            } else {
+              const n = randInt(3, 8);
+              for (let i = 0; i < n; i++) {
+                await page.keyboard.press(down ? 'ArrowDown' : 'ArrowUp', { delay: rand(25, 70) });
+                await sleep(rand(40, 120));
+              }
+            }
+            await sleep(rand(250, 500));
+          }
 
-                const clickChance = style === 'explorer' ? 0.55
-                                  : style === 'focused'  ? 0.35
-                                  : 0.45;
+          async function scrollStep(page, delta, visitor) {
+            if (!IS_MOBILE && Math.abs(delta) > 120 && chance(visitor.keys)) {
+              try { await keyScroll(page, delta > 0); return; } catch (_) {}
+            }
+            await scrollByPixels(page, delta, visitor);
+          }
 
-                if (chance(clickChance)) {
-                  const clicked = await safeEvaluate(page, () => {
-                    const els = Array.from(document.querySelectorAll(
-                      'a[href], button, [role="button"], input[type="submit"], [onclick], [data-testid], .btn, .button'
-                    )).filter(el => {
-                      const r = el.getBoundingClientRect();
-                      const style = window.getComputedStyle(el);
-                      return r.width > 10 && r.height > 10 &&
-                             r.top >= 0 && r.bottom <= (window.innerHeight || 900) &&
-                             style.visibility !== 'hidden' && style.display !== 'none' &&
-                             style.opacity !== '0';
-                    });
+          async function jumpTo(page, where, visitor) {
+            if (!IS_MOBILE && chance(0.6)) {
+              try {
+                await page.keyboard.press(where === 'top' ? 'Home' : 'End');
+                await sleep(rand(500, 900));
+                return;
+              } catch (_) {}
+            }
+            for (let i = 0; i < 12; i++) {
+              const m = await getMetrics(page);
+              const maxY = Math.max(0, m.h - m.vh);
+              if (where === 'top' ? m.y <= 4 : m.y >= maxY - 4) break;
+              const d = where === 'top'
+                ? -Math.min(m.y, m.vh * rand(1.2, 2.5))
+                : Math.min(maxY - m.y, m.vh * rand(1.2, 2.5));
+              await scrollByPixels(page, d, visitor);
+              await sleep(rand(60, 200));
+            }
+          }
 
-                    if (!els.length) return null;
+          // reading time for the fraction of a screen the visitor just moved past
+          function readPause(visitor, charsPerScreen, frac) {
+            const charsPerSec = (visitor.wpm * 5) / 60;
+            const secs = (charsPerScreen * clamp(frac, 0.1, 1) * visitor.skim) / charsPerSec;
+            return clamp(secs * 1000 * rand(0.6, 1.5) * visitor.tempo + rand(200, 700), 350, 22000);
+          }
 
-                    els.sort((a, b) => {
-                      const ra = a.getBoundingClientRect();
-                      const rb = b.getBoundingClientRect();
-                      return (rb.width * rb.height) - (ra.width * ra.height);
-                    });
+          async function idleGaze(page, deadline) {
+            const ms = clamp(logNormal(5, 0.7) * 1000, 2000, 30000);
+            const half = ms / 2;
+            await sleepUntil(half, deadline);
+            if (chance(0.5)) await mouseDrift(page);
+            await sleepUntil(half, deadline);
+          }
 
-                    const pick = els[Math.floor(Math.random() * Math.min(els.length, 6))];
-                    const rect = pick.getBoundingClientRect();
-                    return {
-                      x: rect.left + rect.width / 2 + (Math.random() - 0.5) * 10,
-                      y: rect.top + rect.height / 2 + (Math.random() - 0.5) * 8
-                    };
-                  });
+          async function tabAway(browser, page, deadline) {
+            try {
+              log('Visitor switches to another tab for a moment');
+              const t = await browser.newPage();
+              await sleepUntil(rand(2500, 12000), deadline);
+              await t.close();
+              await page.bringToFront();
+            } catch (_) {}
+          }
 
-                  if (clicked && clicked.x && clicked.y) {
-                    await humanMouseMove(page, clicked.x, clicked.y);
-                    await sleep(rand(120, 380));
-                    await page.mouse.click(clicked.x, clicked.y, { delay: rand(40, 120) });
-                    clicks++;
+          // what a visitor does after they have read as far as they wanted
+          async function postRead(page, visitor, m, deadline, cps) {
+            const atBottom = m.y + m.vh >= m.h - 4;
+            const options = [
+              ['rescan', 3], ['reread', 2], ['linger', 3], ['top', 1.4], ['footer', atBottom ? 0 : 1.2]
+            ];
+            const act = weightedPick(options, (o) => o[1])[0];
 
-                    // keep working in the original tab if the click opened a new one
-                    await sleep(rand(600, 1200));
-                    await closeExtraTabs(browser, page);
+            if (act === 'rescan') {
+              const n = randInt(2, 5);
+              for (let i = 0; i < n; i++) {
+                await scrollStep(page, -rand(0.4, 0.9) * m.vh, visitor);
+                await sleepUntil(rand(400, 1600) * visitor.tempo, deadline);
+              }
+            } else if (act === 'reread') {
+              const up = rand(1, 2.2) * m.vh;
+              const parts = randInt(1, 3);
+              for (let i = 0; i < parts; i++) {
+                await scrollStep(page, -up / parts, visitor);
+                await sleepUntil(rand(300, 900), deadline);
+              }
+              await sleepUntil(readPause(visitor, cps, 0.8), deadline);
+              for (let i = 0; i < parts; i++) {
+                await scrollStep(page, up / parts, visitor);
+                await sleepUntil(readPause(visitor, cps, 0.4), deadline);
+              }
+            } else if (act === 'linger') {
+              await hoverSomething(page);
+              await mouseDrift(page);
+              await idleGaze(page, deadline);
+            } else if (act === 'top') {
+              await jumpTo(page, 'top', visitor);
+              await sleepUntil(rand(1000, 3000) * visitor.tempo, deadline);
+            } else if (act === 'footer') {
+              await jumpTo(page, 'bottom', visitor);
+              await sleepUntil(rand(1000, 4000) * visitor.tempo, deadline);
+            }
+          }
 
-                    if (chance(0.6)) {
-                      await sleep(rand(1600, 3800));
-                    } else {
-                      await sleep(rand(700, 1500));
-                    }
+          // ---------- one "page view": read the current page until deadline ----------
+          async function readPage(browser, page, visitor, deadline) {
+            hookPage(page);
+            const m0 = await getMetrics(page);
+            const cps = Math.max(150, m0.h > 0 ? m0.chars * (m0.vh / m0.h) : 600);   // chars per screen
+            let targetFrac = clamp(visitor.depth * rand(0.75, 1.2), 0.05, 1);
+            let reachedTarget = false;
+            let steps = 0;
+
+            // arrival: orientation pause, mouse enters the page
+            if (!IS_MOBILE) await ensureMouse(page);
+            await sleepUntil(logNormal(1.6, 0.5) * 1000 * visitor.tempo, deadline);
+            if (chance(0.5)) await mouseDrift(page);
+
+            while (Date.now() < deadline - 300) {
+              steps++;
+              const m = await getMetrics(page);
+              const maxY = Math.max(0, m.h - m.vh);
+              const targetY = maxY * targetFrac;
+              const atBottom = m.y >= maxY - 4;
+
+              // page too short to scroll → just look around
+              if (maxY < 40) {
+                if (chance(0.5)) await hoverSomething(page); else await mouseDrift(page);
+                await sleepUntil(rand(1500, 6000) * visitor.tempo, deadline);
+                if (chance(visitor.away) && steps > 2) await tabAway(browser, page, deadline);
+                continue;
+              }
+
+              if (!reachedTarget && !atBottom) {
+                // occasional glance back up
+                if (m.y > m.vh * 0.5 && chance(visitor.back)) {
+                  await scrollStep(page, -rand(80, 0.5 * m.vh), visitor);
+                  await sleepUntil(readPause(visitor, cps, 0.3), deadline);
+                }
+
+                let step = rand(visitor.step[0], visitor.step[1]);
+                if (chance(0.10)) step *= rand(1.6, 2.4);          // fling
+                else if (chance(0.10)) step *= rand(0.25, 0.5);    // nudge
+                step = Math.min(step, Math.max(0, maxY - m.y));
+                if (step < 5) step = Math.min(rand(60, 200), Math.max(0, maxY - m.y));
+
+                await scrollStep(page, step, visitor);
+                await sleepUntil(readPause(visitor, cps, step / m.vh), deadline);
+                if (m.y + step >= targetY - 30 || m.y + step >= maxY - 4) reachedTarget = true;
+              } else {
+                await postRead(page, visitor, m, deadline, cps);
+                reachedTarget = false;
+                targetFrac = clamp(rand(0.15, 1.0), 0.1, 1);
+              }
+
+              // interjections
+              if (chance(visitor.hover)) await hoverSomething(page);
+              else if (!IS_MOBILE && chance(0.12)) await mouseDrift(page);
+              if (chance(visitor.idle)) await idleGaze(page, deadline);
+              if (steps > 2 && chance(visitor.away)) await tabAway(browser, page, deadline);
+            }
+            log(`Page view finished (${steps} steps, persona=${visitor.persona})`);
+          }
+
+          // ---------- surf: link / button selection ----------
+          // runs INSIDE the page – must stay self-contained
+          const collectClickables = (origin, allowExternal) => {
+            document.querySelectorAll('[data-hs-i]').forEach((e) => e.removeAttribute('data-hs-i'));
+            const BAD_TEXT = /log\s?out|sign\s?out|delete|remove|unsubscribe|checkout|add to cart|buy now|purchase|submit|cancel|download|install|subscribe|sign\s?up|register|password/i;
+            const BAD_HREF = /^(mailto:|tel:|javascript:|sms:|data:|blob:)|logout|signout|sign-out|unsubscribe|delete|remove|checkout|\/cart|\.(pdf|zip|rar|7z|exe|dmg|apk|msi|mp3|mp4|avi|mov|csv|xlsx?|docx?|pptx?)(\?|#|$)/i;
+            const out = [];
+            const els = Array.from(document.querySelectorAll('a[href], [role="tab"], summary, button[aria-expanded], [role="button"]'));
+            for (const el of els) {
+              if (out.length >= 90) break;
+              const r = el.getBoundingClientRect();
+              if (r.width < 12 || r.height < 12) continue;
+              const cs = window.getComputedStyle(el);
+              if (cs.visibility === 'hidden' || cs.display === 'none' || cs.opacity === '0' || cs.pointerEvents === 'none') continue;
+              if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
+              if (el.tagName !== 'A' && el.closest('form')) continue;
+              const text = ((el.innerText || el.getAttribute('aria-label') || el.getAttribute('title') || '') + '').trim().replace(/\s+/g, ' ').slice(0, 80);
+              if (BAD_TEXT.test(text)) continue;
+
+              let kind = 'ui';
+              let href = '';
+              if (el.tagName === 'A') {
+                if (el.hasAttribute('download')) continue;
+                href = el.href || '';
+                if (!href || BAD_HREF.test(href)) continue;
+                let u;
+                try { u = new URL(href, location.href); } catch (e) { continue; }
+                if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
+                if (u.origin === origin) {
+                  if (u.pathname === location.pathname && u.search === location.search) {
+                    if (!u.hash) continue;
+                    kind = 'anchor';
                   } else {
-                    await sleep(rand(600, 1200));
+                    kind = 'internal';
                   }
                 } else {
-                  await sleep(rand(500, 1300));
+                  if (!allowExternal) continue;
+                  kind = 'external';
                 }
-
-                if (chance(0.09)) {
-                  await sleep(rand(2200, 5000));
-                }
-              } catch (e) {
-                log(`Surf warning: ${e.message}`);
-                await sleep(1200);
               }
+
+              const region = el.closest('nav, header') ? 'nav'
+                           : el.closest('footer') ? 'footer'
+                           : el.closest('main, article, section') ? 'content' : 'other';
+              const idx = out.length;
+              el.setAttribute('data-hs-i', String(idx));
+              out.push({ idx, kind, region, text, href, docY: r.top + window.scrollY, w: r.width, h: r.height });
             }
-            log(`Surf finished – ${clicks} clicks, ${scrolls} scrolls (style=${style})`);
+            return out;
+          };
+
+          function linkWeight(c, visitor, visited) {
+            let w = 1;
+            w *= c.kind === 'internal' ? 1 : c.kind === 'ui' ? 0.35 : c.kind === 'anchor' ? 0.25 : 0.04;
+            w *= c.region === 'nav' ? 1.2 * visitor.navBias : c.region === 'content' ? 1.6 : c.region === 'footer' ? 0.3 : 0.8;
+            w *= Math.sqrt(clamp(c.w * c.h, 200, 40000)) / 60;
+            const len = c.text.length;
+            if (len === 0) w *= 0.5;
+            else if (len >= 3 && len <= 40) w *= 1.3;
+            else if (len > 70) w *= 0.6;
+            if (c.href && visited.has(normUrl(c.href))) w *= 0.15;
+            return w;
           }
 
+          async function getRect(page, idx) {
+            return await safeEvaluate(page, (i) => {
+              const el = document.querySelector('[data-hs-i="' + i + '"]');
+              if (!el) return null;
+              const r = el.getBoundingClientRect();
+              return { l: r.left, t: r.top, w: r.width, h: r.height, vh: window.innerHeight, vw: window.innerWidth };
+            }, idx);
+          }
+
+          async function bringIntoView(page, visitor, docY) {
+            const vh = view.vh || 800;
+            const wantTop = rand(0.2, 0.65) * vh;
+            for (let guard = 0; guard < 14; guard++) {
+              const m = await getMetrics(page);
+              const diff = (docY - wantTop) - m.y;
+              if (Math.abs(diff) < vh * 0.18) break;
+              const step = clamp(diff, -m.vh * 0.9, m.vh * 0.9);
+              await scrollByPixels(page, step * rand(0.85, 1.0), visitor);
+              await sleep(rand(120, 450));
+            }
+            await sleep(rand(250, 500));
+          }
+
+          async function clickSomething(browser, page, visitor, origin, visited) {
+            const cands = await safeEvaluate(page, collectClickables, origin, visitor.allowExternal);
+            if (!cands || !cands.length) {
+              log('No clickable candidates on this page');
+              return null;
+            }
+            const pick = weightedPick(cands, (c) => linkWeight(c, visitor, visited));
+            log(`Click target: [${pick.kind}/${pick.region}] "${pick.text}"${pick.href ? ' → ' + pick.href : ''}`);
+
+            await bringIntoView(page, visitor, pick.docY);
+
+            let rect = await getRect(page, pick.idx);
+            if (!rect || rect.t < 0 || rect.t + rect.h > rect.vh) {
+              await safeEvaluate(page, (i) => {
+                const el = document.querySelector('[data-hs-i="' + i + '"]');
+                if (el) el.scrollIntoView({ block: 'center' });
+              }, pick.idx);
+              await sleep(rand(300, 700));
+              rect = await getRect(page, pick.idx);
+            }
+            if (!rect || rect.w < 4 || rect.h < 4) return null;
+
+            const x = clamp(rect.l + rect.w * rand(0.25, 0.75), 2, rect.vw - 2);
+            const y = clamp(rect.t + rect.h * rand(0.3, 0.7), 2, rect.vh - 2);
+
+            const before = normUrl(page.url());
+            const pagesBefore = new Set(await browser.pages());
+            const navP = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => null);
+
+            await moveMouse(page, x, y);
+            await sleep(rand(150, 500));
+            await page.mouse.click(x, y, { delay: rand(45, 130) });
+
+            await Promise.race([navP, sleep(3500)]);
+            await sleep(rand(500, 1500));
+
+            // did the click open a new tab? then follow it like a real visitor would
+            let current = page;
+            const pagesNow = await browser.pages();
+            const fresh = pagesNow.filter((p) => !pagesBefore.has(p));
+            if (fresh.length) {
+              current = fresh[fresh.length - 1];
+              try { await current.bringToFront(); } catch (_) {}
+              hookPage(current);
+              await sleep(rand(1000, 2500));
+              await closeExtraTabs(browser, current);
+              resetMouse();
+            }
+
+            let after = before;
+            try { after = normUrl(current.url()); } catch (_) {}
+            const navigated = current !== page || after !== before;
+
+            // wandered off the site? look briefly, then come back
+            try {
+              const here = new URL(current.url());
+              if (here.origin !== origin) {
+                log(`Landed off-site (${here.origin}) – returning`);
+                await sleep(rand(1200, 3500));
+                let back = false;
+                try { back = !!(await current.goBack({ waitUntil: 'domcontentloaded', timeout: 20000 })); } catch (_) {}
+                if (!back || new URL(current.url()).origin !== origin) {
+                  await gotoWithRetry(current, TARGET_URL);
+                }
+              }
+            } catch (_) {}
+
+            return { page: current, navigated };
+          }
+
+          async function surf(browser, startPage, visitor, deadline, origin) {
+            let page = startPage;
+            const visited = new Set([normUrl(page.url())]);
+            let clicks = 0, pagesSeen = 1;
+
+            while (deadline - Date.now() > 3000) {
+              const left = deadline - Date.now();
+              const budget = clamp(logNormal(visitor.dwell, 0.55) * 1000 * visitor.tempo, 4000, 300000);
+              await readPage(browser, page, visitor, Date.now() + Math.min(budget, left));
+              if (deadline - Date.now() <= 3000) break;
+
+              const r = Math.random();
+              if (r < visitor.click) {
+                let res = null;
+                try {
+                  res = await clickSomething(browser, page, visitor, origin, visited);
+                } catch (e) {
+                  log(`Click warning: ${e.message}`);
+                }
+                if (res) {
+                  page = res.page;
+                  clicks++;
+                  if (res.navigated) pagesSeen++;
+                  try { visited.add(normUrl(page.url())); } catch (_) {}
+                } else {
+                  // dead end → go back or head to the start page
+                  let back = false;
+                  try { back = !!(await page.goBack({ waitUntil: 'domcontentloaded', timeout: 20000 })); } catch (_) {}
+                  if (!back) { try { await gotoWithRetry(page, TARGET_URL); } catch (_) {} }
+                }
+              } else if (r < visitor.click + visitor.backNav && pagesSeen > 1) {
+                log('Visitor goes back');
+                try { await page.goBack({ waitUntil: 'domcontentloaded', timeout: 20000 }); } catch (_) {}
+              }
+              // otherwise: keep reading the same page for another stretch
+            }
+            log(`Surf finished – ${clicks} clicks, ${pagesSeen} pages (persona=${visitor.persona})`);
+          }
+
+          // ---------- main ----------
           (async () => {
+            const visitor = createVisitor();
             log(`Starting profile ${PROFILE_ID}`);
             log(`Target: ${TARGET_URL}`);
             const mode = DO_SURF ? 'surf' : DO_SCROLL ? 'scroll' : 'idle';
             log(`Open time: ${RUNTIME_MIN} min | Scroll: ${DO_SCROLL} | Surf: ${DO_SURF} → mode: ${mode}`);
+            log(`Visitor: ${visitor.persona} | input=${visitor.input} | wpm=${Math.round(visitor.wpm)} | skim=${visitor.skim.toFixed(2)} | depth=${visitor.depth.toFixed(2)} | tempo=${visitor.tempo.toFixed(2)} | click=${visitor.click.toFixed(2)} | dwell=${Math.round(visitor.dwell)}s`);
 
             let browser;
             try {
@@ -1128,25 +1654,34 @@ jobs:
 
               const pages = await browser.pages();
               const page = pages.length ? pages[0] : await browser.newPage();
+              hookPage(page);
 
               log('Navigating to target URL...');
               await gotoWithRetry(page, TARGET_URL);
               log('Page loaded');
 
-              await sleep(rand(1500, 3200));
+              await sleep(rand(1000, 2500));
 
               const totalMs = RUNTIME_MIN * 60 * 1000;
               const remainingMs = Math.max(5000, totalMs - (Date.now() - openedAt));
+              const deadline = Date.now() + remainingMs;
               log(`Running ${mode} for ${Math.round(remainingMs / 1000)}s (total open time ${Math.round(totalMs / 1000)}s)...`);
 
+              let origin;
+              try { origin = new URL(page.url()).origin; } catch (_) { origin = new URL(TARGET_URL).origin; }
+
               if (DO_SURF) {
-                await humanSurf(browser, page, remainingMs);
+                await surf(browser, page, visitor, deadline, origin);
               } else if (DO_SCROLL) {
-                await humanScroll(page, remainingMs);
+                await readPage(browser, page, visitor, deadline);
               } else {
                 log('Idle mode – just waiting');
                 await sleep(remainingMs);
               }
+
+              // keep the profile open for the full requested time
+              const rest = deadline - Date.now();
+              if (rest > 0) await sleep(rest);
 
               log('Behaviour completed successfully');
             } catch (err) {
@@ -1158,7 +1693,7 @@ jobs:
               }
               await stopProfile();
             }
-          })().catch(err => {
+          })().catch((err) => {
             console.error(err && err.message ? err.message : err);
             process.exit(1);
           });
