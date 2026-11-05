@@ -109,9 +109,20 @@ on:
 permissions:
   contents: write
 
+# ------------------------------------------------------------
+# WHERE THE LAST INPUTS ARE SAVED (inside your repository)
+#   <LAST_INPUTS_DIR>/<LAST_INPUTS_JSON_FILE>
+#   <LAST_INPUTS_DIR>/<LAST_INPUTS_TXT_FILE>
+# Change these three values if you want a different file name/path.
+# ------------------------------------------------------------
+env:
+  LAST_INPUTS_DIR: ".gologin-last-inputs"
+  LAST_INPUTS_JSON_FILE: "last-run.json"
+  LAST_INPUTS_TXT_FILE: "last-run.txt"
+
 jobs:
   # ============================================================
-  # JOB 0 – Runs once: validate + matrix + save last inputs
+  # JOB 0 – Validate GoLogin key + build the matrix
   # ============================================================
   prepare:
     name: Prepare & Validate
@@ -125,18 +136,12 @@ jobs:
       country: ${{ steps.generate.outputs.country }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GH_PAT }}
-          fetch-depth: 0
-          persist-credentials: false
-
       - name: Validate GoLogin API Key
         id: validate
         env:
           TOKEN: ${{ inputs.gologin_api_key }}
         run: |
+          echo "::add-mask::$TOKEN"
           echo "Validating API token..."
           HTTP_CODE=$(curl -s -o /tmp/gl_resp.json -w "%{http_code}" \
             -H "Authorization: Bearer $TOKEN" \
@@ -162,22 +167,26 @@ jobs:
 
       - name: Generate matrix & naming data
         id: generate
+        env:
+          TOTAL: ${{ inputs.number_of_devices }}
+          URL: ${{ inputs.target_url }}
+          COUNTRY_IN: ${{ inputs.proxy_country }}
+          OS_INPUT: ${{ inputs.operating_system }}
         run: |
-          TOTAL=${{ inputs.number_of_devices }}
-          URL="${{ inputs.target_url }}"
-          COUNTRY=$(echo "${{ inputs.proxy_country }}" | tr '[:lower:]' '[:upper:]')
-          OS_INPUT="${{ inputs.operating_system }}"
+          COUNTRY=$(echo "$COUNTRY_IN" | tr -cd '[:alpha:]' | tr '[:lower:]' '[:upper:]' | cut -c1-2)
+          [ -z "$COUNTRY" ] && COUNTRY="US"
 
           SHORT=$(echo "$URL" | sed -E 's|https?://||; s|.*/||; s|\?.*||; s|#.*||')
           [ -z "$SHORT" ] && SHORT="home"
-          SHORT=$(echo "$SHORT" | tr -cd '[:alnum:]-_' | cut -c1-20)
+          SHORT=$(echo "$SHORT" | tr -cd '[:alnum:]_-' | cut -c1-20)
+          [ -z "$SHORT" ] && SHORT="home"
 
           case "$OS_INPUT" in
-            "Windows 10") OS_CODE="Win10";    OS="win";     OS_SPEC=""     ;;
+            "Windows 10") OS_CODE="Win10";    OS="win";     OS_SPEC=""      ;;
             "Windows 11") OS_CODE="Win11";    OS="win";     OS_SPEC="win11" ;;
-            "Mac Intel")  OS_CODE="MacIntel"; OS="mac";     OS_SPEC=""     ;;
-            "Mac ARM")    OS_CODE="MacARM";   OS="mac";     OS_SPEC="M3"   ;;
-            "Android")    OS_CODE="Android";  OS="android"; OS_SPEC=""     ;;
+            "Mac Intel")  OS_CODE="MacIntel"; OS="mac";     OS_SPEC=""      ;;
+            "Mac ARM")    OS_CODE="MacARM";   OS="mac";     OS_SPEC="M3"    ;;
+            "Android")    OS_CODE="Android";  OS="android"; OS_SPEC=""      ;;
             *)            OS_CODE="Win11";    OS="win";     OS_SPEC="win11" ;;
           esac
 
@@ -189,7 +198,7 @@ jobs:
           done
           MATRIX+="]}"
 
-          echo "matrix=$(echo $MATRIX | jq -c .)" >> $GITHUB_OUTPUT
+          echo "matrix=$(echo "$MATRIX" | jq -c .)" >> $GITHUB_OUTPUT
           echo "short_url=$SHORT" >> $GITHUB_OUTPUT
           echo "os_code=$OS_CODE" >> $GITHUB_OUTPUT
           echo "os=$OS" >> $GITHUB_OUTPUT
@@ -200,148 +209,194 @@ jobs:
           echo "OS=$OS  osSpec='$OS_SPEC'"
           echo "$MATRIX" | jq .
 
-      # ============================================================
-      # SAVE LAST INPUTS – hardened for GH_PAT + verification
-      # ============================================================
-      - name: Save last inputs
+  # ============================================================
+  # JOB 1 – Save ALL last inputs to the repo using GH_PAT
+  # (separate job: a save problem can never block the profile jobs)
+  # ============================================================
+  save_inputs:
+    name: Save last inputs
+    runs-on: ubuntu-latest
+    needs: prepare
+    timeout-minutes: 10
+    concurrency:
+      group: gologin-save-last-inputs
+      cancel-in-progress: false
+
+    steps:
+      - name: Check GH_PAT can write to this repo
         env:
-          TOKEN: ${{ inputs.gologin_api_key }}
           GH_PAT: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
         run: |
-          set -e
-
-          echo "========================================"
-          echo "Saving last used inputs..."
-          echo "========================================"
-
           if [ -z "$GH_PAT" ]; then
-            echo "❌ secrets.GH_PAT is empty or not set in the repository secrets"
+            echo "❌ Repository secret GH_PAT is missing or empty."
+            echo "   Settings → Secrets and variables → Actions → New repository secret → name: GH_PAT"
             exit 1
           fi
 
-          mkdir -p .gologin-last-inputs
+          HTTP_CODE=$(curl -s -o /tmp/repo.json -w "%{http_code}" \
+            -H "Authorization: Bearer $GH_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO")
 
-          # Mask API key
+          if [ "$HTTP_CODE" = "401" ]; then
+            echo "❌ GH_PAT is invalid or expired (HTTP 401). Create a new token and update the secret."
+            exit 1
+          fi
+          if [ "$HTTP_CODE" = "404" ]; then
+            echo "❌ GH_PAT cannot see $REPO (HTTP 404)."
+            echo "   Fine-grained token: add this repository under 'Repository access'."
+            exit 1
+          fi
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Unexpected HTTP $HTTP_CODE while checking GH_PAT"
+            cat /tmp/repo.json
+            exit 1
+          fi
+
+          PUSH=$(jq -r '.permissions.push // "unknown"' /tmp/repo.json)
+          echo "GH_PAT push permission: $PUSH"
+          if [ "$PUSH" = "false" ]; then
+            echo "❌ GH_PAT has no write access."
+            echo "   Classic token  : needs the 'repo' scope."
+            echo "   Fine-grained   : needs 'Contents: Read and write' on this repository."
+            exit 1
+          fi
+          echo "✅ GH_PAT looks good"
+
+      - name: Checkout repository (using GH_PAT)
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Write last-input files
+        env:
+          INPUTS_JSON: ${{ toJson(inputs) }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          ACTOR: ${{ github.actor }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$LAST_INPUTS_DIR"
+          JSON_PATH="$LAST_INPUTS_DIR/$LAST_INPUTS_JSON_FILE"
+          TXT_PATH="$LAST_INPUTS_DIR/$LAST_INPUTS_TXT_FILE"
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          # Mask the API key (never store it in full)
+          TOKEN=$(echo "$INPUTS_JSON" | jq -r '.gologin_api_key // ""')
           if [ ${#TOKEN} -gt 12 ]; then
             MASKED="${TOKEN:0:6}...${TOKEN: -4}"
           else
             MASKED="***masked***"
           fi
 
-          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # JSON file – every input (text boxes, dropdowns, checkboxes) is included automatically
+          echo "$INPUTS_JSON" | jq \
+            --arg ts "$TIMESTAMP" \
+            --arg run_id "$RUN_ID" \
+            --arg run_number "$RUN_NUMBER" \
+            --arg workflow "$WORKFLOW_NAME" \
+            --arg actor "$ACTOR" \
+            --arg ref "$REF_NAME" \
+            --arg url "$RUN_URL" \
+            --arg masked "$MASKED" \
+            '{
+              timestamp: $ts,
+              run_id: $run_id,
+              run_number: $run_number,
+              workflow_name: $workflow,
+              workflow_run_url: $url,
+              actor: $actor,
+              ref: $ref,
+              inputs: (. + {gologin_api_key: $masked})
+            }' > "$JSON_PATH"
 
-          # JSON version
-          cat > .gologin-last-inputs/last-run.json << EOF
+          # Human readable file
           {
-            "timestamp": "$TIMESTAMP",
-            "run_id": "${{ github.run_id }}",
-            "run_number": "${{ github.run_number }}",
-            "workflow_name": "${{ github.workflow }}",
-            "workflow_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-            "actor": "${{ github.actor }}",
-            "ref": "${{ github.ref_name }}",
-            "gologin_api_key_masked": "$MASKED",
-            "operating_system": "${{ inputs.operating_system }}",
-            "proxy_type": "${{ inputs.proxy_type }}",
-            "orbita_version": "${{ inputs.orbita_version }}",
-            "target_url": "${{ inputs.target_url }}",
-            "number_of_devices": "${{ inputs.number_of_devices }}",
-            "concurrent_devices": "${{ inputs.concurrent_devices }}",
-            "delay_between_devices_minutes": "${{ inputs.delay_between_devices_minutes }}",
-            "run_time_minutes": "${{ inputs.run_time_minutes }}",
-            "enable_scroll": ${{ inputs.enable_scroll }},
-            "enable_surf": ${{ inputs.enable_surf }},
-            "delete_profiles_after_run": ${{ inputs.delete_profiles_after_run }},
-            "proxy_country": "${{ inputs.proxy_country }}"
-          }
-          EOF
+            echo "GoLogin Last Run Inputs"
+            echo "========================"
+            echo "Timestamp  : $TIMESTAMP"
+            echo "Run ID     : $RUN_ID"
+            echo "Run Number : $RUN_NUMBER"
+            echo "Workflow   : $WORKFLOW_NAME"
+            echo "Actor      : $ACTOR"
+            echo "Branch     : $REF_NAME"
+            echo "Run URL    : $RUN_URL"
+            echo ""
+            echo "--- All Inputs ---"
+            jq -r --arg masked "$MASKED" \
+              '(. + {gologin_api_key: $masked}) | to_entries[] | "\(.key): \(.value)"' \
+              <<< "$INPUTS_JSON"
+          } > "$TXT_PATH"
 
-          # Human readable version
-          cat > .gologin-last-inputs/last-run.txt << EOF
-          GoLogin Last Run Inputs
-          ========================
-          Timestamp          : $TIMESTAMP
-          Run ID             : ${{ github.run_id }}
-          Run Number         : ${{ github.run_number }}
-          Workflow           : ${{ github.workflow }}
-          Actor              : ${{ github.actor }}
-          Branch             : ${{ github.ref_name }}
-          Run URL            : ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-          --- All Inputs ---
-          GoLogin API Key    : $MASKED
-          Operating System   : ${{ inputs.operating_system }}
-          Proxy Type         : ${{ inputs.proxy_type }}
-          Orbita Version     : ${{ inputs.orbita_version }}
-          Target URL         : ${{ inputs.target_url }}
-          Number of Devices  : ${{ inputs.number_of_devices }}
-          Concurrent Devices : ${{ inputs.concurrent_devices }}
-          Delay (minutes)    : ${{ inputs.delay_between_devices_minutes }}
-          Run Time (minutes) : ${{ inputs.run_time_minutes }}
-          Enable Scroll      : ${{ inputs.enable_scroll }}
-          Enable Surf        : ${{ inputs.enable_surf }}
-          Delete After Run   : ${{ inputs.delete_profiles_after_run }}
-          Proxy Country      : ${{ inputs.proxy_country }}
-          EOF
-
-          echo "Files created locally:"
-          ls -la .gologin-last-inputs/
+          echo "Files written:"
+          ls -la "$LAST_INPUTS_DIR"
+          echo "----- $JSON_PATH -----"
+          cat "$JSON_PATH"
           echo ""
-          echo "----- last-run.json -----"
-          cat .gologin-last-inputs/last-run.json
-          echo ""
-          echo "----- last-run.txt -----"
-          cat .gologin-last-inputs/last-run.txt
-          echo ""
+          echo "----- $TXT_PATH -----"
+          cat "$TXT_PATH"
 
-          # Git identity
-          git config user.name "github-actions[bot]"
+      - name: Commit & push last inputs
+        env:
+          BRANCH: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+
+          JSON_PATH="$LAST_INPUTS_DIR/$LAST_INPUTS_JSON_FILE"
+          TXT_PATH="$LAST_INPUTS_DIR/$LAST_INPUTS_TXT_FILE"
+
+          git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Force remote to use the PAT (most reliable)
-          git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git"
+          git add -f "$JSON_PATH" "$TXT_PATH"
 
-          echo "Remote after update:"
-          git remote -v | sed "s/${GH_PAT}/***PAT***/g"
-
-          git add .gologin-last-inputs/last-run.json .gologin-last-inputs/last-run.txt
-
-          if git diff --staged --quiet; then
-            echo "No content changes detected – forcing a timestamp update commit"
-            # Touch the txt file so we always create a new commit
-            echo "" >> .gologin-last-inputs/last-run.txt
-            echo "Last forced update: $TIMESTAMP" >> .gologin-last-inputs/last-run.txt
-            git add .gologin-last-inputs/last-run.txt
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
           fi
 
-          echo "Committing..."
-          git commit -m "chore(gologin): save last inputs - run #${{ github.run_number }} [skip ci]" || {
-            echo "Commit failed"
-            exit 1
-          }
+          git commit -m "chore(gologin): save last inputs - run #${RUN_NUMBER} [skip ci]"
 
-          echo "Pushing to ${{ github.ref_name }}..."
-          if ! git push origin "HEAD:${{ github.ref_name }}"; then
-            echo "❌ git push failed"
+          PUSHED=false
+          for attempt in 1 2 3 4 5; do
+            echo "Push attempt $attempt ..."
+            if git push origin "HEAD:refs/heads/$BRANCH"; then
+              PUSHED=true
+              break
+            fi
+            echo "Push failed – syncing with remote and retrying..."
+            sleep $((attempt * 3))
+            git pull --rebase origin "$BRANCH" || true
+          done
+
+          if [ "$PUSHED" != "true" ]; then
+            echo "❌ git push failed after 5 attempts"
             echo "Possible causes:"
-            echo "  - secrets.GH_PAT is missing, expired, or lacks 'repo' scope"
-            echo "  - Branch protection rules require a pull request / reviews"
-            echo "  - PAT does not have permission to push to this branch"
+            echo "  - GH_PAT lacks write access (classic: 'repo' scope, fine-grained: Contents read+write)"
+            echo "  - Branch protection requires pull requests (allow the PAT owner to bypass)"
             exit 1
           fi
 
-          echo "✅ Successfully pushed last inputs"
+          echo "✅ Pushed last inputs to $BRANCH"
 
-          # Verification – pull the files back and show them
-          echo ""
-          echo "===== VERIFICATION ====="
-          git fetch origin ${{ github.ref_name }}
-          git show origin/${{ github.ref_name }}:.gologin-last-inputs/last-run.txt || echo "(could not show remote file)"
-          echo "========================"
-
+      - name: Verify saved files on remote
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git fetch origin "$BRANCH"
+          echo "===== $LAST_INPUTS_DIR/$LAST_INPUTS_TXT_FILE on origin/$BRANCH ====="
+          git show "origin/$BRANCH:$LAST_INPUTS_DIR/$LAST_INPUTS_TXT_FILE"
           echo "========================================"
-          echo "Save last inputs completed successfully"
-          echo "========================================"
+          echo "✅ Last inputs saved and verified"
 
   # ============================================================
   # MATRIX JOB – One named job per profile
@@ -350,7 +405,7 @@ jobs:
     name: ${{ matrix.name }}
     needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
 
     strategy:
       fail-fast: false
@@ -366,7 +421,7 @@ jobs:
       - name: Install dependencies
         run: |
           npm init -y >/dev/null
-          npm install gologin puppeteer-core axios --silent --no-audit --no-fund
+          npm install puppeteer-core axios --silent --no-audit --no-fund
 
       - name: Apply start delay
         if: ${{ fromJson(inputs.delay_between_devices_minutes) > 0 && matrix.index > 1 }}
@@ -384,6 +439,7 @@ jobs:
           OS: ${{ needs.prepare.outputs.os }}
           OS_SPEC: ${{ needs.prepare.outputs.os_spec }}
         run: |
+          echo "::add-mask::$TOKEN"
           echo "Creating profile: $PROFILE_NAME"
           echo "OS='$OS'  osSpec='$OS_SPEC'"
 
@@ -408,14 +464,22 @@ jobs:
           echo "Request body:"
           echo "$BODY" | jq .
 
-          HTTP_CODE=$(curl -s -o /tmp/create.json -w "%{http_code}" \
-            -X POST "https://api.gologin.com/browser/quick" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$BODY")
+          HTTP_CODE=""
+          for attempt in 1 2 3 4; do
+            HTTP_CODE=$(curl -s -o /tmp/create.json -w "%{http_code}" \
+              -X POST "https://api.gologin.com/browser/quick" \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$BODY")
+            echo "Attempt $attempt → HTTP $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then break; fi
+            case "$HTTP_CODE" in
+              429|500|502|503|504|000) sleep $((attempt * 10)) ;;
+              *) break ;;
+            esac
+          done
 
-          echo "HTTP $HTTP_CODE"
-          cat /tmp/create.json | jq . || cat /tmp/create.json
+          cat /tmp/create.json | jq . 2>/dev/null || cat /tmp/create.json
 
           if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ]; then
             echo "❌ Failed to create profile"
@@ -440,6 +504,7 @@ jobs:
           PROXY_TYPE: ${{ inputs.proxy_type }}
           COUNTRY: ${{ needs.prepare.outputs.country }}
         run: |
+          echo "::add-mask::$TOKEN"
           COUNTRY_LOWER=$(echo "$COUNTRY" | tr '[:upper:]' '[:lower:]')
           echo "Attaching $PROXY_TYPE proxy ($COUNTRY) as $PROXY_NAME to $PROFILE_ID"
 
@@ -450,30 +515,48 @@ jobs:
             "Data Center") IS_DC=true ;;
           esac
 
+          PROXY_BODY=$(jq -n \
+            --arg cc "$COUNTRY_LOWER" \
+            --arg pid "$PROFILE_ID" \
+            --arg name "$PROXY_NAME" \
+            --argjson mobile "$IS_MOBILE" \
+            --argjson dc "$IS_DC" \
+            '{countryCode: $cc, profileIdToLink: $pid, isMobile: $mobile, isDC: $dc, customName: $name}')
+
           HTTP_CODE=$(curl -s -o /tmp/proxy.json -w "%{http_code}" \
             -X POST "https://api.gologin.com/users-proxies/mobile-proxy" \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"countryCode\": \"$COUNTRY_LOWER\",
-              \"profileIdToLink\": \"$PROFILE_ID\",
-              \"isMobile\": $IS_MOBILE,
-              \"isDC\": $IS_DC,
-              \"customName\": \"$PROXY_NAME\"
-            }")
+            -d "$PROXY_BODY")
 
           echo "High-quality proxy HTTP $HTTP_CODE"
           cat /tmp/proxy.json | jq . 2>/dev/null || cat /tmp/proxy.json
 
           if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ]; then
             echo "Falling back to auto region proxy..."
-            curl -s -X PATCH "https://api.gologin.com/browser/$PROFILE_ID/proxy" \
+            FB_CODE=$(curl -s -o /tmp/proxy_fallback.json -w "%{http_code}" \
+              -X PATCH "https://api.gologin.com/browser/$PROFILE_ID/proxy" \
               -H "Authorization: Bearer $TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"mode\":\"gologin\",\"autoProxyRegion\":\"$COUNTRY_LOWER\"}" \
-              -o /tmp/proxy_fallback.json
-            cat /tmp/proxy_fallback.json | jq . 2>/dev/null || true
+              -d "{\"mode\":\"gologin\",\"autoProxyRegion\":\"$COUNTRY_LOWER\"}")
+            echo "Fallback HTTP $FB_CODE"
+            cat /tmp/proxy_fallback.json | jq . 2>/dev/null || cat /tmp/proxy_fallback.json
+            case "$FB_CODE" in
+              200|201|204) ;;
+              *)
+                echo "❌ Could not attach any proxy – refusing to run without one"
+                exit 1
+                ;;
+            esac
           fi
+
+          # Let GoLogin finish provisioning before the browser is launched
+          sleep 8
+
+          # Informational: show what the profile now has
+          curl -s -H "Authorization: Bearer $TOKEN" \
+            "https://api.gologin.com/browser/$PROFILE_ID" \
+            | jq '{name, os, proxyEnabled, proxy: (.proxy | {mode, country: (.country // .autoProxyRegion)})}' 2>/dev/null || true
 
           echo "✅ Proxy attached"
 
@@ -487,6 +570,7 @@ jobs:
           DO_SCROLL: ${{ inputs.enable_scroll }}
           DO_SURF: ${{ inputs.enable_surf }}
         run: |
+          echo "::add-mask::$TOKEN"
           cat > run-profile.mjs << 'EOF'
           import puppeteer from 'puppeteer-core';
           import axios from 'axios';
@@ -498,6 +582,8 @@ jobs:
           const DO_SCROLL   = process.env.DO_SCROLL === 'true';
           const DO_SURF     = process.env.DO_SURF === 'true';
 
+          const MAX_CONNECT_ATTEMPTS = 6;
+
           const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
 
           const rand = (min, max) => Math.random() * (max - min) + min;
@@ -508,12 +594,69 @@ jobs:
           async function stopProfile() {
             try {
               await axios.delete(`https://api.gologin.com/browser/${PROFILE_ID}/web`, {
-                headers: { Authorization: `Bearer ${TOKEN}` }
+                headers: { Authorization: `Bearer ${TOKEN}` },
+                timeout: 30000
               });
               log('Cloud session stopped');
             } catch (e) {
               log(`Stop warning: ${e.message}`);
             }
+          }
+
+          // Errors that are worth retrying (server busy / temporary / network)
+          function isTransient(err) {
+            const m = String(err && err.message ? err.message : err);
+            return /\b(502|503|504|429)\b/.test(m) ||
+                   /ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|socket hang up|Unexpected server response|WebSocket|timed out|Timed out/i.test(m);
+          }
+
+          // Cloud Browser answers 503 when it is busy, still provisioning the profile,
+          // or a stale session for the same profile still exists. Retry with back-off.
+          async function connectWithRetry() {
+            const wsEndpoint =
+              `wss://cloudbrowser.gologin.com/connect?token=${encodeURIComponent(TOKEN)}&profile=${PROFILE_ID}`;
+
+            let lastErr;
+            for (let attempt = 1; attempt <= MAX_CONNECT_ATTEMPTS; attempt++) {
+              try {
+                log(`Connecting to Cloud Browser (attempt ${attempt}/${MAX_CONNECT_ATTEMPTS})...`);
+                const b = await puppeteer.connect({
+                  browserWSEndpoint: wsEndpoint,
+                  defaultViewport: null,
+                  protocolTimeout: 120000
+                });
+                log('Connected to Cloud Browser');
+                return b;
+              } catch (e) {
+                lastErr = e;
+                const msg = (e && e.message) ? e.message : String(e);
+                log(`Connect failed: ${msg}`);
+
+                if (!isTransient(e) || attempt === MAX_CONNECT_ATTEMPTS) break;
+
+                // Clear any half-started session, then wait with back-off + jitter
+                await stopProfile();
+                const wait = Math.min(15000 * attempt, 75000) + randInt(0, 5000);
+                log(`Waiting ${Math.round(wait / 1000)}s before retry...`);
+                await sleep(wait);
+              }
+            }
+            throw lastErr;
+          }
+
+          async function gotoWithRetry(page, url) {
+            let lastErr;
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              try {
+                await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
+                return;
+              } catch (e) {
+                lastErr = e;
+                log(`Navigation attempt ${attempt}/3 failed: ${e.message}`);
+                await sleep(rand(3000, 7000));
+              }
+            }
+            throw lastErr;
           }
 
           async function safeEvaluate(page, fn, ...args) {
@@ -676,31 +819,20 @@ jobs:
             log(`Target: ${TARGET_URL}`);
             log(`Runtime: ${RUNTIME_MIN} min | Scroll: ${DO_SCROLL} | Surf: ${DO_SURF}`);
 
-            const wsEndpoint = `https://cloudbrowser.gologin.com/connect?token=${TOKEN}&profile=${PROFILE_ID}`;
-
             let browser;
             try {
-              log('Connecting to Cloud Browser...');
-              browser = await puppeteer.connect({
-                browserWSEndpoint: wsEndpoint,
-                ignoreHTTPSErrors: true,
-                defaultViewport: null,
-                protocolTimeout: 120000
-              });
+              browser = await connectWithRetry();
 
               const pages = await browser.pages();
               const page = pages.length ? pages[0] : await browser.newPage();
 
               log('Navigating to target URL...');
-              await page.goto(TARGET_URL, {
-                waitUntil: 'domcontentloaded',
-                timeout: 90000
-              });
+              await gotoWithRetry(page, TARGET_URL);
               log('Page loaded');
 
               await sleep(rand(1500, 3200));
 
-              const runtimeMs = Math.max(30, RUNTIME_MIN * 60 * 1000);
+              const runtimeMs = Math.max(30000, RUNTIME_MIN * 60 * 1000);
               log(`Starting behaviour for ${Math.round(runtimeMs / 1000)}s...`);
 
               if (DO_SURF) {
@@ -714,7 +846,7 @@ jobs:
 
               log('Behaviour completed successfully');
             } catch (err) {
-              log(`❌ Runtime error: ${err.message}`);
+              log(`❌ Runtime error: ${err && err.message ? err.message : err}`);
               throw err;
             } finally {
               if (browser) {
@@ -723,7 +855,7 @@ jobs:
               await stopProfile();
             }
           })().catch(err => {
-            console.error(err);
+            console.error(err && err.message ? err.message : err);
             process.exit(1);
           });
           EOF
@@ -736,6 +868,7 @@ jobs:
           TOKEN: ${{ inputs.gologin_api_key }}
           PROFILE_ID: ${{ steps.create.outputs.profile_id }}
         run: |
+          echo "::add-mask::$TOKEN"
           echo "Deleting profile $PROFILE_ID ..."
           HTTP_CODE=$(curl -s -o /tmp/del.json -w "%{http_code}" \
             -X DELETE "https://api.gologin.com/browser/$PROFILE_ID" \
