@@ -1,0 +1,517 @@
+name: GoLogin
+
+on:
+  workflow_dispatch:
+    inputs:
+      gologin_api_key:
+        description: "GoLogin API Token (Bearer)"
+        required: true
+        type: string
+
+      operating_system:
+        description: "Operating System"
+        required: true
+        type: choice
+        options:
+          - Windows 10
+          - Windows 11
+          - Mac Intel
+          - Mac ARM
+          - Android
+        default: "Windows 11"
+
+      proxy_type:
+        description: "Proxy Type"
+        required: true
+        type: choice
+        options:
+          - Residential
+          - Mobile
+          - Data Center
+        default: "Residential"
+
+      orbita_version:
+        description: "Orbita / Chrome version (last ~10 major + latest)"
+        required: true
+        type: choice
+        options:
+          - latest
+          - 134
+          - 133
+          - 132
+          - 131
+          - 130
+          - 129
+          - 128
+          - 127
+          - 126
+          - 125
+        default: "latest"
+
+      target_url:
+        description: "Target URL / Link"
+        required: true
+        type: string
+        default: "https://example.com"
+
+      number_of_devices:
+        description: "Total number of devices/profiles to create & run"
+        required: true
+        type: number
+        default: 10
+
+      concurrent_devices:
+        description: "How many profiles to run at the same time"
+        required: true
+        type: number
+        default: 1
+
+      delay_between_devices_minutes:
+        description: "Delay (minutes) between starting batches"
+        required: true
+        type: number
+        default: 1
+
+      run_time_minutes:
+        description: "How long each profile stays open (minutes)"
+        required: true
+        type: number
+        default: 1
+
+      enable_scroll:
+        description: "Enable Scroll (up + down)"
+        required: true
+        type: boolean
+        default: true
+
+      enable_surf:
+        description: "Enable Surf (scroll + click links/buttons)"
+        required: true
+        type: boolean
+        default: false
+
+      delete_profiles_after_run:
+        description: "Delete profiles after they finish (recommended)"
+        required: true
+        type: boolean
+        default: true
+
+      proxy_country:
+        description: "Proxy country code (e.g. us, uk, de, in, pk)"
+        required: false
+        type: string
+        default: "us"
+
+jobs:
+  gologin-automation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360          # 6 hours max
+
+    env:
+      GOLOGIN_API: "https://api.gologin.com"
+      NODE_VERSION: "20"
+
+    steps:
+      # --------------------------------------------------
+      # 1. Checkout + save last inputs
+      # --------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 0
+
+      - name: Save last used inputs
+        run: |
+          mkdir -p .gologin-last-inputs
+          cat > .gologin-last-inputs/last-run.json << EOF
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "run_id": "${{ github.run_id }}",
+            "operating_system": "${{ inputs.operating_system }}",
+            "proxy_type": "${{ inputs.proxy_type }}",
+            "orbita_version": "${{ inputs.orbita_version }}",
+            "target_url": "${{ inputs.target_url }}",
+            "number_of_devices": ${{ inputs.number_of_devices }},
+            "concurrent_devices": ${{ inputs.concurrent_devices }},
+            "delay_between_devices_minutes": ${{ inputs.delay_between_devices_minutes }},
+            "run_time_minutes": ${{ inputs.run_time_minutes }},
+            "enable_scroll": ${{ inputs.enable_scroll }},
+            "enable_surf": ${{ inputs.enable_surf }},
+            "delete_profiles_after_run": ${{ inputs.delete_profiles_after_run }},
+            "proxy_country": "${{ inputs.proxy_country }}"
+          }
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .gologin-last-inputs/last-run.json
+          git commit -m "chore(gologin): save last inputs [skip ci]" || echo "No changes to commit"
+          git push origin HEAD:${{ github.ref_name }} || echo "Push failed (non-critical)"
+
+      # --------------------------------------------------
+      # 2. Setup Node + dependencies
+      # --------------------------------------------------
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          npm init -y
+          npm install gologin puppeteer-core axios p-limit
+
+      # --------------------------------------------------
+      # 3. Validate API Key
+      # --------------------------------------------------
+      - name: Validate GoLogin API Key
+        id: validate
+        env:
+          TOKEN: ${{ inputs.gologin_api_key }}
+        run: |
+          echo "Validating GoLogin API token..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            "$GOLOGIN_API/browser/v2?page=1")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ API Key validation failed (HTTP $HTTP_CODE)"
+            echo "$BODY"
+            exit 1
+          fi
+
+          echo "✅ API Key is valid"
+          echo "profiles_count=$(echo "$BODY" | jq -r '.allProfilesCount // 0')" >> $GITHUB_OUTPUT
+          echo "current_orbita=$(echo "$BODY" | jq -r '.currentOrbitaMajorV // "unknown')" >> $GITHUB_OUTPUT
+          echo "current_browser=$(echo "$BODY" | jq -r '.currentBrowserV // "unknown')" >> $GITHUB_OUTPUT
+
+      - name: Show account info
+        run: |
+          echo "Current Orbita major : ${{ steps.validate.outputs.current_orbita }}"
+          echo "Current Browser      : ${{ steps.validate.outputs.current_browser }}"
+          echo "Total profiles       : ${{ steps.validate.outputs.profiles_count }}"
+
+      # --------------------------------------------------
+      # 4. Main automation script
+      # --------------------------------------------------
+      - name: Run GoLogin Automation
+        id: automation
+        env:
+          GOLOGIN_TOKEN: ${{ inputs.gologin_api_key }}
+          OS_INPUT: ${{ inputs.operating_system }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
+          ORBITA_VERSION: ${{ inputs.orbita_version }}
+          TARGET_URL: ${{ inputs.target_url }}
+          TOTAL_DEVICES: ${{ inputs.number_of_devices }}
+          CONCURRENCY: ${{ inputs.concurrent_devices }}
+          DELAY_MINUTES: ${{ inputs.delay_between_devices_minutes }}
+          RUNTIME_MINUTES: ${{ inputs.run_time_minutes }}
+          ENABLE_SCROLL: ${{ inputs.enable_scroll }}
+          ENABLE_SURF: ${{ inputs.enable_surf }}
+          DELETE_AFTER: ${{ inputs.delete_profiles_after_run }}
+          PROXY_COUNTRY: ${{ inputs.proxy_country }}
+        run: |
+          cat > run-gologin.mjs << 'SCRIPT'
+          import { GologinApi } from 'gologin';
+          import puppeteer from 'puppeteer-core';
+          import pLimit from 'p-limit';
+          import axios from 'axios';
+
+          const TOKEN          = process.env.GOLOGIN_TOKEN;
+          const OS_INPUT       = process.env.OS_INPUT;
+          const PROXY_TYPE     = process.env.PROXY_TYPE;
+          const ORBITA_VERSION = process.env.ORBITA_VERSION;
+          const TARGET_URL     = process.env.TARGET_URL;
+          const TOTAL          = parseInt(process.env.TOTAL_DEVICES, 10);
+          const CONCURRENCY    = parseInt(process.env.CONCURRENCY, 10);
+          const DELAY_MIN      = parseFloat(process.env.DELAY_MINUTES);
+          const RUNTIME_MIN    = parseFloat(process.env.RUNTIME_MINUTES);
+          const DO_SCROLL      = process.env.ENABLE_SCROLL === 'true';
+          const DO_SURF        = process.env.ENABLE_SURF === 'true';
+          const DELETE_AFTER   = process.env.DELETE_AFTER === 'true';
+          const PROXY_COUNTRY  = (process.env.PROXY_COUNTRY || 'us').toLowerCase();
+
+          const API = 'https://api.gologin.com';
+
+          // ---------- helpers ----------
+          function log(msg) {
+            const ts = new Date().toISOString();
+            console.log(`[${ts}] ${msg}`);
+          }
+
+          function mapOs(input) {
+            switch (input) {
+              case 'Windows 10': return { os: 'win', osSpec: '' };
+              case 'Windows 11': return { os: 'win', osSpec: 'win11' };
+              case 'Mac Intel':  return { os: 'mac', osSpec: '' };
+              case 'Mac ARM':    return { os: 'mac', osSpec: 'M3' }; // good default
+              case 'Android':    return { os: 'android', osSpec: '' };
+              default:           return { os: 'win', osSpec: 'win11' };
+            }
+          }
+
+          function mapProxyMode(type) {
+            // GoLogin high-quality proxies
+            if (type === 'Mobile')      return { isMobile: true,  isDC: false };
+            if (type === 'Data Center') return { isMobile: false, isDC: true  };
+            return { isMobile: false, isDC: false }; // Residential
+          }
+
+          async function createProfile(name, osInfo) {
+            const body = {
+              name,
+              os: osInfo.os,
+              ...(osInfo.osSpec ? { osSpec: osInfo.osSpec } : {})
+            };
+
+            // Prefer quick template (most reliable)
+            const res = await axios.post(`${API}/browser/quick`, body, {
+              headers: {
+                Authorization: `Bearer ${TOKEN}`,
+                'Content-Type': 'application/json'
+              }
+            });
+            return res.data.id || res.data;
+          }
+
+          async function addGologinProxy(profileId) {
+            const { isMobile, isDC } = mapProxyMode(PROXY_TYPE);
+
+            // Create high-quality proxy and link it
+            try {
+              await axios.post(`${API}/users-proxies/mobile-proxy`, {
+                countryCode: PROXY_COUNTRY,
+                profileIdToLink: profileId,
+                isMobile,
+                isDC,
+                customName: `auto-${PROXY_TYPE.toLowerCase()}-${Date.now()}`
+              }, {
+                headers: {
+                  Authorization: `Bearer ${TOKEN}`,
+                  'Content-Type': 'application/json'
+                }
+              });
+              log(`Proxy (${PROXY_TYPE}) attached to ${profileId}`);
+            } catch (e) {
+              // Fallback: use free/auto proxy region
+              log(`High-quality proxy failed, falling back to auto region: ${e.message}`);
+              await axios.patch(`${API}/browser/${profileId}/proxy`, {
+                mode: 'gologin',
+                autoProxyRegion: PROXY_COUNTRY
+              }, {
+                headers: {
+                  Authorization: `Bearer ${TOKEN}`,
+                  'Content-Type': 'application/json'
+                }
+              });
+            }
+          }
+
+          async function startCloudBrowser(profileId) {
+            // Preferred modern way
+            const connectUrl = `https://cloudbrowser.gologin.com/connect?token=${TOKEN}&profile=${profileId}`;
+            return connectUrl;
+          }
+
+          async function stopCloudBrowser(profileId) {
+            try {
+              await axios.delete(`${API}/browser/${profileId}/web`, {
+                headers: { Authorization: `Bearer ${TOKEN}` }
+              });
+            } catch (e) {
+              log(`Stop warning for ${profileId}: ${e.message}`);
+            }
+          }
+
+          async function deleteProfile(profileId) {
+            try {
+              await axios.delete(`${API}/browser/${profileId}`, {
+                headers: { Authorization: `Bearer ${TOKEN}` }
+              });
+              log(`Deleted profile ${profileId}`);
+            } catch (e) {
+              log(`Delete failed for ${profileId}: ${e.message}`);
+            }
+          }
+
+          async function humanScroll(page, durationMs) {
+            const start = Date.now();
+            while (Date.now() - start < durationMs) {
+              const direction = Math.random() > 0.5 ? 1 : -1;
+              const distance  = 300 + Math.floor(Math.random() * 700);
+              await page.evaluate((dir, dist) => {
+                window.scrollBy(0, dir * dist);
+              }, direction, distance);
+              await new Promise(r => setTimeout(r, 800 + Math.random() * 1500));
+            }
+          }
+
+          async function humanSurf(page, durationMs) {
+            const start = Date.now();
+            while (Date.now() - start < durationMs) {
+              // scroll a bit
+              await page.evaluate(() => {
+                window.scrollBy(0, 200 + Math.random() * 400);
+              });
+              await new Promise(r => setTimeout(r, 600 + Math.random() * 900));
+
+              // try to click a random visible link / button
+              try {
+                const clicked = await page.evaluate(() => {
+                  const candidates = Array.from(
+                    document.querySelectorAll('a[href], button, [role="button"], input[type="submit"]')
+                  ).filter(el => {
+                    const rect = el.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0 &&
+                           rect.top >= 0 && rect.bottom <= window.innerHeight;
+                  });
+                  if (candidates.length === 0) return false;
+                  const el = candidates[Math.floor(Math.random() * candidates.length)];
+                  el.click();
+                  return true;
+                });
+                if (clicked) {
+                  await new Promise(r => setTimeout(r, 1500 + Math.random() * 2500));
+                }
+              } catch (_) { /* ignore navigation / detached errors */ }
+            }
+          }
+
+          // ---------- main worker ----------
+          async function processOneDevice(index) {
+            const osInfo = mapOs(OS_INPUT);
+            const name   = `GH-Actions-${Date.now()}-${index}`;
+
+            log(`[${index}/${TOTAL}] Creating profile "${name}" (${OS_INPUT})...`);
+            let profileId;
+            try {
+              profileId = await createProfile(name, osInfo);
+              log(`[${index}] Profile created → ${profileId}`);
+            } catch (e) {
+              log(`[${index}] Create failed: ${e.message}`);
+              return { success: false, error: e.message };
+            }
+
+            try {
+              await addGologinProxy(profileId);
+
+              const wsEndpoint = await startCloudBrowser(profileId);
+              log(`[${index}] Connecting to cloud browser...`);
+
+              const browser = await puppeteer.connect({
+                browserWSEndpoint: wsEndpoint,
+                ignoreHTTPSErrors: true,
+                defaultViewport: null
+              });
+
+              const page = await browser.newPage();
+              log(`[${index}] Opening ${TARGET_URL}`);
+              await page.goto(TARGET_URL, {
+                waitUntil: 'networkidle2',
+                timeout: 90000
+              });
+
+              const runtimeMs = RUNTIME_MIN * 60 * 1000;
+              log(`[${index}] Running behaviour for ${RUNTIME_MIN} minute(s)...`);
+
+              if (DO_SURF) {
+                await humanSurf(page, runtimeMs);
+              } else if (DO_SCROLL) {
+                await humanScroll(page, runtimeMs);
+              } else {
+                // just stay idle
+                await new Promise(r => setTimeout(r, runtimeMs));
+              }
+
+              log(`[${index}] Behaviour finished. Closing browser...`);
+              await browser.close();
+              await stopCloudBrowser(profileId);
+
+              if (DELETE_AFTER) {
+                await deleteProfile(profileId);
+              }
+
+              log(`[${index}] ✅ Completed successfully`);
+              return { success: true, profileId };
+            } catch (e) {
+              log(`[${index}] ❌ Runtime error: ${e.message}`);
+              try { await stopCloudBrowser(profileId); } catch (_) {}
+              if (DELETE_AFTER) {
+                try { await deleteProfile(profileId); } catch (_) {}
+              }
+              return { success: false, error: e.message, profileId };
+            }
+          }
+
+          // ---------- orchestrator ----------
+          (async () => {
+            log('=== GoLogin GitHub Actions started ===');
+            log(`Total devices   : ${TOTAL}`);
+            log(`Concurrency     : ${CONCURRENCY}`);
+            log(`Delay (min)     : ${DELAY_MIN}`);
+            log(`Runtime (min)   : ${RUNTIME_MIN}`);
+            log(`Scroll          : ${DO_SCROLL}`);
+            log(`Surf            : ${DO_SURF}`);
+            log(`OS              : ${OS_INPUT}`);
+            log(`Proxy           : ${PROXY_TYPE} (${PROXY_COUNTRY})`);
+            log(`Target URL      : ${TARGET_URL}`);
+            log('=====================================');
+
+            const limit = pLimit(CONCURRENCY);
+            const results = [];
+            let completed = 0;
+
+            const tasks = Array.from({ length: TOTAL }, (_, i) => {
+              return limit(async () => {
+                // optional delay between starts
+                if (i > 0 && DELAY_MIN > 0) {
+                  const waitMs = DELAY_MIN * 60 * 1000 * (i % CONCURRENCY === 0 ? 1 : 0.15);
+                  if (waitMs > 1000) {
+                    log(`Waiting ${Math.round(waitMs/1000)}s before starting device ${i+1}...`);
+                    await new Promise(r => setTimeout(r, waitMs));
+                  }
+                }
+                const res = await processOneDevice(i + 1);
+                completed++;
+                log(`Progress: ${completed}/${TOTAL}`);
+                results.push(res);
+                return res;
+              });
+            });
+
+            await Promise.all(tasks);
+
+            const success = results.filter(r => r.success).length;
+            const failed  = results.length - success;
+
+            log('========== FINAL SUMMARY ==========');
+            log(`Total processed : ${results.length}`);
+            log(`Successful      : ${success}`);
+            log(`Failed          : ${failed}`);
+            log('===================================');
+
+            if (failed > 0 && success === 0) {
+              process.exit(1);
+            }
+          })().catch(err => {
+            console.error(err);
+            process.exit(1);
+          });
+          SCRIPT
+
+          node run-gologin.mjs
+
+      # --------------------------------------------------
+      # 5. Final status
+      # --------------------------------------------------
+      - name: Job completed
+        if: always()
+        run: |
+          echo "GoLogin workflow finished."
+          echo "Check the logs above for detailed per-device status."
+          echo "Last inputs were saved to .gologin-last-inputs/last-run.json"
