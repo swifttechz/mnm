@@ -1,4 +1,4 @@
-name: GoLogin
+name: Gologin
 
 on:
   workflow_dispatch:
@@ -106,6 +106,9 @@ on:
         type: string
         default: "us"
 
+permissions:
+  contents: write
+
 jobs:
   # ============================================================
   # JOB 0 – Validate + prepare matrix + save last inputs
@@ -122,7 +125,7 @@ jobs:
       country: ${{ steps.generate.outputs.country }}
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
@@ -164,12 +167,10 @@ jobs:
           COUNTRY=$(echo "${{ inputs.proxy_country }}" | tr '[:lower:]' '[:upper:]')
           OS_INPUT="${{ inputs.operating_system }}"
 
-          # Extract last path segment of URL
           SHORT=$(echo "$URL" | sed -E 's|https?://||; s|.*/||; s|\?.*||; s|#.*||')
           [ -z "$SHORT" ] && SHORT="home"
           SHORT=$(echo "$SHORT" | tr -cd '[:alnum:]-_' | cut -c1-20)
 
-          # Map OS → GoLogin values + short code for naming
           case "$OS_INPUT" in
             "Windows 10") OS_CODE="Win10";    OS="win";     OS_SPEC=""     ;;
             "Windows 11") OS_CODE="Win11";    OS="win";     OS_SPEC="win11" ;;
@@ -179,7 +180,6 @@ jobs:
             *)            OS_CODE="Win11";    OS="win";     OS_SPEC="win11" ;;
           esac
 
-          # Build matrix JSON
           MATRIX="{\"include\":["
           for i in $(seq 1 $TOTAL); do
             NAME="${i}-${OS_CODE}-${COUNTRY}-${SHORT}"
@@ -199,18 +199,41 @@ jobs:
           echo "OS=$OS  osSpec='$OS_SPEC'"
           echo "$MATRIX" | jq .
 
-      - name: Save last inputs (including masked API key)
+      # ============================================================
+      # SAVE LAST INPUTS (robust)
+      # ============================================================
+      - name: Save last inputs
         env:
           TOKEN: ${{ inputs.gologin_api_key }}
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
-          mkdir -p .gologin-last-inputs
-          MASKED="${TOKEN:0:6}...${TOKEN: -4}"
+          set -e
 
+          echo "========================================"
+          echo "Saving last used inputs..."
+          echo "========================================"
+
+          mkdir -p .gologin-last-inputs
+
+          # Mask API key
+          if [ ${#TOKEN} -gt 12 ]; then
+            MASKED="${TOKEN:0:6}...${TOKEN: -4}"
+          else
+            MASKED="***masked***"
+          fi
+
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          # JSON version
           cat > .gologin-last-inputs/last-run.json << EOF
           {
-            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "timestamp": "$TIMESTAMP",
             "run_id": "${{ github.run_id }}",
+            "run_number": "${{ github.run_number }}",
+            "workflow_name": "${{ github.workflow }}",
             "workflow_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "actor": "${{ github.actor }}",
+            "ref": "${{ github.ref_name }}",
             "gologin_api_key_masked": "$MASKED",
             "operating_system": "${{ inputs.operating_system }}",
             "proxy_type": "${{ inputs.proxy_type }}",
@@ -227,11 +250,70 @@ jobs:
           }
           EOF
 
+          # Human readable version
+          cat > .gologin-last-inputs/last-run.txt << EOF
+          GoLogin Last Run Inputs
+          ========================
+          Timestamp          : $TIMESTAMP
+          Run ID             : ${{ github.run_id }}
+          Run Number         : ${{ github.run_number }}
+          Workflow           : ${{ github.workflow }}
+          Actor              : ${{ github.actor }}
+          Branch             : ${{ github.ref_name }}
+          Run URL            : ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          --- All Inputs ---
+          GoLogin API Key    : $MASKED
+          Operating System   : ${{ inputs.operating_system }}
+          Proxy Type         : ${{ inputs.proxy_type }}
+          Orbita Version     : ${{ inputs.orbita_version }}
+          Target URL         : ${{ inputs.target_url }}
+          Number of Devices  : ${{ inputs.number_of_devices }}
+          Concurrent Devices : ${{ inputs.concurrent_devices }}
+          Delay (minutes)    : ${{ inputs.delay_between_devices_minutes }}
+          Run Time (minutes) : ${{ inputs.run_time_minutes }}
+          Enable Scroll      : ${{ inputs.enable_scroll }}
+          Enable Surf        : ${{ inputs.enable_surf }}
+          Delete After Run   : ${{ inputs.delete_profiles_after_run }}
+          Proxy Country      : ${{ inputs.proxy_country }}
+          EOF
+
+          echo "Files created:"
+          ls -la .gologin-last-inputs/
+          echo ""
+          echo "----- last-run.json -----"
+          cat .gologin-last-inputs/last-run.json
+          echo ""
+          echo "----- last-run.txt -----"
+          cat .gologin-last-inputs/last-run.txt
+          echo ""
+
+          # Configure git
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .gologin-last-inputs/last-run.json
-          git commit -m "chore(gologin): save last inputs [skip ci]" || true
-          git push origin HEAD:${{ github.ref_name }} || echo "Push non-critical"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Force remote to use the PAT (this is the most reliable way)
+          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git
+
+          echo "Remote after update:"
+          git remote -v
+
+          git add .gologin-last-inputs/last-run.json .gologin-last-inputs/last-run.txt
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit (files already up to date)"
+          else
+            echo "Committing..."
+            git commit -m "chore(gologin): save last inputs - run #${{ github.run_number }} [skip ci]"
+
+            echo "Pushing to ${{ github.ref_name }}..."
+            git push origin HEAD:${{ github.ref_name }}
+            echo "✅ Successfully pushed last inputs to repository"
+          fi
+
+          echo "========================================"
+          echo "Save last inputs completed successfully"
+          echo "========================================"
 
   # ============================================================
   # MATRIX JOB – One job per profile
@@ -269,7 +351,6 @@ jobs:
           echo "Profile ${{ matrix.index }} waiting ${DELAY}s before start..."
           sleep $DELAY
 
-      # ---------- Create Profile ----------
       - name: Create GoLogin profile
         id: create
         env:
@@ -282,11 +363,10 @@ jobs:
           echo "OS='$OS'  osSpec='$OS_SPEC'"
 
           if [ -z "$OS" ]; then
-            echo "❌ OS is empty – this should never happen"
+            echo "❌ OS is empty"
             exit 1
           fi
 
-          # Build JSON safely (only include osSpec when it has a value)
           if [ -n "$OS_SPEC" ]; then
             BODY=$(jq -n \
               --arg name "$PROFILE_NAME" \
@@ -326,7 +406,6 @@ jobs:
           echo "profile_id=$PROFILE_ID" >> $GITHUB_OUTPUT
           echo "✅ Profile created → $PROFILE_ID"
 
-      # ---------- Attach Proxy ----------
       - name: Attach proxy
         id: proxy
         env:
@@ -346,7 +425,6 @@ jobs:
             "Data Center") IS_DC=true ;;
           esac
 
-          # Try high-quality proxy first
           HTTP_CODE=$(curl -s -o /tmp/proxy.json -w "%{http_code}" \
             -X POST "https://api.gologin.com/users-proxies/mobile-proxy" \
             -H "Authorization: Bearer $TOKEN" \
@@ -374,7 +452,6 @@ jobs:
 
           echo "✅ Proxy attached"
 
-      # ---------- Start Cloud Browser + Run Behaviour ----------
       - name: Start browser & perform actions
         id: run
         env:
@@ -430,7 +507,6 @@ jobs:
             while (Date.now() - start < durationMs) {
               iterations++;
               try {
-                // Prefer mouse wheel – much more stable than evaluate + scrollBy
                 await page.mouse.wheel({
                   deltaY: (Math.random() > 0.45 ? 1 : -1) * (350 + Math.random() * 600)
                 });
@@ -448,11 +524,9 @@ jobs:
             let clicks = 0;
             while (Date.now() - start < durationMs) {
               try {
-                // Scroll a bit first
                 await page.mouse.wheel({ deltaY: 250 + Math.random() * 400 });
                 await new Promise(r => setTimeout(r, 500 + Math.random() * 800));
 
-                // Try clicking a visible interactive element
                 const clicked = await safeEvaluate(page, () => {
                   const els = Array.from(document.querySelectorAll(
                     'a[href], button, [role="button"], input[type="submit"], [onclick]'
@@ -508,7 +582,6 @@ jobs:
               });
               log('Page loaded');
 
-              // Small settle time
               await new Promise(r => setTimeout(r, 2000));
 
               const runtimeMs = Math.max(30, RUNTIME_MIN * 60 * 1000);
@@ -541,7 +614,6 @@ jobs:
 
           node run-profile.mjs
 
-      # ---------- Cleanup ----------
       - name: Delete profile (if enabled)
         if: ${{ always() && inputs.delete_profiles_after_run == true && steps.create.outputs.profile_id != '' }}
         env:
