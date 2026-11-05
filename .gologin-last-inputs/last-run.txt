@@ -1,12 +1,13 @@
 GoLogin Last Run Inputs
 ========================
-Timestamp  : 2026-11-05T10:18:57Z
-Run ID     : 42009654069
-Run Number : 10
-Workflow   : Gologin
-Actor      : swifttechz
-Branch     : main
-Run URL    : https://github.com/swifttechz/mnm/actions/runs/42009654069
+Timestamp     : 2026-11-05T10:35:26Z
+Run ID        : 42011935079
+Run Number    : 12
+Workflow      : Gologin
+Workflow file : .github/workflows/gologin.yml
+Actor         : swifttechz
+Branch        : main
+Run URL       : https://github.com/swifttechz/mnm/actions/runs/42011935079
 
 --- All Inputs ---
 gologin_api_key: eyJhbG...sR-s
@@ -16,9 +17,9 @@ orbita_version: latest
 target_url: https://techxfa.s.gy/exjp
 number_of_devices: 1
 concurrent_devices: 1
-delay_between_devices_minutes: 1
+delay_between_devices_minutes: 0
 run_time_minutes: 1
 enable_scroll: true
 enable_surf: false
-delete_profiles_after_run: true
+delete_profiles_after_run: false
 proxy_country: us

@@ -1,9 +1,10 @@
 {
-  "timestamp": "2026-11-05T10:18:57Z",
-  "run_id": "42009654069",
-  "run_number": "10",
+  "timestamp": "2026-11-05T10:35:26Z",
+  "run_id": "42011935079",
+  "run_number": "12",
   "workflow_name": "Gologin",
-  "workflow_run_url": "https://github.com/swifttechz/mnm/actions/runs/42009654069",
+  "workflow_file": ".github/workflows/gologin.yml",
+  "workflow_run_url": "https://github.com/swifttechz/mnm/actions/runs/42011935079",
   "actor": "swifttechz",
   "ref": "main",
   "inputs": {
@@ -14,11 +15,11 @@
     "target_url": "https://techxfa.s.gy/exjp",
     "number_of_devices": "1",
     "concurrent_devices": "1",
-    "delay_between_devices_minutes": "1",
+    "delay_between_devices_minutes": "0",
     "run_time_minutes": "1",
     "enable_scroll": true,
     "enable_surf": false,
-    "delete_profiles_after_run": true,
+    "delete_profiles_after_run": false,
     "proxy_country": "us"
   }
 }
