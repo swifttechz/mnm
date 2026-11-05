@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-11-05T08:01:06Z",
+  "run_id": "41991286012",
+  "operating_system": "Windows 11",
+  "proxy_type": "Residential",
+  "orbita_version": "latest",
+  "target_url": "https://techxfa.s.gy/exjp",
+  "number_of_devices": 10,
+  "concurrent_devices": 1,
+  "delay_between_devices_minutes": 1,
+  "run_time_minutes": 1,
+  "enable_scroll": true,
+  "enable_surf": true,
+  "delete_profiles_after_run": true,
+  "proxy_country": "us"
+}
