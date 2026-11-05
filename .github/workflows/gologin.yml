@@ -130,7 +130,7 @@ jobs:
         with:
           token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
-          persist-credentials: false   # we set the remote ourselves with the PAT
+          persist-credentials: false
 
       - name: Validate GoLogin API Key
         id: validate
@@ -201,7 +201,7 @@ jobs:
           echo "$MATRIX" | jq .
 
       # ============================================================
-      # SAVE LAST INPUTS – robust GH_PAT version
+      # SAVE LAST INPUTS – hardened for GH_PAT + verification
       # ============================================================
       - name: Save last inputs
         env:
@@ -215,13 +215,13 @@ jobs:
           echo "========================================"
 
           if [ -z "$GH_PAT" ]; then
-            echo "❌ secrets.GH_PAT is empty or not set"
+            echo "❌ secrets.GH_PAT is empty or not set in the repository secrets"
             exit 1
           fi
 
           mkdir -p .gologin-last-inputs
 
-          # Mask API key for the saved files
+          # Mask API key
           if [ ${#TOKEN} -gt 12 ]; then
             MASKED="${TOKEN:0:6}...${TOKEN: -4}"
           else
@@ -284,7 +284,7 @@ jobs:
           Proxy Country      : ${{ inputs.proxy_country }}
           EOF
 
-          echo "Files created:"
+          echo "Files created locally:"
           ls -la .gologin-last-inputs/
           echo ""
           echo "----- last-run.json -----"
@@ -298,32 +298,46 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Force the remote to use the PAT (most reliable way)
+          # Force remote to use the PAT (most reliable)
           git remote set-url origin "https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git"
 
           echo "Remote after update:"
-          git remote -v
+          git remote -v | sed "s/${GH_PAT}/***PAT***/g"
 
           git add .gologin-last-inputs/last-run.json .gologin-last-inputs/last-run.txt
 
           if git diff --staged --quiet; then
-            echo "No changes to commit (files already up to date)"
-          else
-            echo "Committing..."
-            git commit -m "chore(gologin): save last inputs - run #${{ github.run_number }} [skip ci]"
-
-            echo "Pushing to ${{ github.ref_name }}..."
-            if git push origin "HEAD:${{ github.ref_name }}"; then
-              echo "✅ Successfully pushed last inputs to repository"
-            else
-              echo "❌ git push failed"
-              echo "Possible causes:"
-              echo "  - secrets.GH_PAT is missing, expired, or lacks 'repo' scope"
-              echo "  - Branch protection rules require a pull request"
-              echo "  - PAT does not have permission to push to this branch"
-              exit 1
-            fi
+            echo "No content changes detected – forcing a timestamp update commit"
+            # Touch the txt file so we always create a new commit
+            echo "" >> .gologin-last-inputs/last-run.txt
+            echo "Last forced update: $TIMESTAMP" >> .gologin-last-inputs/last-run.txt
+            git add .gologin-last-inputs/last-run.txt
           fi
+
+          echo "Committing..."
+          git commit -m "chore(gologin): save last inputs - run #${{ github.run_number }} [skip ci]" || {
+            echo "Commit failed"
+            exit 1
+          }
+
+          echo "Pushing to ${{ github.ref_name }}..."
+          if ! git push origin "HEAD:${{ github.ref_name }}"; then
+            echo "❌ git push failed"
+            echo "Possible causes:"
+            echo "  - secrets.GH_PAT is missing, expired, or lacks 'repo' scope"
+            echo "  - Branch protection rules require a pull request / reviews"
+            echo "  - PAT does not have permission to push to this branch"
+            exit 1
+          fi
+
+          echo "✅ Successfully pushed last inputs"
+
+          # Verification – pull the files back and show them
+          echo ""
+          echo "===== VERIFICATION ====="
+          git fetch origin ${{ github.ref_name }}
+          git show origin/${{ github.ref_name }}:.gologin-last-inputs/last-run.txt || echo "(could not show remote file)"
+          echo "========================"
 
           echo "========================================"
           echo "Save last inputs completed successfully"
@@ -331,7 +345,6 @@ jobs:
 
   # ============================================================
   # MATRIX JOB – One named job per profile
-  # Only the steps that must run per profile are here
   # ============================================================
   profile:
     name: ${{ matrix.name }}
@@ -345,8 +358,6 @@ jobs:
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
-      # No Checkout – not needed (script is generated inline)
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -489,7 +500,6 @@ jobs:
 
           const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
 
-          // Random helpers
           const rand = (min, max) => Math.random() * (max - min) + min;
           const randInt = (min, max) => Math.floor(rand(min, max + 1));
           const chance = (p) => Math.random() < p;
@@ -521,7 +531,6 @@ jobs:
             }
           }
 
-          // More human-like mouse movement
           async function humanMouseMove(page, toX, toY) {
             try {
               const steps = randInt(8, 18);
@@ -534,37 +543,29 @@ jobs:
             } catch (_) {}
           }
 
-          // Realistic scrolling with variable style
           async function humanScroll(page, durationMs) {
             const start = Date.now();
             let iterations = 0;
-
-            // Pick a "personality" for this session
             const style = chance(0.5) ? 'curious' : chance(0.5) ? 'skimmer' : 'reader';
-
             log(`Scroll style: ${style}`);
 
             while (Date.now() - start < durationMs) {
               iterations++;
-
               try {
-                // Direction & distance depend on style + randomness
                 let deltaY;
                 if (style === 'skimmer') {
                   deltaY = (chance(0.75) ? 1 : -1) * rand(450, 1100);
                 } else if (style === 'reader') {
                   deltaY = (chance(0.65) ? 1 : -1) * rand(180, 480);
-                } else { // curious
+                } else {
                   deltaY = (chance(0.6) ? 1 : -1) * rand(280, 750);
                 }
 
-                // Occasional bigger jump or micro scroll
                 if (chance(0.12)) deltaY *= rand(1.4, 2.1);
                 if (chance(0.08)) deltaY *= 0.3;
 
                 await page.mouse.wheel({ deltaY });
 
-                // Variable pause (reading / thinking)
                 let pause;
                 if (style === 'reader') {
                   pause = chance(0.25) ? rand(1800, 4200) : rand(600, 1600);
@@ -576,7 +577,6 @@ jobs:
 
                 await sleep(pause);
 
-                // Rare longer "distraction" pause
                 if (chance(0.06)) {
                   await sleep(rand(2500, 5500));
                 }
@@ -588,18 +588,15 @@ jobs:
             log(`Scroll finished (${iterations} moves, style=${style})`);
           }
 
-          // More human surfing: mix of scroll, mouse move, click, skip
           async function humanSurf(page, durationMs) {
             const start = Date.now();
             let clicks = 0;
             let scrolls = 0;
-
             const style = chance(0.4) ? 'explorer' : chance(0.5) ? 'casual' : 'focused';
             log(`Surf style: ${style}`);
 
             while (Date.now() - start < durationMs) {
               try {
-                // Always do some scrolling first
                 const scrollAmount = style === 'explorer'
                   ? rand(200, 700)
                   : style === 'focused'
@@ -612,7 +609,6 @@ jobs:
                 scrolls++;
                 await sleep(rand(400, 1100));
 
-                // Decide whether to try a click this cycle
                 const clickChance = style === 'explorer' ? 0.55
                                   : style === 'focused'  ? 0.35
                                   : 0.45;
@@ -632,13 +628,10 @@ jobs:
 
                     if (!els.length) return null;
 
-                    // Prefer larger / more central elements a bit
                     els.sort((a, b) => {
                       const ra = a.getBoundingClientRect();
                       const rb = b.getBoundingClientRect();
-                      const areaA = ra.width * ra.height;
-                      const areaB = rb.width * rb.height;
-                      return areaB - areaA;
+                      return (rb.width * rb.height) - (ra.width * ra.height);
                     });
 
                     const pick = els[Math.floor(Math.random() * Math.min(els.length, 6))];
@@ -650,13 +643,11 @@ jobs:
                   });
 
                   if (clicked && clicked.x && clicked.y) {
-                    // Move mouse human-like then click
                     await humanMouseMove(page, clicked.x, clicked.y);
                     await sleep(rand(120, 380));
                     await page.mouse.click(clicked.x, clicked.y, { delay: rand(40, 120) });
                     clicks++;
 
-                    // After click – sometimes stay, sometimes continue quickly
                     if (chance(0.6)) {
                       await sleep(rand(1600, 3800));
                     } else {
@@ -666,11 +657,9 @@ jobs:
                     await sleep(rand(600, 1200));
                   }
                 } else {
-                  // Just keep scrolling / looking
                   await sleep(rand(500, 1300));
                 }
 
-                // Occasional longer pause (like reading or deciding)
                 if (chance(0.09)) {
                   await sleep(rand(2200, 5000));
                 }
@@ -709,7 +698,6 @@ jobs:
               });
               log('Page loaded');
 
-              // Small random settle time
               await sleep(rand(1500, 3200));
 
               const runtimeMs = Math.max(30, RUNTIME_MIN * 60 * 1000);
