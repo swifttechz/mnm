@@ -63,7 +63,7 @@ on:
         required: true
         type: choice
         default: '1' # UPDATE_DELAY
-        options: [ '1', '2', '3', '4', '5', '6', '7', '8', '9', '10' ]
+        options: [ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10' ]
       runtime_minutes:
         description: 'Run time in minutes'
         required: true
@@ -99,7 +99,10 @@ jobs:
         run: |
           python3 -c "
           import os, json
-          num_dev = int(os.environ.get('NUM_DEVICES', '1'))
+          try:
+              num_dev = int(os.environ.get('NUM_DEVICES', '1'))
+          except ValueError:
+              num_dev = 1
           num_dev = min(num_dev, 256) # Safely clamp to GitHub Actions matrix limit
           matrix = list(range(1, num_dev + 1))
           
@@ -120,7 +123,6 @@ jobs:
 
   run-profiles:
     needs: prepare-matrix
-    # Uses the dynamic name requested (e.g. 1-Win11-US-exjp)
     name: ${{ matrix.profile_number }}-${{ needs.prepare-matrix.outputs.os_short }}-US-${{ needs.prepare-matrix.outputs.url_part }}
     runs-on: ubuntu-latest
     strategy:
@@ -176,10 +178,17 @@ jobs:
           ORBITA_VERSION = os.environ.get('ORBITA_VERSION')
           
           os_mapping = {"Windows 10": "win", "Windows 11": "win", "Mac Intel": "mac", "Mac ARM": "mac", "Android": "android"}
+          os_val = os_mapping.get(OS_TYPE, "win")
           
           payload = {
               "name": PROFILE_NAME,
-              "os": os_mapping.get(OS_TYPE, "win")
+              "os": os_val,
+              "browserType": "chrome",
+              "navigator": {
+                  "os": os_val,
+                  "resolution": "1920x1080",
+                  "language": "en-US,en;q=0.9"
+              }
           }
           
           if PROXY_TYPE.lower() != 'none':
@@ -188,7 +197,6 @@ jobs:
               print(f"🔗 Linked proxy conceptually named: {PROXY_NAME} ({PROXY_TYPE})")
               
           if ORBITA_VERSION != 'latest':
-              payload["browserType"] = "chrome"
               payload["browserVersion"] = ORBITA_VERSION.replace('Chrome ', '')
               
           print(f"📡 Requesting GoLogin Profile Creation for: {PROFILE_NAME}")
