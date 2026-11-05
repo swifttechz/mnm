@@ -67,12 +67,12 @@ on:
         description: 'Clicks'
         required: true
         type: string
-        default: '100'
+        default: '170'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '0'
+        default: '50'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWIzMzhkMjlhNDNjYmI3YjcwMTA5MyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlYjMzOGQyOWE0M2NiYjdiNzAxMDg4In0.gKDUJqXm8jKgyhBWiiVP5d6Q-HsH-swKT_oeuttmiDw'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWMxNTI1MGZmZWYxNDA4OGQxODU0NiIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlYzE1MjUwZmZlZjE0MDg4ZDE4NTM5In0.eoIT0cfXIu3QSVUYYNnjKoTZnF7UccrVdtW7EDDwCtY'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
