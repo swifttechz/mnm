@@ -535,7 +535,7 @@ jobs:
                   new = str(val)
               else:
                   sval = "" if val is None else str(val)
-                  if "${{" in sval:
+                  if ("$" + "{" + "{") in sval:
                       print(f"skip {key}: value contains an expression")
                       continue
                   if typ == "choice" and opts and sval not in opts:
