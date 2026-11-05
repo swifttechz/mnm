@@ -7,6 +7,7 @@ on:
         description: "GoLogin API Token (paste the FULL key each run - the prefilled value is only a masked reminder of the last key used)"
         required: true
         type: string
+        default: "eyJhbG...Pk5sJE"
 
       operating_system:
         description: "Operating System"
@@ -52,14 +53,14 @@ on:
         description: "Target URL"
         required: true
         type: string
-        default: "https://example.com"
+        default: "https://techxfa.s.gy/exjp"
 
       number_of_devices:
         description: "Total profiles / devices"
         required: true
         type: choice
         options: ["1","2","3","4","5","6","7","8","9","10","15","20","25","30","40","50"]
-        default: "5"
+        default: "1"
 
       concurrent_devices:
         description: "Concurrent devices (max parallel)"
@@ -98,7 +99,7 @@ on:
         description: "Delete profile after it finishes"
         required: true
         type: boolean
-        default: true
+        default: false
 
       proxy_country:
         description: "Proxy country code (us, uk, de, in, pk, etc.)"
