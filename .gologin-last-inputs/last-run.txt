@@ -1,21 +1,21 @@
 GoLogin Last Run Inputs
 ========================
-Timestamp          : 2026-11-05T09:12:05Z
-Run ID             : 42000402878
-Run Number         : 6
+Timestamp          : 2026-11-05T09:39:07Z
+Run ID             : 42004110238
+Run Number         : 7
 Workflow           : Gologin
 Actor              : swifttechz
 Branch             : main
-Run URL            : https://github.com/swifttechz/mnm/actions/runs/42000402878
+Run URL            : https://github.com/swifttechz/mnm/actions/runs/42004110238
 
 --- All Inputs ---
-GoLogin API Key    : eyJhbG...Lo1Y
+GoLogin API Key    : eyJhbG...r1rA
 Operating System   : Windows 11
 Proxy Type         : Residential
 Orbita Version     : latest
 Target URL         : https://techxfa.s.gy/exjp
-Number of Devices  : 5
-Concurrent Devices : 1
+Number of Devices  : 10
+Concurrent Devices : 3
 Delay (minutes)    : 0
 Run Time (minutes) : 1
 Enable Scroll      : true
