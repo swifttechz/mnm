@@ -93,7 +93,7 @@ on:
         description: "Enable Surf (scroll + click links/buttons)"
         required: true
         type: boolean
-        default: false
+        default: true
 
       delete_profiles_after_run:
         description: "Delete profile after it finishes"
