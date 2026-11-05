@@ -111,7 +111,7 @@ permissions:
 
 jobs:
   # ============================================================
-  # JOB 0 – Validate + prepare matrix + save last inputs
+  # JOB 0 – Validate + prepare matrix + save last inputs (runs once)
   # ============================================================
   prepare:
     name: Prepare & Validate
@@ -292,7 +292,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Force remote to use the PAT (this is the most reliable way)
+          # Force remote to use the PAT
           git remote set-url origin https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git
 
           echo "Remote after update:"
@@ -316,7 +316,7 @@ jobs:
           echo "========================================"
 
   # ============================================================
-  # MATRIX JOB – One job per profile
+  # MATRIX JOB – One job per profile (only the steps that must run per profile)
   # ============================================================
   profile:
     name: ${{ matrix.name }}
@@ -330,8 +330,7 @@ jobs:
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      # No Checkout – not needed. Script is generated inline.
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -341,7 +340,7 @@ jobs:
       - name: Install dependencies
         run: |
           npm init -y >/dev/null
-          npm install gologin puppeteer-core axios --silent
+          npm install gologin puppeteer-core axios --silent --no-audit --no-fund
 
       - name: Apply start delay
         if: ${{ fromJson(inputs.delay_between_devices_minutes) > 0 && matrix.index > 1 }}
