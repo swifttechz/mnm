@@ -109,20 +109,26 @@ on:
 permissions:
   contents: write
 
-# ------------------------------------------------------------
-# WHERE THE LAST INPUTS ARE SAVED (inside your repository)
-#   <LAST_INPUTS_DIR>/<LAST_INPUTS_JSON_FILE>
-#   <LAST_INPUTS_DIR>/<LAST_INPUTS_TXT_FILE>
-# Change these three values if you want a different file name/path.
-# ------------------------------------------------------------
+# ------------------------------------------------------------------
+# LAST-INPUT SAVING
+#  PRIMARY : the workflow file itself is located BY ITS NAME (the
+#            "name:" line above) using the GitHub API + GH_PAT, and its
+#            `default:` values are rewritten to the last-used inputs.
+#  BACKUP 1: if the API lookup fails, the path from github.workflow_ref
+#            is used.
+#  BACKUP 2: if that fails, FALLBACK_WORKFLOW_PATH below is used.
+#  ALWAYS  : a record of the last inputs is also written to
+#            LAST_INPUTS_DIR/LAST_INPUTS_JSON_FILE (+ .txt).
+# ------------------------------------------------------------------
 env:
+  FALLBACK_WORKFLOW_PATH: ".github/workflows/gologin.yml"
   LAST_INPUTS_DIR: ".gologin-last-inputs"
   LAST_INPUTS_JSON_FILE: "last-run.json"
   LAST_INPUTS_TXT_FILE: "last-run.txt"
 
 jobs:
   # ============================================================
-  # JOB 0 – Validate GoLogin key + build the matrix
+  # JOB 0 – Validate key, normalise inputs, build unique-name matrix
   # ============================================================
   prepare:
     name: Prepare & Validate
@@ -130,6 +136,7 @@ jobs:
     outputs:
       matrix: ${{ steps.generate.outputs.matrix }}
       short_url: ${{ steps.generate.outputs.short_url }}
+      target_url: ${{ steps.generate.outputs.target_url }}
       os_code: ${{ steps.generate.outputs.os_code }}
       os: ${{ steps.generate.outputs.os }}
       os_spec: ${{ steps.generate.outputs.os_spec }}
@@ -165,18 +172,30 @@ jobs:
           echo "Current Browser      : ${{ steps.validate.outputs.browser }}"
           echo "Existing profiles    : ${{ steps.validate.outputs.profiles }}"
 
-      - name: Generate matrix & naming data
+      - name: Generate matrix (unique profile names)
         id: generate
         env:
+          TOKEN: ${{ inputs.gologin_api_key }}
           TOTAL: ${{ inputs.number_of_devices }}
-          URL: ${{ inputs.target_url }}
+          URL_IN: ${{ inputs.target_url }}
           COUNTRY_IN: ${{ inputs.proxy_country }}
           OS_INPUT: ${{ inputs.operating_system }}
+          EXISTING_COUNT: ${{ steps.validate.outputs.profiles }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
+          echo "::add-mask::$TOKEN"
+
+          # ---- normalise inputs -------------------------------------------
           COUNTRY=$(echo "$COUNTRY_IN" | tr -cd '[:alpha:]' | tr '[:lower:]' '[:upper:]' | cut -c1-2)
           [ -z "$COUNTRY" ] && COUNTRY="US"
 
-          SHORT=$(echo "$URL" | sed -E 's|https?://||; s|.*/||; s|\?.*||; s|#.*||')
+          URL=$(echo "$URL_IN" | xargs)
+          case "$URL" in
+            http://*|https://*) ;;
+            *) URL="https://$URL" ;;
+          esac
+
+          SHORT=$(echo "$URL" | sed -E 's|https?://||; s|/+$||; s|.*/||; s|\?.*||; s|#.*||')
           [ -z "$SHORT" ] && SHORT="home"
           SHORT=$(echo "$SHORT" | tr -cd '[:alnum:]_-' | cut -c1-20)
           [ -z "$SHORT" ] && SHORT="home"
@@ -190,28 +209,83 @@ jobs:
             *)            OS_CODE="Win11";    OS="win";     OS_SPEC="win11" ;;
           esac
 
-          MATRIX="{\"include\":["
-          for i in $(seq 1 $TOTAL); do
-            NAME="${i}-${OS_CODE}-${COUNTRY}-${SHORT}"
-            [ $i -gt 1 ] && MATRIX+=","
-            MATRIX+="{\"index\":$i,\"name\":\"$NAME\",\"proxy_name\":\"${i}-${COUNTRY}\"}"
+          # ---- collect names of ALL existing profiles ---------------------
+          : > /tmp/existing_names.txt
+          LIST_OK=true
+          PAGE=1
+          while [ $PAGE -le 100 ]; do
+            CODE=$(curl -s -o /tmp/page.json -w "%{http_code}" \
+              -H "Authorization: Bearer $TOKEN" \
+              "https://api.gologin.com/browser/v2?page=$PAGE")
+            if [ "$CODE" != "200" ]; then LIST_OK=false; break; fi
+            COUNT=$(jq '(.profiles // []) | length' /tmp/page.json 2>/dev/null || echo 0)
+            [ "$COUNT" = "0" ] && break
+            jq -r '.profiles[].name // empty' /tmp/page.json >> /tmp/existing_names.txt
+            PAGE=$((PAGE + 1))
           done
-          MATRIX+="]}"
 
-          echo "matrix=$(echo "$MATRIX" | jq -c .)" >> $GITHUB_OUTPUT
+          NAMES_FOUND=$(wc -l < /tmp/existing_names.txt | tr -d ' ')
+          if [ "${EXISTING_COUNT:-0}" -gt 0 ] && [ "$NAMES_FOUND" = "0" ]; then
+            LIST_OK=false
+          fi
+          echo "Existing profile names read: $NAMES_FOUND (list ok: $LIST_OK)"
+
+          # ---- build matrix with unique names -----------------------------
+          : > /tmp/matrix.jsonl
+          for i in $(seq 1 $TOTAL); do
+            BASE="${i}-${OS_CODE}-${COUNTRY}-${SHORT}"
+            NAME="$BASE"
+
+            if [ "$LIST_OK" = "true" ]; then
+              n=2
+              while grep -Fxq -- "$NAME" /tmp/existing_names.txt; do
+                NAME="${BASE}-${n}"
+                n=$((n + 1))
+              done
+            else
+              # could not read existing names → make the name unique per run
+              NAME="${BASE}-r${RUN_NUMBER}"
+            fi
+
+            if [ "$NAME" != "$BASE" ]; then
+              echo "Name '$BASE' is taken/adjusted → using '$NAME'"
+            fi
+
+            echo "$NAME" >> /tmp/existing_names.txt   # reserve it
+            jq -nc --argjson i "$i" --arg name "$NAME" \
+              '{index: $i, name: $name, proxy_name: $name}' >> /tmp/matrix.jsonl
+          done
+
+          MATRIX=$(jq -sc '{include: .}' /tmp/matrix.jsonl)
+
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
           echo "short_url=$SHORT" >> $GITHUB_OUTPUT
+          echo "target_url=$URL" >> $GITHUB_OUTPUT
           echo "os_code=$OS_CODE" >> $GITHUB_OUTPUT
           echo "os=$OS" >> $GITHUB_OUTPUT
           echo "os_spec=$OS_SPEC" >> $GITHUB_OUTPUT
           echo "country=$COUNTRY" >> $GITHUB_OUTPUT
 
           echo "Generated $TOTAL profile jobs"
+          echo "Target URL (normalised): $URL"
           echo "OS=$OS  osSpec='$OS_SPEC'"
           echo "$MATRIX" | jq .
 
+      - name: Run summary
+        env:
+          INPUTS_JSON: ${{ toJson(inputs) }}
+        run: |
+          {
+            echo "### GoLogin run inputs"
+            echo ""
+            echo "| Input | Value |"
+            echo "|---|---|"
+            echo "$INPUTS_JSON" | jq -r '.gologin_api_key = "***hidden***" | to_entries[] | "| \(.key) | \(.value) |"'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # ============================================================
-  # JOB 1 – Save ALL last inputs to the repo using GH_PAT
-  # (separate job: a save problem can never block the profile jobs)
+  # JOB 1 – Save last inputs (updates workflow defaults + backup record)
+  # Separate job: a save problem can never block the profile jobs.
   # ============================================================
   save_inputs:
     name: Save last inputs
@@ -223,61 +297,113 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - name: Check GH_PAT can write to this repo
+      - name: Check GH_PAT
+        id: pat
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           REPO: ${{ github.repository }}
         run: |
           if [ -z "$GH_PAT" ]; then
             echo "❌ Repository secret GH_PAT is missing or empty."
-            echo "   Settings → Secrets and variables → Actions → New repository secret → name: GH_PAT"
             exit 1
           fi
 
-          HTTP_CODE=$(curl -s -o /tmp/repo.json -w "%{http_code}" \
+          HTTP_CODE=$(curl -s -D /tmp/headers.txt -o /tmp/repo.json -w "%{http_code}" \
             -H "Authorization: Bearer $GH_PAT" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$REPO")
 
-          if [ "$HTTP_CODE" = "401" ]; then
-            echo "❌ GH_PAT is invalid or expired (HTTP 401). Create a new token and update the secret."
-            exit 1
-          fi
-          if [ "$HTTP_CODE" = "404" ]; then
-            echo "❌ GH_PAT cannot see $REPO (HTTP 404)."
-            echo "   Fine-grained token: add this repository under 'Repository access'."
-            exit 1
-          fi
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "❌ Unexpected HTTP $HTTP_CODE while checking GH_PAT"
-            cat /tmp/repo.json
+          case "$HTTP_CODE" in
+            200) ;;
+            401) echo "❌ GH_PAT is invalid or expired (HTTP 401)."; exit 1 ;;
+            404) echo "❌ GH_PAT cannot see $REPO (HTTP 404). Fine-grained token: add this repo under 'Repository access'."; exit 1 ;;
+            *)   echo "❌ Unexpected HTTP $HTTP_CODE"; cat /tmp/repo.json; exit 1 ;;
+          esac
+
+          PUSH=$(jq -r '.permissions.push // "unknown"' /tmp/repo.json)
+          echo "Repo write permission for GH_PAT: $PUSH"
+          if [ "$PUSH" = "false" ]; then
+            echo "❌ GH_PAT has no write access (classic: 'repo' scope; fine-grained: Contents read+write)."
             exit 1
           fi
 
-          PUSH=$(jq -r '.permissions.push // "unknown"' /tmp/repo.json)
-          echo "GH_PAT push permission: $PUSH"
-          if [ "$PUSH" = "false" ]; then
-            echo "❌ GH_PAT has no write access."
-            echo "   Classic token  : needs the 'repo' scope."
-            echo "   Fine-grained   : needs 'Contents: Read and write' on this repository."
-            exit 1
+          # Editing files under .github/workflows needs the 'workflow' scope (classic)
+          # or 'Workflows: Read and write' (fine-grained).
+          SCOPES=$(grep -i '^x-oauth-scopes:' /tmp/headers.txt | cut -d: -f2- | tr -d '\r' || true)
+          if [ -n "$SCOPES" ]; then
+            echo "Classic token scopes:$SCOPES"
+            if echo "$SCOPES" | grep -qw "workflow"; then
+              echo "workflow_scope=yes" >> $GITHUB_OUTPUT
+            else
+              echo "workflow_scope=no" >> $GITHUB_OUTPUT
+              echo "::warning::GH_PAT has no 'workflow' scope – the workflow defaults cannot be updated."
+            fi
+          else
+            echo "Fine-grained token (scopes not shown) – will try; it needs 'Workflows: Read and write'."
+            echo "workflow_scope=unknown" >> $GITHUB_OUTPUT
           fi
-          echo "✅ GH_PAT looks good"
 
       - name: Checkout repository (using GH_PAT)
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
           ref: ${{ github.ref_name }}
-          fetch-depth: 1
+          fetch-depth: 0
           persist-credentials: true
 
-      - name: Write last-input files
+      - name: Locate this workflow file (by name, with fallbacks)
+        id: resolve
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          WF_NAME: ${{ github.workflow }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # path taken from github.workflow_ref  (owner/repo/.github/workflows/x.yml@refs/heads/main)
+          REF_PATH="${WORKFLOW_REF#${REPO}/}"
+          REF_PATH="${REF_PATH%%@*}"
+
+          # 1) PRIMARY – look the workflow up by its NAME through the API
+          API_PATH=""
+          HTTP=$(curl -s -o /tmp/wf.json -w "%{http_code}" \
+            -H "Authorization: Bearer $GH_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/actions/workflows?per_page=100")
+          if [ "$HTTP" = "200" ]; then
+            API_PATH=$(jq -r --arg n "$WF_NAME" --arg r "$REF_PATH" \
+              '[.workflows[] | select(.name == $n) | .path] | (map(select(. == $r)) + .) | .[0] // empty' /tmp/wf.json)
+            echo "Workflows named '$WF_NAME':"
+            jq -r --arg n "$WF_NAME" '.workflows[] | select(.name == $n) | "  - \(.path) (state: \(.state))"' /tmp/wf.json
+          else
+            echo "Workflow lookup by name failed (HTTP $HTTP) – using fallbacks"
+          fi
+
+          FOUND=""
+          for CAND in "$API_PATH" "$REF_PATH" "$FALLBACK_WORKFLOW_PATH"; do
+            if [ -n "$CAND" ] && [ -f "$CAND" ]; then
+              FOUND="$CAND"
+              break
+            fi
+          done
+
+          if [ -z "$FOUND" ]; then
+            echo "❌ Could not find the workflow file."
+            echo "   by name       : '$API_PATH'"
+            echo "   workflow_ref  : '$REF_PATH'"
+            echo "   fallback path : '$FALLBACK_WORKFLOW_PATH'"
+            exit 1
+          fi
+
+          echo "✅ Workflow file to update: $FOUND"
+          echo "path=$FOUND" >> $GITHUB_OUTPUT
+
+      - name: Write backup record of last inputs
         env:
           INPUTS_JSON: ${{ toJson(inputs) }}
           RUN_ID: ${{ github.run_id }}
           RUN_NUMBER: ${{ github.run_number }}
           WORKFLOW_NAME: ${{ github.workflow }}
+          WF_PATH: ${{ steps.resolve.outputs.path }}
           ACTOR: ${{ github.actor }}
           REF_NAME: ${{ github.ref_name }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -289,7 +415,6 @@ jobs:
           TXT_PATH="$LAST_INPUTS_DIR/$LAST_INPUTS_TXT_FILE"
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-          # Mask the API key (never store it in full)
           TOKEN=$(echo "$INPUTS_JSON" | jq -r '.gologin_api_key // ""')
           if [ ${#TOKEN} -gt 12 ]; then
             MASKED="${TOKEN:0:6}...${TOKEN: -4}"
@@ -297,59 +422,173 @@ jobs:
             MASKED="***masked***"
           fi
 
-          # JSON file – every input (text boxes, dropdowns, checkboxes) is included automatically
           echo "$INPUTS_JSON" | jq \
-            --arg ts "$TIMESTAMP" \
-            --arg run_id "$RUN_ID" \
-            --arg run_number "$RUN_NUMBER" \
-            --arg workflow "$WORKFLOW_NAME" \
-            --arg actor "$ACTOR" \
-            --arg ref "$REF_NAME" \
-            --arg url "$RUN_URL" \
-            --arg masked "$MASKED" \
+            --arg ts "$TIMESTAMP" --arg run_id "$RUN_ID" --arg run_number "$RUN_NUMBER" \
+            --arg workflow "$WORKFLOW_NAME" --arg wf_path "$WF_PATH" --arg actor "$ACTOR" \
+            --arg ref "$REF_NAME" --arg url "$RUN_URL" --arg masked "$MASKED" \
             '{
-              timestamp: $ts,
-              run_id: $run_id,
-              run_number: $run_number,
-              workflow_name: $workflow,
-              workflow_run_url: $url,
-              actor: $actor,
-              ref: $ref,
+              timestamp: $ts, run_id: $run_id, run_number: $run_number,
+              workflow_name: $workflow, workflow_file: $wf_path,
+              workflow_run_url: $url, actor: $actor, ref: $ref,
               inputs: (. + {gologin_api_key: $masked})
             }' > "$JSON_PATH"
 
-          # Human readable file
           {
             echo "GoLogin Last Run Inputs"
             echo "========================"
-            echo "Timestamp  : $TIMESTAMP"
-            echo "Run ID     : $RUN_ID"
-            echo "Run Number : $RUN_NUMBER"
-            echo "Workflow   : $WORKFLOW_NAME"
-            echo "Actor      : $ACTOR"
-            echo "Branch     : $REF_NAME"
-            echo "Run URL    : $RUN_URL"
+            echo "Timestamp     : $TIMESTAMP"
+            echo "Run ID        : $RUN_ID"
+            echo "Run Number    : $RUN_NUMBER"
+            echo "Workflow      : $WORKFLOW_NAME"
+            echo "Workflow file : $WF_PATH"
+            echo "Actor         : $ACTOR"
+            echo "Branch        : $REF_NAME"
+            echo "Run URL       : $RUN_URL"
             echo ""
             echo "--- All Inputs ---"
             jq -r --arg masked "$MASKED" \
-              '(. + {gologin_api_key: $masked}) | to_entries[] | "\(.key): \(.value)"' \
-              <<< "$INPUTS_JSON"
+              '(. + {gologin_api_key: $masked}) | to_entries[] | "\(.key): \(.value)"' <<< "$INPUTS_JSON"
           } > "$TXT_PATH"
 
-          echo "Files written:"
-          ls -la "$LAST_INPUTS_DIR"
-          echo "----- $JSON_PATH -----"
-          cat "$JSON_PATH"
-          echo ""
-          echo "----- $TXT_PATH -----"
           cat "$TXT_PATH"
 
-      - name: Commit & push last inputs
+      - name: Update default values inside the workflow file
+        id: defaults
+        if: ${{ steps.pat.outputs.workflow_scope != 'no' }}
+        env:
+          INPUTS_JSON: ${{ toJson(inputs) }}
+          WORKFLOW_FILE: ${{ steps.resolve.outputs.path }}
+        run: |
+          python3 - << 'PYEOF'
+          import json, os, re, sys
+
+          path = os.environ["WORKFLOW_FILE"]
+          inputs = json.loads(os.environ["INPUTS_JSON"])
+          SKIP = {"gologin_api_key"}   # never write the API key into the repo
+
+          with open(path, encoding="utf-8") as f:
+              original = f.read()
+          lines = original.split("\n")
+
+          def indent_of(s):
+              return len(s) - len(s.lstrip(" "))
+
+          wd = next((i for i, l in enumerate(lines) if re.match(r"^  workflow_dispatch:\s*$", l)), None)
+          if wd is None:
+              sys.exit("workflow_dispatch block not found")
+          inp = next((i for i in range(wd + 1, len(lines)) if re.match(r"^    inputs:\s*$", lines[i])), None)
+          if inp is None:
+              sys.exit("inputs block not found")
+
+          end = len(lines)
+          for i in range(inp + 1, len(lines)):
+              l = lines[i]
+              if l.strip() and not l.lstrip().startswith("#") and indent_of(l) <= 4:
+                  end = i
+                  break
+
+          starts = []
+          for i in range(inp + 1, end):
+              m = re.match(r"^      ([A-Za-z0-9_-]+):\s*$", lines[i])
+              if m:
+                  starts.append((i, m.group(1)))
+
+          changes = []
+          for idx in range(len(starts) - 1, -1, -1):   # reverse: inserts don't shift earlier blocks
+              s, key = starts[idx]
+              e = starts[idx + 1][0] if idx + 1 < len(starts) else end
+              if key in SKIP or key not in inputs:
+                  continue
+
+              typ, opts, dline = "string", None, None
+              for j in range(s + 1, e):
+                  l = lines[j]
+                  m = re.match(r"^        type:\s*(\S+)", l)
+                  if m:
+                      typ = m.group(1).strip("\"'")
+                  if re.match(r"^        default:", l):
+                      dline = j
+                  m = re.match(r"^        options:\s*(.*)$", l)
+                  if m:
+                      rest = m.group(1).strip()
+                      if rest.startswith("["):
+                          try:
+                              opts = [str(x) for x in json.loads(rest)]
+                          except Exception:
+                              opts = None
+                      else:
+                          opts = []
+                          k = j + 1
+                          while k < e:
+                              mm = re.match(r"^\s+-\s+(.*)$", lines[k])
+                              if not mm:
+                                  break
+                              opts.append(mm.group(1).strip().strip("\"'"))
+                              k += 1
+
+              val = inputs[key]
+              if typ == "boolean":
+                  if isinstance(val, str):
+                      val = val.strip().lower() == "true"
+                  new = "true" if val else "false"
+              elif typ == "number":
+                  new = str(val)
+              else:
+                  sval = "" if val is None else str(val)
+                  if "${{" in sval:
+                      print(f"skip {key}: value contains an expression")
+                      continue
+                  if typ == "choice" and opts and sval not in opts:
+                      print(f"skip {key}: '{sval}' is not one of its options")
+                      continue
+                  new = json.dumps(sval, ensure_ascii=False)
+
+              newline = f"        default: {new}"
+              if dline is not None:
+                  if lines[dline].strip() != newline.strip():
+                      changes.append(f"{key}: {lines[dline].strip()}  ->  {newline.strip()}")
+                      lines[dline] = newline
+              else:
+                  last = e - 1
+                  while last > s and not lines[last].strip():
+                      last -= 1
+                  lines.insert(last + 1, newline)
+                  changes.append(f"{key}: (new) {newline.strip()}")
+
+          new_text = "\n".join(lines)
+
+          # Safety check: result must still be a valid workflow with valid choice defaults
+          try:
+              import yaml
+              doc = yaml.safe_load(new_text)
+              on = doc.get("on", doc.get(True))
+              for k, v in on["workflow_dispatch"]["inputs"].items():
+                  if v.get("type") == "choice" and "default" in v:
+                      if str(v["default"]) not in [str(o) for o in v["options"]]:
+                          sys.exit(f"validation failed: default of {k} is not in its options")
+              assert "jobs" in doc
+          except ImportError:
+              print("PyYAML not available – skipped extra validation")
+
+          if not changes:
+              print("Defaults already match the last inputs – nothing to change")
+          else:
+              with open(path, "w", encoding="utf-8") as f:
+                  f.write(new_text)
+              print("Updated defaults:")
+              for c in reversed(changes):
+                  print("  " + c)
+          PYEOF
+
+      - name: Commit & push (backup record first, then workflow defaults)
+        id: push
         env:
           BRANCH: ${{ github.ref_name }}
           RUN_NUMBER: ${{ github.run_number }}
+          WF_PATH: ${{ steps.resolve.outputs.path }}
+          WF_SCOPE: ${{ steps.pat.outputs.workflow_scope }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
 
           JSON_PATH="$LAST_INPUTS_DIR/$LAST_INPUTS_JSON_FILE"
           TXT_PATH="$LAST_INPUTS_DIR/$LAST_INPUTS_TXT_FILE"
@@ -357,55 +596,95 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add -f "$JSON_PATH" "$TXT_PATH"
+          # returns 0 = pushed, 2 = token lacks workflow permission, 1 = other failure
+          push_with_retry() {
+            for attempt in 1 2 3 4 5; do
+              echo "Push attempt $attempt ..."
+              if git push origin "HEAD:refs/heads/$BRANCH" > /tmp/push_out.txt 2>&1; then
+                cat /tmp/push_out.txt
+                return 0
+              fi
+              cat /tmp/push_out.txt
+              if grep -qi "workflow" /tmp/push_out.txt && grep -qiE "scope|permission|refusing" /tmp/push_out.txt; then
+                return 2
+              fi
+              sleep $((attempt * 3))
+              git pull --rebase --autostash origin "$BRANCH" || true
+            done
+            return 1
+          }
 
+          # ---- 1) backup record -------------------------------------------
+          git add -f -- "$JSON_PATH" "$TXT_PATH"
           if git diff --cached --quiet; then
-            echo "No changes to commit"
+            echo "Backup record unchanged"
+          else
+            git commit -m "chore(gologin): save last inputs record - run #${RUN_NUMBER} [skip ci]"
+            push_with_retry
+            RC=$?
+            if [ $RC -ne 0 ]; then
+              echo "❌ Could not push the backup record (code $RC)"
+              exit 1
+            fi
+            echo "✅ Backup record pushed"
+          fi
+
+          # ---- 2) workflow defaults ---------------------------------------
+          if [ "$WF_SCOPE" = "no" ]; then
+            echo "Skipping workflow defaults (GH_PAT has no 'workflow' scope)"
             exit 0
           fi
 
-          git commit -m "chore(gologin): save last inputs - run #${RUN_NUMBER} [skip ci]"
-
-          PUSHED=false
-          for attempt in 1 2 3 4 5; do
-            echo "Push attempt $attempt ..."
-            if git push origin "HEAD:refs/heads/$BRANCH"; then
-              PUSHED=true
-              break
-            fi
-            echo "Push failed – syncing with remote and retrying..."
-            sleep $((attempt * 3))
-            git pull --rebase origin "$BRANCH" || true
-          done
-
-          if [ "$PUSHED" != "true" ]; then
-            echo "❌ git push failed after 5 attempts"
-            echo "Possible causes:"
-            echo "  - GH_PAT lacks write access (classic: 'repo' scope, fine-grained: Contents read+write)"
-            echo "  - Branch protection requires pull requests (allow the PAT owner to bypass)"
-            exit 1
+          if git diff --quiet -- "$WF_PATH"; then
+            echo "Workflow defaults already up to date – nothing to push"
+            exit 0
           fi
 
-          echo "✅ Pushed last inputs to $BRANCH"
+          git add -- "$WF_PATH"
+          git commit -m "chore(gologin): update default inputs to last run #${RUN_NUMBER} [skip ci]"
+          push_with_retry
+          RC=$?
+          if [ $RC -eq 2 ]; then
+            echo "❌ GitHub refused the push: GH_PAT is not allowed to modify workflow files."
+            echo "   Classic token      → tick the 'workflow' scope (together with 'repo')."
+            echo "   Fine-grained token → Repository permissions → 'Workflows: Read and write'"
+            echo "                        (and 'Contents: Read and write')."
+            exit 1
+          elif [ $RC -ne 0 ]; then
+            echo "❌ Could not push workflow defaults"
+            exit 1
+          fi
+          echo "✅ Workflow defaults updated and pushed"
 
-      - name: Verify saved files on remote
+      - name: Verify on remote
         env:
           BRANCH: ${{ github.ref_name }}
+          WF_PATH: ${{ steps.resolve.outputs.path }}
         run: |
           git fetch origin "$BRANCH"
-          echo "===== $LAST_INPUTS_DIR/$LAST_INPUTS_TXT_FILE on origin/$BRANCH ====="
+          echo "===== defaults currently in origin/$BRANCH:$WF_PATH ====="
+          git show "origin/$BRANCH:$WF_PATH" | grep -nE '^      [A-Za-z0-9_-]+:\s*$|^        default:' | sed -n '1,60p'
+          echo ""
+          echo "===== backup record ====="
           git show "origin/$BRANCH:$LAST_INPUTS_DIR/$LAST_INPUTS_TXT_FILE"
-          echo "========================================"
-          echo "✅ Last inputs saved and verified"
+
+      - name: Fail loudly if workflow defaults could not be updated
+        if: ${{ steps.pat.outputs.workflow_scope == 'no' }}
+        run: |
+          echo "❌ The backup record was saved, but the workflow defaults were NOT updated"
+          echo "   because GH_PAT is missing the 'workflow' scope."
+          echo "   Fix: GitHub → Settings → Developer settings → Personal access tokens →"
+          echo "        enable 'workflow' (plus 'repo'), then update the GH_PAT secret."
+          exit 1
 
   # ============================================================
-  # MATRIX JOB – One named job per profile
+  # MATRIX JOB – one named job per profile
   # ============================================================
   profile:
     name: ${{ matrix.name }}
     needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
 
     strategy:
       fail-fast: false
@@ -423,13 +702,20 @@ jobs:
           npm init -y >/dev/null
           npm install puppeteer-core axios --silent --no-audit --no-fund
 
-      - name: Apply start delay
-        if: ${{ fromJson(inputs.delay_between_devices_minutes) > 0 && matrix.index > 1 }}
+      - name: Apply start delay (staggers profiles inside each parallel wave)
+        env:
+          INDEX: ${{ matrix.index }}
+          CONCURRENT: ${{ inputs.concurrent_devices }}
+          DELAY_MIN: ${{ inputs.delay_between_devices_minutes }}
         run: |
-          DELAY=$(( (${{ matrix.index }} - 1) * ${{ inputs.delay_between_devices_minutes }} * 60 ))
-          if [ $DELAY -gt 1800 ]; then DELAY=1800; fi
-          echo "Profile ${{ matrix.index }} waiting ${DELAY}s before start..."
-          sleep $DELAY
+          SLOT=$(( (INDEX - 1) % CONCURRENT ))
+          DELAY=$(( SLOT * DELAY_MIN * 60 ))
+          if [ "$DELAY" -gt 0 ]; then
+            echo "Profile $INDEX (slot $((SLOT + 1)) of $CONCURRENT) waiting ${DELAY}s before start..."
+            sleep "$DELAY"
+          else
+            echo "Profile $INDEX starts immediately"
+          fi
 
       - name: Create GoLogin profile
         id: create
@@ -449,16 +735,10 @@ jobs:
           fi
 
           if [ -n "$OS_SPEC" ]; then
-            BODY=$(jq -n \
-              --arg name "$PROFILE_NAME" \
-              --arg os "$OS" \
-              --arg osSpec "$OS_SPEC" \
+            BODY=$(jq -n --arg name "$PROFILE_NAME" --arg os "$OS" --arg osSpec "$OS_SPEC" \
               '{name: $name, os: $os, osSpec: $osSpec}')
           else
-            BODY=$(jq -n \
-              --arg name "$PROFILE_NAME" \
-              --arg os "$OS" \
-              '{name: $name, os: $os}')
+            BODY=$(jq -n --arg name "$PROFILE_NAME" --arg os "$OS" '{name: $name, os: $os}')
           fi
 
           echo "Request body:"
@@ -495,7 +775,7 @@ jobs:
           echo "profile_id=$PROFILE_ID" >> $GITHUB_OUTPUT
           echo "✅ Profile created → $PROFILE_ID"
 
-      - name: Attach proxy
+      - name: Attach proxy & verify profile
         id: proxy
         env:
           TOKEN: ${{ inputs.gologin_api_key }}
@@ -503,6 +783,7 @@ jobs:
           PROXY_NAME: ${{ matrix.proxy_name }}
           PROXY_TYPE: ${{ inputs.proxy_type }}
           COUNTRY: ${{ needs.prepare.outputs.country }}
+          ORBITA: ${{ inputs.orbita_version }}
         run: |
           echo "::add-mask::$TOKEN"
           COUNTRY_LOWER=$(echo "$COUNTRY" | tr '[:upper:]' '[:lower:]')
@@ -516,11 +797,8 @@ jobs:
           esac
 
           PROXY_BODY=$(jq -n \
-            --arg cc "$COUNTRY_LOWER" \
-            --arg pid "$PROFILE_ID" \
-            --arg name "$PROXY_NAME" \
-            --argjson mobile "$IS_MOBILE" \
-            --argjson dc "$IS_DC" \
+            --arg cc "$COUNTRY_LOWER" --arg pid "$PROFILE_ID" --arg name "$PROXY_NAME" \
+            --argjson mobile "$IS_MOBILE" --argjson dc "$IS_DC" \
             '{countryCode: $cc, profileIdToLink: $pid, isMobile: $mobile, isDC: $dc, customName: $name}')
 
           HTTP_CODE=$(curl -s -o /tmp/proxy.json -w "%{http_code}" \
@@ -543,20 +821,28 @@ jobs:
             cat /tmp/proxy_fallback.json | jq . 2>/dev/null || cat /tmp/proxy_fallback.json
             case "$FB_CODE" in
               200|201|204) ;;
-              *)
-                echo "❌ Could not attach any proxy – refusing to run without one"
-                exit 1
-                ;;
+              *) echo "❌ Could not attach any proxy – refusing to run without one"; exit 1 ;;
             esac
           fi
 
           # Let GoLogin finish provisioning before the browser is launched
           sleep 8
 
-          # Informational: show what the profile now has
+          # ---- verify what the profile really has vs. what was requested ----
           curl -s -H "Authorization: Bearer $TOKEN" \
-            "https://api.gologin.com/browser/$PROFILE_ID" \
-            | jq '{name, os, proxyEnabled, proxy: (.proxy | {mode, country: (.country // .autoProxyRegion)})}' 2>/dev/null || true
+            "https://api.gologin.com/browser/$PROFILE_ID" > /tmp/profile.json || true
+
+          echo "---- Profile check ----"
+          jq '{name, os, proxyEnabled, proxy_mode: .proxy.mode, proxy_country: (.proxy.country // .proxy.autoProxyRegion)}' \
+            /tmp/profile.json 2>/dev/null || true
+
+          UA=$(jq -r '.navigator.userAgent // ""' /tmp/profile.json 2>/dev/null || echo "")
+          ACTUAL=$(echo "$UA" | sed -nE 's/.*Chrome\/([0-9]+).*/\1/p')
+          echo "Requested Orbita/Chrome : $ORBITA"
+          echo "Profile Chrome major    : ${ACTUAL:-unknown}"
+          if [ "$ORBITA" != "latest" ] && [ -n "$ACTUAL" ] && [ "$ACTUAL" != "$ORBITA" ]; then
+            echo "::warning::Requested Orbita/Chrome $ORBITA but GoLogin assigned $ACTUAL (the quick-create API does not accept a browser version)."
+          fi
 
           echo "✅ Proxy attached"
 
@@ -565,7 +851,7 @@ jobs:
         env:
           TOKEN: ${{ inputs.gologin_api_key }}
           PROFILE_ID: ${{ steps.create.outputs.profile_id }}
-          TARGET_URL: ${{ inputs.target_url }}
+          TARGET_URL: ${{ needs.prepare.outputs.target_url }}
           RUNTIME_MIN: ${{ inputs.run_time_minutes }}
           DO_SCROLL: ${{ inputs.enable_scroll }}
           DO_SURF: ${{ inputs.enable_surf }}
@@ -603,15 +889,14 @@ jobs:
             }
           }
 
-          // Errors that are worth retrying (server busy / temporary / network)
           function isTransient(err) {
             const m = String(err && err.message ? err.message : err);
             return /\b(502|503|504|429)\b/.test(m) ||
                    /ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|socket hang up|Unexpected server response|WebSocket|timed out|Timed out/i.test(m);
           }
 
-          // Cloud Browser answers 503 when it is busy, still provisioning the profile,
-          // or a stale session for the same profile still exists. Retry with back-off.
+          // Cloud Browser answers 503 when it is busy / still provisioning / a stale
+          // session exists. Retry with back-off.
           async function connectWithRetry() {
             const wsEndpoint =
               `wss://cloudbrowser.gologin.com/connect?token=${encodeURIComponent(TOKEN)}&profile=${PROFILE_ID}`;
@@ -634,7 +919,6 @@ jobs:
 
                 if (!isTransient(e) || attempt === MAX_CONNECT_ATTEMPTS) break;
 
-                // Clear any half-started session, then wait with back-off + jitter
                 await stopProfile();
                 const wait = Math.min(15000 * attempt, 75000) + randInt(0, 5000);
                 log(`Waiting ${Math.round(wait / 1000)}s before retry...`);
@@ -657,6 +941,16 @@ jobs:
               }
             }
             throw lastErr;
+          }
+
+          async function closeExtraTabs(browser, keep) {
+            try {
+              for (const p of await browser.pages()) {
+                if (p !== keep && !p.isClosed()) {
+                  try { await p.close(); } catch (_) {}
+                }
+              }
+            } catch (_) {}
           }
 
           async function safeEvaluate(page, fn, ...args) {
@@ -718,10 +1012,13 @@ jobs:
                   pause = chance(0.2) ? rand(1400, 3500) : rand(500, 1400);
                 }
 
-                await sleep(pause);
+                // never sleep past the end of the requested time
+                const left = durationMs - (Date.now() - start);
+                await sleep(Math.max(0, Math.min(pause, left)));
 
                 if (chance(0.06)) {
-                  await sleep(rand(2500, 5500));
+                  const left2 = durationMs - (Date.now() - start);
+                  await sleep(Math.max(0, Math.min(rand(2500, 5500), left2)));
                 }
               } catch (e) {
                 log(`Scroll iteration ${iterations} warning: ${e.message}`);
@@ -731,7 +1028,7 @@ jobs:
             log(`Scroll finished (${iterations} moves, style=${style})`);
           }
 
-          async function humanSurf(page, durationMs) {
+          async function humanSurf(browser, page, durationMs) {
             const start = Date.now();
             let clicks = 0;
             let scrolls = 0;
@@ -791,6 +1088,10 @@ jobs:
                     await page.mouse.click(clicked.x, clicked.y, { delay: rand(40, 120) });
                     clicks++;
 
+                    // keep working in the original tab if the click opened a new one
+                    await sleep(rand(600, 1200));
+                    await closeExtraTabs(browser, page);
+
                     if (chance(0.6)) {
                       await sleep(rand(1600, 3800));
                     } else {
@@ -817,11 +1118,13 @@ jobs:
           (async () => {
             log(`Starting profile ${PROFILE_ID}`);
             log(`Target: ${TARGET_URL}`);
-            log(`Runtime: ${RUNTIME_MIN} min | Scroll: ${DO_SCROLL} | Surf: ${DO_SURF}`);
+            const mode = DO_SURF ? 'surf' : DO_SCROLL ? 'scroll' : 'idle';
+            log(`Open time: ${RUNTIME_MIN} min | Scroll: ${DO_SCROLL} | Surf: ${DO_SURF} → mode: ${mode}`);
 
             let browser;
             try {
               browser = await connectWithRetry();
+              const openedAt = Date.now();   // "stays open" is measured from here
 
               const pages = await browser.pages();
               const page = pages.length ? pages[0] : await browser.newPage();
@@ -832,16 +1135,17 @@ jobs:
 
               await sleep(rand(1500, 3200));
 
-              const runtimeMs = Math.max(30000, RUNTIME_MIN * 60 * 1000);
-              log(`Starting behaviour for ${Math.round(runtimeMs / 1000)}s...`);
+              const totalMs = RUNTIME_MIN * 60 * 1000;
+              const remainingMs = Math.max(5000, totalMs - (Date.now() - openedAt));
+              log(`Running ${mode} for ${Math.round(remainingMs / 1000)}s (total open time ${Math.round(totalMs / 1000)}s)...`);
 
               if (DO_SURF) {
-                await humanSurf(page, runtimeMs);
+                await humanSurf(browser, page, remainingMs);
               } else if (DO_SCROLL) {
-                await humanScroll(page, runtimeMs);
+                await humanScroll(page, remainingMs);
               } else {
                 log('Idle mode – just waiting');
-                await sleep(runtimeMs);
+                await sleep(remainingMs);
               }
 
               log('Behaviour completed successfully');
