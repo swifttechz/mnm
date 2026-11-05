@@ -1,0 +1,336 @@
+name: GoLogin Auto Surfer
+
+on:
+  workflow_dispatch:
+    inputs:
+      gologin_api_key:
+        description: 'GoLogin API Key'
+        required: true
+        type: string
+        default: '' # UPDATE_API_KEY
+      os:
+        description: 'Operating System'
+        required: true
+        type: choice
+        default: 'Windows 10' # UPDATE_OS
+        options:
+          - 'Windows 10'
+          - 'Windows 11'
+          - 'Mac Intel'
+          - 'Mac ARM'
+          - 'Android'
+      proxy_type:
+        description: 'Proxy Type'
+        required: true
+        type: choice
+        default: 'None' # UPDATE_PROXY
+        options:
+          - 'None'
+          - 'Residential'
+          - 'Mobile'
+          - 'Data Center'
+      orbita_version:
+        description: 'Orbita Version'
+        required: true
+        type: choice
+        default: 'latest' # UPDATE_ORBITA
+        options:
+          - 'latest'
+          - 'Chrome 154'
+          - 'Chrome 153'
+          - 'Chrome 152'
+          - 'Chrome 151'
+          - 'Chrome 150'
+          - 'Chrome 149'
+          - 'Chrome 148'
+          - 'Chrome 147'
+          - 'Chrome 146'
+          - 'Chrome 145'
+      url:
+        description: 'Links (URL)'
+        required: true
+        type: string
+        default: 'https://example.com' # UPDATE_URL
+      num_devices:
+        description: 'Number of devices (Total Profiles)'
+        required: true
+        type: string
+        default: '10' # UPDATE_NUM_DEVICES
+      concurrent_devices:
+        description: 'Concurrent Devices (Batch size)'
+        required: true
+        type: string
+        default: '2' # UPDATE_CONCURRENT
+      delay_minutes:
+        description: 'Delay between Devices in minutes'
+        required: true
+        type: string
+        default: '1' # UPDATE_DELAY
+      runtime_minutes:
+        description: 'Run time in minutes'
+        required: true
+        type: string
+        default: '1' # UPDATE_RUNTIME
+      scroll:
+        description: 'Scroll downside and upside'
+        required: true
+        type: boolean
+        default: true # UPDATE_SCROLL
+      surf:
+        description: 'Surf (scroll and click links/buttons)'
+        required: true
+        type: boolean
+        default: false # UPDATE_SURF
+
+jobs:
+  run-gologin-automation:
+    name: GoLogin Surfer
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+
+      - name: ⚙️ Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 📦 Install GoLogin & Automation Dependencies
+        run: |
+          pip install requests patchright
+          patchright install chromium
+
+      - name: 🚀 Run GoLogin Action Script
+        env:
+          GOLOGIN_API_KEY: ${{ github.event.inputs.gologin_api_key }}
+          OS_TYPE: ${{ github.event.inputs.os }}
+          PROXY_TYPE: ${{ github.event.inputs.proxy_type }}
+          ORBITA_VERSION: ${{ github.event.inputs.orbita_version }}
+          TARGET_URL: ${{ github.event.inputs.url }}
+          NUM_DEVICES: ${{ github.event.inputs.num_devices }}
+          CONCURRENT_DEVICES: ${{ github.event.inputs.concurrent_devices }}
+          DELAY_MINUTES: ${{ github.event.inputs.delay_minutes }}
+          RUNTIME_MINUTES: ${{ github.event.inputs.runtime_minutes }}
+          SCROLL: ${{ github.event.inputs.scroll }}
+          SURF: ${{ github.event.inputs.surf }}
+        run: |
+          cat << 'EOF' > runner.py
+          import os, sys, time, requests, random, asyncio
+          from patchright.async_api import async_playwright
+
+          # Setup environmental configs
+          TOKEN = os.environ.get('GOLOGIN_API_KEY')
+          OS_TYPE = os.environ.get('OS_TYPE', 'Windows 10')
+          PROXY_TYPE = os.environ.get('PROXY_TYPE', 'None')
+          ORBITA_VERSION = os.environ.get('ORBITA_VERSION', 'latest')
+          TARGET_URL = os.environ.get('TARGET_URL', 'https://example.com')
+          NUM_DEVICES = int(os.environ.get('NUM_DEVICES', '10'))
+          CONCURRENT_DEVICES = int(os.environ.get('CONCURRENT_DEVICES', '1'))
+          DELAY_MINUTES = float(os.environ.get('DELAY_MINUTES', '1'))
+          RUNTIME_MINUTES = float(os.environ.get('RUNTIME_MINUTES', '1'))
+          SCROLL = os.environ.get('SCROLL', 'true').lower() == 'true'
+          SURF = os.environ.get('SURF', 'false').lower() == 'true'
+
+          API_BASE = "https://api.gologin.com"
+
+          headers = {
+              "Authorization": f"Bearer {TOKEN}",
+              "Content-Type": "application/json"
+          }
+
+          def create_profile(index):
+              os_mapping = {
+                  "Windows 10": "win",
+                  "Windows 11": "win",
+                  "Mac Intel": "mac",
+                  "Mac ARM": "mac",
+                  "Android": "android"
+              }
+              
+              payload = {
+                  "name": f"GoLogin-Task-{index}-{int(time.time())}",
+                  "os": os_mapping.get(OS_TYPE, "win")
+              }
+
+              if PROXY_TYPE.lower() != 'none':
+                  payload["proxyEnabled"] = True
+                  payload["proxy"] = {"mode": "gologin", "autoProxyRegion": "us"}
+
+              if ORBITA_VERSION != 'latest':
+                  version_num = ORBITA_VERSION.replace('Chrome ', '')
+                  payload["browserType"] = "chrome"
+                  payload["browserVersion"] = version_num
+                  
+              print(f"[{index}] Generating profile (OS: {OS_TYPE}, Proxy: {PROXY_TYPE}, Orbita: {ORBITA_VERSION})...")
+              resp = requests.post(f"{API_BASE}/browser", headers=headers, json=payload)
+              if resp.status_code in [200, 201]:
+                  pid = resp.json().get('id')
+                  print(f"[{index}] ✅ Successfully created profile {pid}")
+                  return pid
+              else:
+                  print(f"[{index}] ❌ Failed to create profile: {resp.text}")
+                  return None
+
+          def delete_profile(profile_id):
+              resp = requests.delete(f"{API_BASE}/browser/{profile_id}", headers=headers)
+              if resp.status_code == 200:
+                  print(f"🗑️ Deleted profile {profile_id}")
+
+          async def simulate_activity(page, index):
+              end_time = time.time() + (RUNTIME_MINUTES * 60)
+              print(f"[{index}] 🏄 Simulating user activity for {RUNTIME_MINUTES} minute(s).")
+              
+              while time.time() < end_time:
+                  if SCROLL or SURF:
+                      try:
+                          await page.evaluate("window.scrollBy(0, window.innerHeight * 0.7)")
+                          await asyncio.sleep(random.uniform(1, 3))
+                          if random.random() > 0.6: # Randomly scroll up slightly
+                              await page.evaluate("window.scrollBy(0, -window.innerHeight * 0.3)")
+                          await asyncio.sleep(random.uniform(1, 3))
+                      except Exception:
+                          pass
+                      
+                  if SURF and random.random() > 0.6:
+                      try:
+                          links = await page.locator("a, button").all()
+                          if links:
+                              link = random.choice(links)
+                              if await link.is_visible():
+                                  print(f"[{index}] 🖱️ Clicking element on page...")
+                                  await link.click(timeout=5000)
+                                  await page.wait_for_load_state("networkidle", timeout=5000)
+                      except Exception:
+                          pass
+                          
+                  await asyncio.sleep(2)
+
+          async def run_single_device(index, profile_id):
+              print(f"[{index}] 🌐 Starting Cloud Session for {profile_id}")
+              # CDP over cloud WebSocket (GoLogin Architecture natively used by their MCP Server wrappers)
+              cloud_url = f"wss://cloudbrowser.gologin.com/connect?token={TOKEN}&profile={profile_id}"
+              
+              try:
+                  async with async_playwright() as p:
+                      browser = await p.chromium.connect_over_cdp(cloud_url, timeout=120000)
+                      context = browser.contexts[0]
+                      page = await context.new_page()
+                      
+                      print(f"[{index}] 🔗 Navigating to {TARGET_URL}")
+                      await page.goto(TARGET_URL, timeout=60000)
+                      
+                      await simulate_activity(page, index)
+                      
+                      print(f"[{index}] 🛑 Finished run time, closing browser...")
+                      await browser.close()
+              except Exception as e:
+                  print(f"[{index}] ⚠️ Error during execution: {e}")
+              finally:
+                  print(f"[{index}] 🧹 Stopping and cleaning up profile {profile_id}")
+                  requests.delete(f"{API_BASE}/browser/{profile_id}/web", headers=headers)
+                  delete_profile(profile_id)
+
+          async def process_batch(batch):
+              tasks = [run_single_device(item['index'], item['pid']) for item in batch]
+              await asyncio.gather(*tasks)
+
+          def main():
+              print("🔍 Validating API token via GoLogin Auth API...")
+              auth_check = requests.get(f"{API_BASE}/browser/v2", headers=headers)
+              if auth_check.status_code != 200:
+                  print("❌ Invalid GoLogin API Key!")
+                  sys.exit(1)
+              
+              print(f"✅ Token verified. Tasks: {NUM_DEVICES} devices | Batch Concurrency: {CONCURRENT_DEVICES}.")
+              
+              device_counter = 1
+              while device_counter <= NUM_DEVICES:
+                  batch = []
+                  for _ in range(CONCURRENT_DEVICES):
+                      if device_counter > NUM_DEVICES:
+                          break
+                      pid = create_profile(device_counter)
+                      if pid:
+                          batch.append({"index": device_counter, "pid": pid})
+                      device_counter += 1
+                      
+                  if batch:
+                      print(f"\n--- 🚀 Starting Execution Batch ---")
+                      asyncio.run(process_batch(batch))
+                      
+                      if device_counter <= NUM_DEVICES:
+                          print(f"⏳ Waiting {DELAY_MINUTES} minute(s) before spinning up the next batch...")
+                          time.sleep(DELAY_MINUTES * 60)
+                          
+              print("🎉 All tasks completed.")
+
+          if __name__ == "__main__":
+              main()
+          EOF
+          python runner.py
+
+      - name: 💾 Save Last Inputs to YAML (Persistence)
+        if: always()
+        env:
+          GOLOGIN_API_KEY: ${{ github.event.inputs.gologin_api_key }}
+          OS_TYPE: ${{ github.event.inputs.os }}
+          PROXY_TYPE: ${{ github.event.inputs.proxy_type }}
+          ORBITA_VERSION: ${{ github.event.inputs.orbita_version }}
+          TARGET_URL: ${{ github.event.inputs.url }}
+          NUM_DEVICES: ${{ github.event.inputs.num_devices }}
+          CONCURRENT_DEVICES: ${{ github.event.inputs.concurrent_devices }}
+          DELAY_MINUTES: ${{ github.event.inputs.delay_minutes }}
+          RUNTIME_MINUTES: ${{ github.event.inputs.runtime_minutes }}
+          SCROLL: ${{ github.event.inputs.scroll }}
+          SURF: ${{ github.event.inputs.surf }}
+        run: |
+          cat << 'EOF' > save_inputs.py
+          import os
+
+          # Locate workflow file securely 
+          yaml_file = ".github/workflows/gologin.yml"
+          if not os.path.exists(yaml_file):
+              for root, dirs, files in os.walk(".github/workflows"):
+                  for file in files:
+                      if file.endswith((".yml", ".yaml")):
+                          with open(os.path.join(root, file), "r") as f:
+                              if "UPDATE_API_KEY" in f.read():
+                                  yaml_file = os.path.join(root, file)
+                                  break
+
+          print(f"Updating workflow defaults inside {yaml_file}")
+
+          with open(yaml_file, "r") as f:
+              lines = f.readlines()
+
+          inputs_map = {
+              "# UPDATE_API_KEY": f"        default: '{os.environ.get('GOLOGIN_API_KEY', '')}' # UPDATE_API_KEY\n",
+              "# UPDATE_OS": f"        default: '{os.environ.get('OS_TYPE', 'Windows 10')}' # UPDATE_OS\n",
+              "# UPDATE_PROXY": f"        default: '{os.environ.get('PROXY_TYPE', 'None')}' # UPDATE_PROXY\n",
+              "# UPDATE_ORBITA": f"        default: '{os.environ.get('ORBITA_VERSION', 'latest')}' # UPDATE_ORBITA\n",
+              "# UPDATE_URL": f"        default: '{os.environ.get('TARGET_URL', 'https://example.com')}' # UPDATE_URL\n",
+              "# UPDATE_NUM_DEVICES": f"        default: '{os.environ.get('NUM_DEVICES', '10')}' # UPDATE_NUM_DEVICES\n",
+              "# UPDATE_CONCURRENT": f"        default: '{os.environ.get('CONCURRENT_DEVICES', '2')}' # UPDATE_CONCURRENT\n",
+              "# UPDATE_DELAY": f"        default: '{os.environ.get('DELAY_MINUTES', '1')}' # UPDATE_DELAY\n",
+              "# UPDATE_RUNTIME": f"        default: '{os.environ.get('RUNTIME_MINUTES', '1')}' # UPDATE_RUNTIME\n",
+              "# UPDATE_SCROLL": f"        default: {os.environ.get('SCROLL', 'true').lower()} # UPDATE_SCROLL\n",
+              "# UPDATE_SURF": f"        default: {os.environ.get('SURF', 'false').lower()} # UPDATE_SURF\n",
+          }
+
+          for i, line in enumerate(lines):
+              for marker, replacement in inputs_map.items():
+                  if marker in line:
+                      lines[i] = replacement
+
+          with open(yaml_file, "w") as f:
+              f.writelines(lines)
+          EOF
+          python save_inputs.py
+          
+          git config --global user.name "GoLogin"
+          git config --global user.email "actions@github.com"
+          git add .github/workflows/*.yml
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: save last used GoLogin inputs" && git push)
