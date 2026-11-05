@@ -1,10 +1,10 @@
 {
-  "timestamp": "2026-11-05T12:11:26Z",
-  "run_id": "42025004556",
-  "run_number": "14",
+  "timestamp": "2026-11-05T12:17:02Z",
+  "run_id": "42025781591",
+  "run_number": "17",
   "workflow_name": "Gologin",
   "workflow_file": ".github/workflows/gologin.yml",
-  "workflow_run_url": "https://github.com/swifttechz/mnm/actions/runs/42025004556",
+  "workflow_run_url": "https://github.com/swifttechz/mnm/actions/runs/42025781591",
   "actor": "swifttechz",
   "ref": "main",
   "inputs": {
@@ -18,7 +18,7 @@
     "delay_between_devices_minutes": "1",
     "run_time_minutes": "1",
     "enable_scroll": true,
-    "enable_surf": false,
+    "enable_surf": true,
     "delete_profiles_after_run": false,
     "proxy_country": "us"
   }
