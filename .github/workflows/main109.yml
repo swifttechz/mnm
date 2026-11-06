@@ -183,7 +183,7 @@ on:
         description: 'Generate All Proxies Once (Batch Mode)'
         required: true
         type: boolean
-        default: false
+        default: true
 
 permissions:
   actions: write
