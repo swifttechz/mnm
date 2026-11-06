@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWQ1YWU0YTQ4Y2Q3MGQ4YWY1OWY2YSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZDVhZTRhNDhjZDcwZDhhZjU5ZjY2In0.IAQk-67QJsW7HqbBcRYr7iSUFqi0cZyNvl7J6YLyq2I'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWQ3MDcxNGNlOGMzNjI2NzMwOWYwMyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZDcwNzE0Y2U4YzM2MjY3MzA5ZWZiIn0.qCe-Ug3KdMP51dYgi6FRTGnFIkr4H-HHWEeE-hap3zY'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -183,7 +183,7 @@ on:
         description: 'Generate All Proxies Once (Batch Mode)'
         required: true
         type: boolean
-        default: false
+        default: true
 
 permissions:
   actions: write
