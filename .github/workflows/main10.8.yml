@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '30'
+        default: '0'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '170'
+        default: '200'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWM3MjFiNWMwZjBhZDRmYWVhZjk4ZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlYzcyMWI1YzBmMGFkNGZhZWFmOThhIn0.gYaadjhfAOQKf-Umw4bARt3PJunAixolgK92TPk5sJE'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWQ1NWFhNzVlNDg5MmQyNTYzMjg0NSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZDU1YWE3NWU0ODkyZDI1NjMyODMyIn0.95fwLnmRqKmrZdlh3QhaD7Q3vcmHpyZHNDCqRFTrDd4'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
