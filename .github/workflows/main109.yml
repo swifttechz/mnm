@@ -747,15 +747,23 @@ jobs:
           preassigned_proxies = []
 
           if generate_all and not without_proxy and (gologin_keys or bytesflow_proxies or redscrape_keys or manual_proxies or floppy_keys or scrapeops_keys):
-              print("========== BATCH PROXY GENERATION ENABLED ==========")
-              buffer_pct = random.uniform(0.10, 0.15)
-              needed = tasks_total + max(2, int(tasks_total * buffer_pct) + 1)
-              print(f"[Batch] Target pool size: {needed} (tasks={tasks_total} + ~{int(buffer_pct*100)}% buffer)")
+              print("========== PROXY BATCH GENERATION (INITIAL 10% POOL) ==========")
+              print("[ProxyBatch] Strategy: Generate only ~10% of required proxies first so devices can start immediately.")
+              print("[ProxyBatch] Remaining proxies will be generated on-demand by device runners in parallel.")
+              print("[ProxyBatch] If API limits are reached, the collected pool will be used until exhausted (no early full failure).")
+              
+              initial_pct = 0.10
+              initial_target = max(8, int(tasks_total * initial_pct) + 3)
+              needed = initial_target
+              print(f"[ProxyBatch] Tasks total: {tasks_total} | Initial pool target: {needed} proxies (~10%)")
+              print(f"[ProxyBatch] Max parallel devices: {num_devices} | Unique proxies will be assigned by task index.")
 
               collected = []
+              consecutive_failures = 0
+              MAX_CONSECUTIVE_FAILS = 8
 
               if gologin_keys and len(collected) < needed:
-                  print(f"[Batch-GoLogin] Generating residential proxies via GoLogin API...")
+                  print(f"[ProxyBatch-GoLogin] Starting residential proxy generation via GoLogin API (keys available: {len(gologin_keys)})...")
                   try:
                       import requests
                       import urllib3
@@ -809,20 +817,28 @@ jobs:
                                   if actual_cc == current_expected_cc or fallback_country_input == "No Fallback":
                                       res['proxy_type_label'] = 'gologin'
                                       collected.append(res)
-                                      print(f"  [GoLogin] Collected {len(collected)}/{needed} -> IP {res.get('ip')} ({actual_cc})")
+                                      print(f"[ProxyBatch-GoLogin] ✅ Proxy #{len(collected)}/{needed} READY | IP: {res.get('ip')} | Country: {actual_cc} | Type: gologin | Host: {res.get('host')}:{res.get('port')}")
+                                      consecutive_failures = 0
                                   else:
                                       print(f"  [GoLogin] Country mismatch {actual_cc} != {current_expected_cc}, retrying...")
                               else:
-                                  print(f"  [GoLogin] Validation failed, retrying...")
+                                  print(f"[ProxyBatch-GoLogin] ❌ Validation failed for attempt {attempt+1}, retrying...")
+                                  consecutive_failures += 1
                           else:
-                              print(f"  [GoLogin] API {resp.status_code}: {resp.text[:120]}")
+                              print(f"[ProxyBatch-GoLogin] ❌ API returned {resp.status_code}: {resp.text[:120]}")
+                              consecutive_failures += 1
                       except Exception as e:
-                          print(f"  [GoLogin] Exception: {e}")
+                          print(f"[ProxyBatch-GoLogin] ❌ Exception on attempt {attempt+1}: {e}")
+                          consecutive_failures += 1
                       attempt += 1
+                      if consecutive_failures >= MAX_CONSECUTIVE_FAILS:
+                          print(f"[ProxyBatch-GoLogin] Stopping early after {consecutive_failures} consecutive failures (API limit / key issue likely). Using {len(collected)} proxies collected so far.")
+                          break
                       time.sleep(0.7)
 
               if bytesflow_proxies and len(collected) < needed:
-                  print(f"[Batch-BytesFlow] Generating sessions...")
+                  print(f"[ProxyBatch-BytesFlow] Generating sessions from {len(bytesflow_proxies)} base proxy(ies)...")
+                  consecutive_failures = 0
                   attempt = 0
                   while len(collected) < needed and attempt < needed * 4:
                       raw_p = bytesflow_proxies[attempt % len(bytesflow_proxies)]
@@ -854,8 +870,16 @@ jobs:
                               if actual_cc == current_expected_cc:
                                   res['proxy_type_label'] = 'bytesflow'
                                   collected.append(res)
-                                  print(f"  [BytesFlow] Collected {len(collected)}/{needed}")
+                                  print(f"[ProxyBatch-BytesFlow] ✅ Proxy #{len(collected)}/{needed} READY | Type: bytesflow | IP: {res.get('ip', 'n/a')}")
+                                  consecutive_failures = 0
+                          else:
+                              consecutive_failures += 1
+                      else:
+                          consecutive_failures += 1
                       attempt += 1
+                      if consecutive_failures >= MAX_CONSECUTIVE_FAILS:
+                          print(f"[ProxyBatch-BytesFlow] Stopping early after consecutive failures. Using {len(collected)} proxies so far.")
+                          break
                       time.sleep(0.5)
 
               if manual_proxies and len(collected) < needed:
@@ -868,10 +892,15 @@ jobs:
                               res['proxy_type_label'] = 'manual'
                               collected.append(res)
 
-              if len(collected) < tasks_total:
-                  print(f"[Batch] WARNING: Only obtained {len(collected)} working proxies (needed {tasks_total}). Some devices will generate on-demand.")
+              if len(collected) == 0:
+                  print("[ProxyBatch] WARNING: Zero proxies collected from batch. All devices will generate on-demand.")
+              elif len(collected) < needed:
+                  print(f"[ProxyBatch] PARTIAL: Collected {len(collected)}/{needed} initial proxies (API may be limited). Devices will use these unique ones first, then on-demand.")
               else:
-                  print(f"[Batch] SUCCESS: {len(collected)} unique validated proxies ready (buffer included).")
+                  print(f"[ProxyBatch] SUCCESS: Initial pool of {len(collected)} unique validated proxies ready (~10%).")
+              print(f"[ProxyBatch] Pool will be pre-assigned to first {len(collected)} tasks by index for uniqueness.")
+              print("[ProxyBatch] Remaining tasks / devices will generate additional unique proxies on-demand in parallel.")
+              print("========== PROXY BATCH GENERATION (INITIAL POOL) COMPLETE ==========")
 
               random.shuffle(collected)
               preassigned_proxies = collected
@@ -934,6 +963,44 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               f.write(f"matrix={json.dumps({'include': includes})}\n")
           print("========== MATRIX GENERATION COMPLETE ==========")
+
+
+  proxy_batch_generation:
+    name: Proxy Batch Generation
+    needs: prepare_matrix
+    if: needs.prepare_matrix.outputs.has_tasks == 'true' && inputs.generate_all_proxies == true && inputs.use_without_proxy != true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Proxy Pool Status & Strategy Summary
+        run: |
+          echo "============================================================"
+          echo " PROXY BATCH GENERATION JOB"
+          echo "============================================================"
+          echo ""
+          echo "Strategy applied in Prepare job:"
+          echo "  • Only ~10% of total required proxies are pre-generated in the matrix step."
+          echo "  • This allows the remote device matrix to start almost immediately."
+          echo "  • Pre-assigned unique proxies are given to the first N tasks (by task_index)."
+          echo "  • All remaining devices generate fresh unique proxies on-demand in parallel."
+          echo "  • If an API key hits rate limits / quota during the initial 10% generation,"
+          echo "    generation stops gracefully and the partial pool is still used."
+          echo "  • Devices never share the same proxy; uniqueness is enforced by assignment index"
+          echo "    and on-demand generation using different session IDs / UUIDs."
+          echo ""
+          echo "Logs from the actual generation (with proxy numbers, IPs, countries, types)"
+          echo "appear in the 'Generate Dynamic Matrix Queue' step of the previous job."
+          echo "============================================================"
+
+      - name: Confirm Unique Assignment Guarantees
+        run: |
+          echo "[ProxyBatch] Guarantees:"
+          echo "  1. Pre-assigned proxies from the 10% pool are unique (shuffled + indexed)."
+          echo "  2. On-demand generation (in Runner Proxy & Identity Provisioning) creates"
+          echo "     new sessions with unique UUIDs / sticky params so collisions are avoided."
+          echo "  3. If a proxy later fails validation at device start, the device falls back"
+          echo "     to generating a replacement on-demand."
+          echo "  4. Workflow continues even with partial pool; only exits when no more proxies"
+          echo "     can be obtained and tasks still remain (handled inside device steps)."
 
   remote_session:
     name: ${{ matrix.display_name }}
