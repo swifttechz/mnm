@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWQ3NjdkMDcyYjFlNzVmOGJiYmJiOCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZDc2N2QwNzJiMWU3NWY4YmJiYmIzIn0.cO4h6UZccDy9KJ1FbvazTj3Y5O1PTWV3DRHA8RjKNxU'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWQ3MDcxNGNlOGMzNjI2NzMwOWYwMyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZDcwNzE0Y2U4YzM2MjY3MzA5ZWZiIn0.qCe-Ug3KdMP51dYgi6FRTGnFIkr4H-HHWEeE-hap3zY'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -352,6 +352,8 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       has_tasks: ${{ steps.set-matrix.outputs.has_tasks }}
+      tasks_total: ${{ steps.set-matrix.outputs.tasks_total }}
+      num_devices: ${{ steps.set-matrix.outputs.num_devices }}
     steps:
       - name: Generate Dynamic Matrix Queue
         id: set-matrix
@@ -560,6 +562,128 @@ jobs:
           }
           cc_input = country_map.get(country_input, "us")
 
+          # (proxy helper functions removed - generation lives in Proxy Batch Generation job)
+
+          # Proxy generation has been moved to the dedicated "Proxy Batch Generation" job.
+          # prepare_matrix only builds the task matrix structure so it finishes in seconds.
+          # Devices will receive unique proxies either from the artifact produced by the
+          # Proxy Batch Generation job or via on-demand generation.
+          preassigned_proxies = []
+          print("========== MATRIX STRUCTURE ONLY (proxy gen moved to dedicated job) ==========")
+          print(f"[Matrix] Total tasks: {tasks_total} | Devices (max-parallel): {num_devices}")
+          print("[Matrix] All tasks will start with preassigned_proxy=false.")
+          print("[Matrix] Unique proxies will be supplied by the Proxy Batch Generation job (initial 10% pool) + on-demand.")
+
+          includes = []
+          for i in range(tasks_total):
+              action_mode = action_list[i]
+              absolute_idx = i + 1
+              batch_idx = (absolute_idx - 1) // num_devices
+
+              delay_sec = batch_delays.get(batch_idx, 0) if batch_idx > 0 else 0
+
+              profile_id = random.randint(1, 100) if action_mode == "surf" else None
+              profile_tag = f"P{profile_id}" if profile_id else ""
+              display_name = f"{absolute_idx}-{short_os_tag}-{short_sw_tag}-{action_mode.capitalize()}" + (f"-{profile_tag}" if profile_tag else "")
+
+              entry = {
+                  "task_index":    absolute_idx,
+                  "absolute_idx":  absolute_idx,
+                  "batch_idx":     batch_idx,
+                  "delay_seconds": delay_sec,
+                  "email":         email,
+                  "os":            os_version,
+                  "target_url":    target_url,
+                  "software_type": software_type,
+                  "exe_filter":    exe_filter,
+                  "action_mode":   action_mode,
+                  "action_cap":    action_mode.capitalize(),
+                  "short_os_tag":  short_os_tag,
+                  "short_sw_tag":  short_sw_tag,
+                  "profile_tag":   profile_tag,
+                  "display_name":  display_name,
+                  "preassigned_proxy": "false"
+              }
+
+              includes.append(entry)
+              print(f"[Task Queued] {display_name} | Batch: {batch_idx} | Delay: {delay_sec}s | Action: {action_mode}")
+
+          if not includes:
+              print("Error: Valid configuration could not be generated. Exiting.")
+              exit(1)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"matrix={json.dumps({'include': includes})}\n")
+              f.write(f"tasks_total={tasks_total}\n")
+              f.write(f"num_devices={num_devices}\n")
+          print("========== MATRIX STRUCTURE COMPLETE (proxy gen is in dedicated job) ==========")
+          print(f"[Matrix] {len(includes)} tasks queued. Proxy Batch Generation job will now produce the initial 10% pool.")
+
+
+
+  proxy_batch_generation:
+    name: Proxy Batch Generation
+    needs: prepare_matrix
+    if: needs.prepare_matrix.outputs.has_tasks == 'true' && inputs.generate_all_proxies == true && inputs.use_without_proxy != true
+    runs-on: ubuntu-latest
+    outputs:
+      pool_size: ${{ steps.generate.outputs.pool_size }}
+    steps:
+      - name: Generate Initial 10% Proxy Pool
+        id: generate
+        shell: python
+        env:
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          WITHOUT_PROXY: ${{ inputs.use_without_proxy }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          GENERATE_ALL: ${{ inputs.generate_all_proxies }}
+        run: |
+          import os, json, random, re, time, uuid, sys
+
+          print("============================================================")
+          print(" PROXY BATCH GENERATION JOB - INITIAL 10% POOL")
+          print("============================================================")
+
+          try:
+              tasks_total = int(os.environ.get("TASKS_TOTAL", "0"))
+          except:
+              tasks_total = 0
+          try:
+              num_devices = int(os.environ.get("NUM_DEVICES", "1"))
+          except:
+              num_devices = 1
+
+          if tasks_total <= 0:
+              print("[ProxyBatch] No tasks. Exiting.")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("pool_size=0\n")
+              sys.exit(0)
+
+          without_proxy = os.environ.get("WITHOUT_PROXY", "false").lower() == "true"
+          if without_proxy:
+              print("[ProxyBatch] use_without_proxy=true. Skipping generation.")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("pool_size=0\n")
+              sys.exit(0)
+
+          proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
+          country_input = os.environ.get("COUNTRY", "USA")
+          fallback_country_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
+          mobile = os.environ.get("MOBILE", "false").lower() == "true"
+          sticky = os.environ.get("STICKY", "false").lower() == "true"
+
+          country_map = {
+              "USA": "us", "UK": "gb", "Canada": "ca", "Australia": "au", "Germany": "de", "France": "fr",
+              "Brazil": "br", "Mexico": "mx", "Spain": "es", "Vietnam": "vn", "Switzerland": "ch",
+              "Indonesia": "id", "Italy": "it", "Netherlands": "nl", "Poland": "pl"
+          }
+          cc_input = country_map.get(country_input, "us")
+
           def country_code_to_locale(cc):
               _map = {"US": "en-US", "GB": "en-GB", "CA": "en-CA", "AU": "en-AU", "DE": "de-DE",
                       "FR": "fr-FR", "BR": "pt-BR", "MX": "es-MX", "ES": "es-ES", "VN": "vi-VN",
@@ -712,6 +836,7 @@ jobs:
 
               return None
 
+          # Parse keys / proxies
           bytesflow_proxies = []
           manual_proxies = []
           scrapeops_keys = []
@@ -719,7 +844,7 @@ jobs:
           redscrape_keys = []
           gologin_keys = []
 
-          if proxy_input and not without_proxy:
+          if proxy_input:
               SCRAPEOPS_KEY_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
               FLOPPY_KEY_RE = re.compile(r'^[A-Za-z0-9_]{30,80}$')
               REDSCRAPE_KEY_RE = re.compile(r'^[0-9a-f]{32}$', re.IGNORECASE)
@@ -744,263 +869,200 @@ jobs:
                       if len(item) > 5:
                           manual_proxies.append(item)
 
-          preassigned_proxies = []
+          # ========== INITIAL 10% TARGET ==========
+          initial_pct = 0.10
+          initial_target = max(8, int(tasks_total * initial_pct) + 3)
+          needed = initial_target
+          print(f"[ProxyBatch] Tasks total     : {tasks_total}")
+          print(f"[ProxyBatch] Max-parallel    : {num_devices}")
+          print(f"[ProxyBatch] Initial target  : {needed} proxies (~10%)")
+          print(f"[ProxyBatch] Strategy        : Generate only this pool so devices can start quickly.")
+          print(f"[ProxyBatch] Remaining tasks will use on-demand generation for unique proxies.")
+          print("")
 
-          if generate_all and not without_proxy and (gologin_keys or bytesflow_proxies or redscrape_keys or manual_proxies or floppy_keys or scrapeops_keys):
-              print("========== PROXY BATCH GENERATION (INITIAL 10% POOL) ==========")
-              print("[ProxyBatch] Strategy: Generate only ~10% of required proxies first so devices can start immediately.")
-              print("[ProxyBatch] Remaining proxies will be generated on-demand by device runners in parallel.")
-              print("[ProxyBatch] If API limits are reached, the collected pool will be used until exhausted (no early full failure).")
-              
-              initial_pct = 0.10
-              initial_target = max(8, int(tasks_total * initial_pct) + 3)
-              needed = initial_target
-              print(f"[ProxyBatch] Tasks total: {tasks_total} | Initial pool target: {needed} proxies (~10%)")
-              print(f"[ProxyBatch] Max parallel devices: {num_devices} | Unique proxies will be assigned by task index.")
+          collected = []
+          consecutive_failures = 0
+          MAX_CONSECUTIVE_FAILS = 8
 
-              collected = []
-              consecutive_failures = 0
-              MAX_CONSECUTIVE_FAILS = 8
+          # ----- GoLogin -----
+          if gologin_keys and len(collected) < needed:
+              print(f"[ProxyBatch-GoLogin] Generating via GoLogin API ({len(gologin_keys)} key(s) available)...")
+              try:
+                  import requests, urllib3
+                  urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+              except ImportError:
+                  import subprocess
+                  subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "urllib3", "--quiet"])
+                  import requests, urllib3
+                  urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-              if gologin_keys and len(collected) < needed:
-                  print(f"[ProxyBatch-GoLogin] Starting residential proxy generation via GoLogin API (keys available: {len(gologin_keys)})...")
+              GOLOGIN_API_BASE = "https://api.gologin.com"
+              attempt = 0
+              while len(collected) < needed and attempt < needed * 5:
+                  current_expected_cc = cc_input.upper()
+                  if attempt >= 7 and fallback_country_input != "No Fallback":
+                      fallback_cc = country_map.get(fallback_country_input, "us").upper()
+                      if current_expected_cc != fallback_cc:
+                          current_expected_cc = fallback_cc
+
+                  key_idx = (attempt // 5) % len(gologin_keys)
+                  current_key = gologin_keys[key_idx]
+                  headers = {
+                      "Authorization": f"Bearer {current_key}",
+                      "Content-Type": "application/json"
+                  }
+                  payload = {
+                      "countryCode": current_expected_cc.lower(),
+                      "isMobile": False,
+                      "isDC": False,
+                      "customName": f"BATCH-{str(uuid.uuid4())[:8]}"
+                  }
                   try:
-                      import requests
-                      import urllib3
-                      urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                  except ImportError:
-                      import subprocess
-                      subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "urllib3", "--quiet"])
-                      import requests
-                      import urllib3
-                      urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                      resp = requests.post(f"{GOLOGIN_API_BASE}/users-proxies/mobile-proxy",
+                                           headers=headers, json=payload, timeout=15, verify=False)
+                      if resp.status_code in [200, 201]:
+                          data = resp.json()
+                          host = data.get("host") or data.get("ip") or data.get("server") or "proxy.gologin.com"
+                          port = data.get("port") or data.get("httpPort") or 8080
+                          username = data.get("username") or data.get("user") or data.get("login") or ""
+                          password = data.get("password") or data.get("pass") or ""
 
-                  GOLOGIN_API_BASE = "https://api.gologin.com"
-                  attempt = 0
-                  while len(collected) < needed and attempt < needed * 4:
+                          pinfo = {
+                              'username': username, 'password': password,
+                              'host': host, 'port': int(port), 'server': f"{host}:{port}",
+                              'url': f"http://{username}:{password}@{host}:{port}" if username else f"http://{host}:{port}"
+                          }
+                          res = validate_proxy(pinfo)
+                          if res.get('working'):
+                              actual_cc = (res.get('country_code') or '').upper()
+                              if actual_cc == current_expected_cc or fallback_country_input == "No Fallback":
+                                  res['proxy_type_label'] = 'gologin'
+                                  collected.append(res)
+                                  print(f"[ProxyBatch-GoLogin] ✅ Proxy #{len(collected)}/{needed} READY | IP: {res.get('ip')} | Country: {actual_cc} | Host: {host}:{port}")
+                                  consecutive_failures = 0
+                              else:
+                                  print(f"[ProxyBatch-GoLogin] Country mismatch {actual_cc} != {current_expected_cc}, retrying...")
+                                  consecutive_failures += 1
+                          else:
+                              print(f"[ProxyBatch-GoLogin] ❌ Validation failed (attempt {attempt+1})")
+                              consecutive_failures += 1
+                      else:
+                          print(f"[ProxyBatch-GoLogin] ❌ API {resp.status_code}: {resp.text[:120]}")
+                          consecutive_failures += 1
+                  except Exception as e:
+                      print(f"[ProxyBatch-GoLogin] ❌ Exception: {e}")
+                      consecutive_failures += 1
+
+                  attempt += 1
+                  if consecutive_failures >= MAX_CONSECUTIVE_FAILS:
+                      print(f"[ProxyBatch-GoLogin] Stopping early after {consecutive_failures} consecutive failures (limit/quota). Using {len(collected)} proxies.")
+                      break
+                  time.sleep(0.7)
+
+          # ----- BytesFlow -----
+          if bytesflow_proxies and len(collected) < needed:
+              print(f"[ProxyBatch-BytesFlow] Generating sessions from {len(bytesflow_proxies)} base proxy(ies)...")
+              consecutive_failures = 0
+              attempt = 0
+              while len(collected) < needed and attempt < needed * 4:
+                  raw_p = bytesflow_proxies[attempt % len(bytesflow_proxies)]
+                  pinfo_temp = parse_generic_proxy(raw_p)
+                  if pinfo_temp and pinfo_temp.get('username'):
+                      usr = pinfo_temp['username']
+                      pwd = pinfo_temp['password']
+                      hst = pinfo_temp['host']
+                      prt = pinfo_temp['port']
+                      bmatch = re.search(r"^(?:u-)?([A-Za-z0-9]+)", usr)
+                      base_user = bmatch.group(1) if bmatch else usr.split("-")[0]
+
                       current_expected_cc = cc_input.upper()
                       if attempt >= 7 and fallback_country_input != "No Fallback":
                           fallback_cc = country_map.get(fallback_country_input, "us").upper()
                           if current_expected_cc != fallback_cc:
                               current_expected_cc = fallback_cc
 
-                      key_idx = (attempt // 5) % len(gologin_keys)
-                      current_key = gologin_keys[key_idx]
-                      headers = {
-                          "Authorization": f"Bearer {current_key}",
-                          "Content-Type": "application/json"
+                      params = [f"u-{base_user}", f"loc-{current_expected_cc}", "t-10",
+                                f"s-{str(uuid.uuid4().hex)[:8]}"]
+                      new_user = "-".join(params)
+                      pinfo = {
+                          'username': new_user, 'password': pwd, 'host': hst, 'port': int(prt),
+                          'server': f"{hst}:{prt}", 'url': f"http://{new_user}:{pwd}@{hst}:{prt}"
                       }
-                      payload = {
-                          "countryCode": current_expected_cc.lower(),
-                          "isMobile": False,
-                          "isDC": False,
-                          "customName": f"BATCH-{str(uuid.uuid4())[:8]}"
-                      }
-                      try:
-                          resp = requests.post(f"{GOLOGIN_API_BASE}/users-proxies/mobile-proxy",
-                                               headers=headers, json=payload, timeout=15, verify=False)
-                          if resp.status_code in [200, 201]:
-                              data = resp.json()
-                              host = data.get("host") or data.get("ip") or data.get("server") or "proxy.gologin.com"
-                              port = data.get("port") or data.get("httpPort") or 8080
-                              username = data.get("username") or data.get("user") or data.get("login") or ""
-                              password = data.get("password") or data.get("pass") or ""
-
-                              pinfo = {
-                                  'username': username, 'password': password,
-                                  'host': host, 'port': int(port), 'server': f"{host}:{port}",
-                                  'url': f"http://{username}:{password}@{host}:{port}" if username else f"http://{host}:{port}"
-                              }
-                              res = validate_proxy(pinfo)
-                              if res.get('working'):
-                                  actual_cc = (res.get('country_code') or '').upper()
-                                  if actual_cc == current_expected_cc or fallback_country_input == "No Fallback":
-                                      res['proxy_type_label'] = 'gologin'
-                                      collected.append(res)
-                                      print(f"[ProxyBatch-GoLogin] ✅ Proxy #{len(collected)}/{needed} READY | IP: {res.get('ip')} | Country: {actual_cc} | Type: gologin | Host: {res.get('host')}:{res.get('port')}")
-                                      consecutive_failures = 0
-                                  else:
-                                      print(f"  [GoLogin] Country mismatch {actual_cc} != {current_expected_cc}, retrying...")
-                              else:
-                                  print(f"[ProxyBatch-GoLogin] ❌ Validation failed for attempt {attempt+1}, retrying...")
-                                  consecutive_failures += 1
-                          else:
-                              print(f"[ProxyBatch-GoLogin] ❌ API returned {resp.status_code}: {resp.text[:120]}")
-                              consecutive_failures += 1
-                      except Exception as e:
-                          print(f"[ProxyBatch-GoLogin] ❌ Exception on attempt {attempt+1}: {e}")
-                          consecutive_failures += 1
-                      attempt += 1
-                      if consecutive_failures >= MAX_CONSECUTIVE_FAILS:
-                          print(f"[ProxyBatch-GoLogin] Stopping early after {consecutive_failures} consecutive failures (API limit / key issue likely). Using {len(collected)} proxies collected so far.")
-                          break
-                      time.sleep(0.7)
-
-              if bytesflow_proxies and len(collected) < needed:
-                  print(f"[ProxyBatch-BytesFlow] Generating sessions from {len(bytesflow_proxies)} base proxy(ies)...")
-                  consecutive_failures = 0
-                  attempt = 0
-                  while len(collected) < needed and attempt < needed * 4:
-                      raw_p = bytesflow_proxies[attempt % len(bytesflow_proxies)]
-                      pinfo_temp = parse_generic_proxy(raw_p)
-                      if pinfo_temp and pinfo_temp.get('username'):
-                          usr = pinfo_temp['username']
-                          pwd = pinfo_temp['password']
-                          hst = pinfo_temp['host']
-                          prt = pinfo_temp['port']
-                          bmatch = re.search(r"^(?:u-)?([A-Za-z0-9]+)", usr)
-                          base_user = bmatch.group(1) if bmatch else usr.split("-")[0]
-
-                          current_expected_cc = cc_input.upper()
-                          if attempt >= 7 and fallback_country_input != "No Fallback":
-                              fallback_cc = country_map.get(fallback_country_input, "us").upper()
-                              if current_expected_cc != fallback_cc:
-                                  current_expected_cc = fallback_cc
-
-                          params = [f"u-{base_user}", f"loc-{current_expected_cc}", "t-10",
-                                    f"s-{str(uuid.uuid4().hex)[:8]}"]
-                          new_user = "-".join(params)
-                          pinfo = {
-                              'username': new_user, 'password': pwd, 'host': hst, 'port': int(prt),
-                              'server': f"{hst}:{prt}", 'url': f"http://{new_user}:{pwd}@{hst}:{prt}"
-                          }
-                          res = validate_proxy(pinfo)
-                          if res.get('working'):
-                              actual_cc = (res.get('country_code') or '').upper()
-                              if actual_cc == current_expected_cc:
-                                  res['proxy_type_label'] = 'bytesflow'
-                                  collected.append(res)
-                                  print(f"[ProxyBatch-BytesFlow] ✅ Proxy #{len(collected)}/{needed} READY | Type: bytesflow | IP: {res.get('ip', 'n/a')}")
-                                  consecutive_failures = 0
+                      res = validate_proxy(pinfo)
+                      if res.get('working'):
+                          actual_cc = (res.get('country_code') or '').upper()
+                          if actual_cc == current_expected_cc:
+                              res['proxy_type_label'] = 'bytesflow'
+                              collected.append(res)
+                              print(f"[ProxyBatch-BytesFlow] ✅ Proxy #{len(collected)}/{needed} READY | IP: {res.get('ip')} | Type: bytesflow")
+                              consecutive_failures = 0
                           else:
                               consecutive_failures += 1
                       else:
                           consecutive_failures += 1
-                      attempt += 1
-                      if consecutive_failures >= MAX_CONSECUTIVE_FAILS:
-                          print(f"[ProxyBatch-BytesFlow] Stopping early after consecutive failures. Using {len(collected)} proxies so far.")
-                          break
-                      time.sleep(0.5)
+                  else:
+                      consecutive_failures += 1
+                  attempt += 1
+                  if consecutive_failures >= MAX_CONSECUTIVE_FAILS:
+                      print(f"[ProxyBatch-BytesFlow] Stopping early. Using {len(collected)} proxies.")
+                      break
+                  time.sleep(0.5)
 
-              if manual_proxies and len(collected) < needed:
-                  for mp in manual_proxies:
-                      if len(collected) >= needed: break
-                      pinfo = parse_generic_proxy(mp)
-                      if pinfo:
-                          res = validate_proxy(pinfo)
-                          if res.get('working'):
-                              res['proxy_type_label'] = 'manual'
-                              collected.append(res)
+          # ----- Manual proxies -----
+          if manual_proxies and len(collected) < needed:
+              print(f"[ProxyBatch-Manual] Validating {len(manual_proxies)} manual proxy string(s)...")
+              for mp in manual_proxies:
+                  if len(collected) >= needed: break
+                  pinfo = parse_generic_proxy(mp)
+                  if pinfo:
+                      res = validate_proxy(pinfo)
+                      if res.get('working'):
+                          res['proxy_type_label'] = 'manual'
+                          collected.append(res)
+                          print(f"[ProxyBatch-Manual] ✅ Proxy #{len(collected)}/{needed} READY | IP: {res.get('ip')}")
 
-              if len(collected) == 0:
-                  print("[ProxyBatch] WARNING: Zero proxies collected from batch. All devices will generate on-demand.")
-              elif len(collected) < needed:
-                  print(f"[ProxyBatch] PARTIAL: Collected {len(collected)}/{needed} initial proxies (API may be limited). Devices will use these unique ones first, then on-demand.")
-              else:
-                  print(f"[ProxyBatch] SUCCESS: Initial pool of {len(collected)} unique validated proxies ready (~10%).")
-              print(f"[ProxyBatch] Pool will be pre-assigned to first {len(collected)} tasks by index for uniqueness.")
-              print("[ProxyBatch] Remaining tasks / devices will generate additional unique proxies on-demand in parallel.")
-              print("========== PROXY BATCH GENERATION (INITIAL POOL) COMPLETE ==========")
+          # Final summary
+          print("")
+          if len(collected) == 0:
+              print("[ProxyBatch] WARNING: Zero proxies collected. All devices will generate on-demand.")
+          elif len(collected) < needed:
+              print(f"[ProxyBatch] PARTIAL SUCCESS: {len(collected)}/{needed} proxies collected (API may be limited).")
+          else:
+              print(f"[ProxyBatch] SUCCESS: Initial pool of {len(collected)} unique validated proxies ready.")
+          print(f"[ProxyBatch] These will be distributed uniquely to the first {len(collected)} tasks.")
+          print(f"[ProxyBatch] Remaining tasks use on-demand generation (unique sessions).")
+          print("============================================================")
 
-              random.shuffle(collected)
-              preassigned_proxies = collected
+          random.shuffle(collected)
 
-          includes = []
-          for i in range(tasks_total):
-              action_mode = action_list[i]
-              absolute_idx = i + 1
-              batch_idx = (absolute_idx - 1) // num_devices
-
-              delay_sec = batch_delays.get(batch_idx, 0) if batch_idx > 0 else 0
-
-              profile_id = random.randint(1, 100) if action_mode == "surf" else None
-              profile_tag = f"P{profile_id}" if profile_id else ""
-              display_name = f"{absolute_idx}-{short_os_tag}-{short_sw_tag}-{action_mode.capitalize()}" + (f"-{profile_tag}" if profile_tag else "")
-
-              entry = {
-                  "task_index":    absolute_idx,
-                  "absolute_idx":  absolute_idx,
-                  "batch_idx":     batch_idx,
-                  "delay_seconds": delay_sec,
-                  "email":         email,
-                  "os":            os_version,
-                  "target_url":    target_url,
-                  "software_type": software_type,
-                  "exe_filter":    exe_filter,
-                  "action_mode":   action_mode,
-                  "action_cap":    action_mode.capitalize(),
-                  "short_os_tag":  short_os_tag,
-                  "short_sw_tag":  short_sw_tag,
-                  "profile_tag":   profile_tag,
-                  "display_name":  display_name,
-                  "preassigned_proxy": "false"
-              }
-
-              if generate_all and i < len(preassigned_proxies):
-                  p = preassigned_proxies[i]
-                  entry["preassigned_proxy"] = "true"
-                  entry["proxy_server"] = p.get("server_with_proto") or p.get("server") or ""
-                  entry["proxy_user"] = p.get("username") or ""
-                  entry["proxy_pass"] = p.get("password") or ""
-                  entry["proxy_type"] = p.get("proxy_type_label") or "batch"
-                  entry["proxy_country_code"] = (p.get("country_code") or "US").upper()
-                  entry["proxy_city"] = p.get("city") or ""
-                  entry["proxy_region"] = p.get("region") or ""
-                  entry["proxy_real_ip"] = p.get("ip") or "unknown"
-                  entry["timezone_windows"] = p.get("timezone_windows") or "UTC"
-                  entry["timezone_iana"] = p.get("timezone_iana") or "UTC"
-                  entry["windows_locale"] = p.get("windows_locale") or "en-US"
-                  entry["windows_keyboard"] = p.get("windows_keyboard") or "0409:00000409"
-
-              includes.append(entry)
-              print(f"[Task Queued] {display_name} | Batch: {batch_idx} | Delay: {delay_sec}s | Action: {action_mode}" +
-                    (f" | Pre-proxy: {entry.get('proxy_real_ip','')}" if entry.get("preassigned_proxy") == "true" else ""))
-
-          if not includes:
-              print("Error: Valid configuration could not be generated. Exiting.")
-              exit(1)
+          # Write artifact
+          pool_path = "proxy_pool.json"
+          with open(pool_path, "w", encoding="utf-8") as f:
+              json.dump(collected, f, indent=2)
 
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write(f"matrix={json.dumps({'include': includes})}\n")
-          print("========== MATRIX GENERATION COMPLETE ==========")
+              f.write(f"pool_size={len(collected)}\n")
 
+          print(f"[ProxyBatch] Wrote {len(collected)} proxies to {pool_path}")
 
-  proxy_batch_generation:
-    name: Proxy Batch Generation
-    needs: prepare_matrix
-    if: needs.prepare_matrix.outputs.has_tasks == 'true' && inputs.generate_all_proxies == true && inputs.use_without_proxy != true
-    runs-on: ubuntu-latest
-    steps:
-      - name: Proxy Pool Status & Strategy Summary
+      - name: Upload Proxy Pool Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-pool
+          path: proxy_pool.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Pool Summary
         run: |
           echo "============================================================"
-          echo " PROXY BATCH GENERATION JOB"
+          echo " PROXY BATCH GENERATION COMPLETE"
           echo "============================================================"
-          echo ""
-          echo "Strategy applied in Prepare job:"
-          echo "  • Only ~10% of total required proxies are pre-generated in the matrix step."
-          echo "  • This allows the remote device matrix to start almost immediately."
-          echo "  • Pre-assigned unique proxies are given to the first N tasks (by task_index)."
-          echo "  • All remaining devices generate fresh unique proxies on-demand in parallel."
-          echo "  • If an API key hits rate limits / quota during the initial 10% generation,"
-          echo "    generation stops gracefully and the partial pool is still used."
-          echo "  • Devices never share the same proxy; uniqueness is enforced by assignment index"
-          echo "    and on-demand generation using different session IDs / UUIDs."
-          echo ""
-          echo "Logs from the actual generation (with proxy numbers, IPs, countries, types)"
-          echo "appear in the 'Generate Dynamic Matrix Queue' step of the previous job."
+          echo "Pool size written to outputs and uploaded as artifact 'proxy-pool'."
+          echo "remote_session jobs can now download it and assign unique proxies."
+          echo "Devices that cannot obtain a proxy from the pool will generate on-demand."
           echo "============================================================"
-
-      - name: Confirm Unique Assignment Guarantees
-        run: |
-          echo "[ProxyBatch] Guarantees:"
-          echo "  1. Pre-assigned proxies from the 10% pool are unique (shuffled + indexed)."
-          echo "  2. On-demand generation (in Runner Proxy & Identity Provisioning) creates"
-          echo "     new sessions with unique UUIDs / sticky params so collisions are avoided."
-          echo "  3. If a proxy later fails validation at device start, the device falls back"
-          echo "     to generating a replacement on-demand."
-          echo "  4. Workflow continues even with partial pool; only exits when no more proxies"
-          echo "     can be obtained and tasks still remain (handled inside device steps)."
 
   remote_session:
     name: ${{ matrix.display_name }}
@@ -1015,6 +1077,15 @@ jobs:
       matrix: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
 
     steps:
+      - name: Download Proxy Pool Artifact (if ready)
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: proxy-pool
+          path: ${{ runner.temp }}/proxy-pool
+        # If the Proxy Batch Generation job has not finished (or was skipped),
+        # this step fails softly and the device falls back to on-demand generation.
+
       - name: Device Spawn Delay (Batch Intermission)
         shell: python
         env:
@@ -1086,9 +1157,58 @@ jobs:
 
           urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+          # ------------------------------------------------------------------
+          # Prefer unique proxy from the Proxy Batch Generation artifact
+          # (indexed by absolute_idx). Falls back to matrix pre-assigned or
+          # pure on-demand generation.
+          # ------------------------------------------------------------------
+          active_proxy = None
+          use_proxy = False
+          absolute_idx = int(os.environ.get("ABSOLUTE_IDX", "1"))
+
+          pool_candidates = [
+              os.path.join(os.environ.get("RUNNER_TEMP", "/tmp"), "proxy-pool", "proxy_pool.json"),
+              os.path.join(os.environ.get("RUNNER_TEMP", "/tmp"), "proxy_pool.json"),
+              "proxy_pool.json",
+          ]
+          pool = None
+          for p in pool_candidates:
+              if os.path.isfile(p):
+                  try:
+                      with open(p, "r", encoding="utf-8") as fh:
+                          pool = json.load(fh)
+                      print(f"[ProxyPool] Loaded artifact pool with {len(pool)} proxies from {p}")
+                      break
+                  except Exception as e:
+                      print(f"[ProxyPool] Failed to load {p}: {e}")
+
+          if pool and len(pool) > 0:
+              # Unique assignment by 0-based index (wrap if pool smaller than tasks)
+              idx = (absolute_idx - 1) % len(pool)
+              p = pool[idx]
+              active_proxy = {
+                  'server': (p.get("server_with_proto") or p.get("server") or "").replace("http://", "").replace("https://", ""),
+                  'server_with_proto': p.get("server_with_proto") or p.get("server") or "",
+                  'username': p.get("username") or "",
+                  'password': p.get("password") or "",
+                  'proxy_type_label': p.get("proxy_type_label") or "batch-pool",
+                  'country_code': (p.get("country_code") or "US").upper(),
+                  'city': p.get("city") or "",
+                  'region': p.get("region") or "",
+                  'ip': p.get("ip") or "unknown",
+                  'timezone_windows': p.get("timezone_windows") or "UTC",
+                  'timezone_iana': p.get("timezone_iana") or "UTC",
+                  'windows_locale': p.get("windows_locale") or "en-US",
+                  'windows_keyboard': p.get("windows_keyboard") or "0409:00000409",
+                  'working': True
+              }
+              use_proxy = True
+              print(f"========== USING PROXY FROM BATCH POOL (unique index {idx}) ==========")
+              print(f"Pool size: {len(pool)} | Assigned IP: {active_proxy['ip']} ({active_proxy['country_code']}) | Type: {active_proxy['proxy_type_label']}")
+
           preassigned = os.environ.get("PREASSIGNED", "false").lower() == "true"
-          if preassigned and os.environ.get("PRE_PROXY_SERVER"):
-              print("========== USING PRE-ASSIGNED BATCH PROXY ==========")
+          if active_proxy is None and preassigned and os.environ.get("PRE_PROXY_SERVER"):
+              print("========== USING PRE-ASSIGNED BATCH PROXY (from matrix) ==========")
               active_proxy = {
                   'server': os.environ.get("PRE_PROXY_SERVER", "").replace("http://", "").replace("https://", ""),
                   'server_with_proto': os.environ.get("PRE_PROXY_SERVER", ""),
