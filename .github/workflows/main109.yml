@@ -67,12 +67,12 @@ on:
         description: 'Clicks'
         required: true
         type: string
-        default: '10'
+        default: '200'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '0'
+        default: '50'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -183,7 +183,7 @@ on:
         description: 'Generate All Proxies Once (Batch Mode)'
         required: true
         type: boolean
-        default: true
+        default: false
 
 permissions:
   actions: write
@@ -544,7 +544,7 @@ jobs:
           short_os_tag = short_os(os_version)
           short_sw_tag = "MANUAL" if manual_url else short_software(software_choice)
 
-          # ========== BATCH PROXY GENERATION (when generate_all_proxies=true) ==========
+          # ========== BATCH PROXY GENERATION ==========
           generate_all = os.environ.get("GENERATE_ALL_PROXIES", "false").lower() == "true"
           without_proxy = os.environ.get("WITHOUT_PROXY", "false").lower() == "true"
           proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
@@ -712,7 +712,6 @@ jobs:
 
               return None
 
-          # Classify keys
           bytesflow_proxies = []
           manual_proxies = []
           scrapeops_keys = []
@@ -745,7 +744,7 @@ jobs:
                       if len(item) > 5:
                           manual_proxies.append(item)
 
-          preassigned_proxies = []  # list of validated proxy dicts, length >= tasks_total when batch succeeds
+          preassigned_proxies = []
 
           if generate_all and not without_proxy and (gologin_keys or bytesflow_proxies or redscrape_keys or manual_proxies or floppy_keys or scrapeops_keys):
               print("========== BATCH PROXY GENERATION ENABLED ==========")
@@ -753,10 +752,8 @@ jobs:
               needed = tasks_total + max(2, int(tasks_total * buffer_pct) + 1)
               print(f"[Batch] Target pool size: {needed} (tasks={tasks_total} + ~{int(buffer_pct*100)}% buffer)")
 
-              MAX_ATTEMPTS_PER_PROXY = 8
               collected = []
 
-              # ---------- GoLogin batch ----------
               if gologin_keys and len(collected) < needed:
                   print(f"[Batch-GoLogin] Generating residential proxies via GoLogin API...")
                   try:
@@ -772,7 +769,7 @@ jobs:
 
                   GOLOGIN_API_BASE = "https://api.gologin.com"
                   attempt = 0
-                  while len(collected) < needed and attempt < needed * 3:
+                  while len(collected) < needed and attempt < needed * 4:
                       current_expected_cc = cc_input.upper()
                       if attempt >= 7 and fallback_country_input != "No Fallback":
                           fallback_cc = country_map.get(fallback_country_input, "us").upper()
@@ -822,9 +819,8 @@ jobs:
                       except Exception as e:
                           print(f"  [GoLogin] Exception: {e}")
                       attempt += 1
-                      time.sleep(0.8)
+                      time.sleep(0.7)
 
-              # ---------- BytesFlow batch ----------
               if bytesflow_proxies and len(collected) < needed:
                   print(f"[Batch-BytesFlow] Generating sessions...")
                   attempt = 0
@@ -860,25 +856,18 @@ jobs:
                                   collected.append(res)
                                   print(f"  [BytesFlow] Collected {len(collected)}/{needed}")
                       attempt += 1
-                      time.sleep(0.6)
+                      time.sleep(0.5)
 
-              # ---------- Redscrape / Floppy / ScrapeOps / Manual (simplified batch) ----------
-              # For brevity and reliability we primarily rely on GoLogin when present.
-              # Other providers still work in per-device mode; batch focuses on GoLogin as requested.
-              if (redscrape_keys or floppy_keys or scrapeops_keys or manual_proxies) and len(collected) < needed:
-                  print("[Batch] Additional providers present – falling back to limited generation for remaining slots")
-                  # Manual list assignment (unique)
-                  if manual_proxies:
-                      for mp in manual_proxies:
-                          if len(collected) >= needed: break
-                          pinfo = parse_generic_proxy(mp)
-                          if pinfo:
-                              res = validate_proxy(pinfo)
-                              if res.get('working'):
-                                  res['proxy_type_label'] = 'manual'
-                                  collected.append(res)
+              if manual_proxies and len(collected) < needed:
+                  for mp in manual_proxies:
+                      if len(collected) >= needed: break
+                      pinfo = parse_generic_proxy(mp)
+                      if pinfo:
+                          res = validate_proxy(pinfo)
+                          if res.get('working'):
+                              res['proxy_type_label'] = 'manual'
+                              collected.append(res)
 
-              # Final pool
               if len(collected) < tasks_total:
                   print(f"[Batch] WARNING: Only obtained {len(collected)} working proxies (needed {tasks_total}). Some devices will generate on-demand.")
               else:
@@ -887,7 +876,6 @@ jobs:
               random.shuffle(collected)
               preassigned_proxies = collected
 
-          # Build matrix includes
           includes = []
           for i in range(tasks_total):
               action_mode = action_list[i]
@@ -919,7 +907,6 @@ jobs:
                   "preassigned_proxy": "false"
               }
 
-              # Assign unique pre-generated proxy if available
               if generate_all and i < len(preassigned_proxies):
                   p = preassigned_proxies[i]
                   entry["preassigned_proxy"] = "true"
@@ -1005,7 +992,6 @@ jobs:
           SHORT_SW: ${{ matrix.short_sw_tag }}
           ACTION: ${{ matrix.action_mode }}
           PROFILE_TAG: ${{ matrix.profile_tag }}
-          # Pre-assigned proxy fields (populated when generate_all_proxies=true)
           PREASSIGNED: ${{ matrix.preassigned_proxy }}
           PRE_PROXY_SERVER: ${{ matrix.proxy_server }}
           PRE_PROXY_USER: ${{ matrix.proxy_user }}
@@ -1033,7 +1019,6 @@ jobs:
 
           urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-          # ========== FAST PATH: Pre-assigned proxy from batch generation ==========
           preassigned = os.environ.get("PREASSIGNED", "false").lower() == "true"
           if preassigned and os.environ.get("PRE_PROXY_SERVER"):
               print("========== USING PRE-ASSIGNED BATCH PROXY ==========")
@@ -1056,7 +1041,6 @@ jobs:
               use_proxy = True
               print(f"Pre-assigned: {active_proxy['proxy_type_label']} -> IP {active_proxy['ip']} ({active_proxy['country_code']})")
           else:
-              # ========== ORIGINAL PER-DEVICE GENERATION PATH ==========
               proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
               without_proxy = os.environ.get("WITHOUT_PROXY", "false").lower() == "true"
               country_input = os.environ.get("COUNTRY", "USA")
@@ -1411,9 +1395,191 @@ jobs:
                           sys.exit(1)
 
               elif redscrape_keys:
-                  # (Redscrape logic kept identical to original – omitted here only for length; full original block is retained in practice)
-                  print("[Redscrape] Per-device path (batch preferred for large runs).")
-                  # ... full original Redscrape block would be here ...
+                  REDSCRAPE_API_BASE = "https://api.redscrape.com"
+                  REDSCRAPE_FALLBACK_BASE = "https://redscrape.com/api"
+
+                  key_idx = (absolute_idx // 15) % len(redscrape_keys)
+                  current_key = redscrape_keys[key_idx]
+
+                  print(f"[Redscrape] Using API Key: ...{current_key[-8:]}")
+
+                  proxy_password = None
+                  proxy_host = "dc0f.redscrape.com"
+                  proxy_port = 7777
+
+                  headers = {
+                      "Authorization": f"Bearer {current_key}",
+                      "X-API-Key": current_key,
+                      "Content-Type": "application/json"
+                  }
+
+                  creds_endpoints = [
+                      f"{REDSCRAPE_API_BASE}/v1/credentials",
+                      f"{REDSCRAPE_API_BASE}/v1/account",
+                      f"{REDSCRAPE_API_BASE}/credentials",
+                      f"{REDSCRAPE_API_BASE}/api/v1/credentials",
+                      f"{REDSCRAPE_FALLBACK_BASE}/v1/credentials",
+                      f"{REDSCRAPE_FALLBACK_BASE}/credentials",
+                  ]
+
+                  print(f"[Redscrape] Attempting to retrieve credentials from API...")
+                  for endpoint in creds_endpoints:
+                      if proxy_password:
+                          break
+                      for auth_method in ["header", "query"]:
+                          try:
+                              if auth_method == "header":
+                                  resp = requests.get(endpoint, headers=headers, timeout=12, verify=False)
+                              else:
+                                  resp = requests.get(endpoint, params={"api_key": current_key}, timeout=12, verify=False)
+
+                              if resp.status_code == 200:
+                                  data = resp.json()
+                                  proxy_password = (data.get("password") or data.get("proxy_password") or
+                                                    data.get("pass") or data.get("proxy_pass"))
+                                  proxy_host = (data.get("host") or data.get("proxy_host") or
+                                                data.get("endpoint") or data.get("server") or proxy_host)
+                                  proxy_port = (data.get("port") or data.get("proxy_port") or proxy_port)
+                                  if proxy_password:
+                                      print(f"      -> Credentials retrieved from API: host={proxy_host}, port={proxy_port}")
+                                      break
+                          except Exception:
+                              continue
+
+                  if not proxy_password:
+                      print(f"[Redscrape] Credentials API unavailable. Trying proxy generation endpoints...")
+                      gen_endpoints = [
+                          (f"{REDSCRAPE_API_BASE}/v1/proxies/generate", "GET"),
+                          (f"{REDSCRAPE_API_BASE}/v1/proxies", "GET"),
+                          (f"{REDSCRAPE_API_BASE}/v1/proxies", "POST"),
+                          (f"{REDSCRAPE_API_BASE}/proxies", "GET"),
+                          (f"{REDSCRAPE_API_BASE}/api/v1/proxies", "GET"),
+                          (f"{REDSCRAPE_FALLBACK_BASE}/v1/proxies/generate", "GET"),
+                          (f"{REDSCRAPE_FALLBACK_BASE}/v1/proxies", "GET"),
+                          (f"{REDSCRAPE_FALLBACK_BASE}/proxies", "GET"),
+                          (f"https://redscrape.com/api/v1/proxies/generate", "GET"),
+                          (f"https://redscrape.com/api/proxies", "GET"),
+                      ]
+
+                      for endpoint, method in gen_endpoints:
+                          if proxy_password:
+                              break
+                          for auth_method in ["header", "query"]:
+                              try:
+                                  params = {
+                                      "country": cc_input.lower(), "count": "1",
+                                      "protocol": "http", "format": "json",
+                                  }
+                                  if sticky:
+                                      params["session"] = "true"
+                                      params["session_id"] = str(random.randint(10000000, 99999999))
+                                      params["session_duration"] = "300"
+                                  if mobile:
+                                      params["mobile"] = "true"
+
+                                  if auth_method == "header":
+                                      if method == "POST":
+                                          resp = requests.post(endpoint, headers=headers, json=params, timeout=12, verify=False)
+                                      else:
+                                          resp = requests.get(endpoint, headers=headers, params=params, timeout=12, verify=False)
+                                  else:
+                                      params["api_key"] = current_key
+                                      if method == "POST":
+                                          resp = requests.post(endpoint, params=params, timeout=12, verify=False)
+                                      else:
+                                          resp = requests.get(endpoint, params=params, timeout=12, verify=False)
+
+                                  if resp.status_code == 200:
+                                      data = resp.json()
+                                      proxies = (data.get("proxies") or data.get("data") or
+                                                 data.get("proxy") or data.get("list") or [])
+                                      if isinstance(proxies, str):
+                                          proxies = [proxies]
+                                      if proxies and len(proxies) > 0:
+                                          p = proxies[0]
+                                          if isinstance(p, str):
+                                              pinfo_temp = parse_generic_proxy(p)
+                                              if pinfo_temp:
+                                                  proxy_password = pinfo_temp.get('password')
+                                                  proxy_host = pinfo_temp.get('host', proxy_host)
+                                                  proxy_port = pinfo_temp.get('port', proxy_port)
+                                          elif isinstance(p, dict):
+                                              proxy_password = (p.get('password') or p.get('pass'))
+                                              proxy_host = (p.get('host') or p.get('endpoint') or proxy_host)
+                                              proxy_port = (p.get('port') or proxy_port)
+                                      if proxy_password:
+                                          print(f"      -> Proxy generated via API: host={proxy_host}, port={proxy_port}")
+                                          break
+                              except Exception:
+                                  continue
+
+                  if not proxy_password:
+                      print(f"[Redscrape] API unavailable. Checking for existing redscrape proxy strings in input...")
+                      for mp in manual_proxies:
+                          if "redscrape.com" in mp.lower():
+                              mp_info = parse_generic_proxy(mp)
+                              if mp_info and mp_info.get('password'):
+                                  proxy_password = mp_info['password']
+                                  proxy_host = mp_info.get('host', proxy_host)
+                                  proxy_port = mp_info.get('port', proxy_port)
+                                  print(f"      -> Extracted credentials from existing proxy string.")
+                                  break
+
+                  if not proxy_password:
+                      print(f"[Redscrape] WARNING: Could not retrieve credentials. Using API key as last resort...")
+                      proxy_password = current_key
+
+                  print(f"[Redscrape] Credentials resolved. Host={proxy_host}, Port={proxy_port}")
+
+                  for attempt in range(MAX_ATTEMPTS):
+                      current_expected_cc = cc_input.upper()
+                      if attempt >= 7 and fallback_country_input != "No Fallback":
+                          fallback_cc = country_map.get(fallback_country_input, "us").upper()
+                          if current_expected_cc != fallback_cc:
+                              current_expected_cc = fallback_cc
+                              print(f"      -> Fallback: Switching to selected fallback country {current_expected_cc}...")
+
+                      print(f"[Redscrape] Generating proxy (Attempt {attempt+1}/{MAX_ATTEMPTS})...")
+
+                      session_id = random.randint(10000000, 99999999)
+                      session_duration = 300
+
+                      if sticky:
+                          username = f"session-{session_duration}-id-{session_id}-{current_expected_cc}"
+                      else:
+                          username = f"session-{session_duration}-{current_expected_cc}"
+
+                      if mobile:
+                          username += "-mobile"
+
+                      pinfo = {
+                          'username': username, 'password': proxy_password,
+                          'host': proxy_host, 'port': int(proxy_port),
+                          'server': f"{proxy_host}:{proxy_port}",
+                          'url': f"http://{username}:{proxy_password}@{proxy_host}:{proxy_port}"
+                      }
+
+                      print(f"      -> Constructed proxy: {username}:***@{proxy_host}:{proxy_port}")
+
+                      res = validate_proxy(pinfo)
+                      if res['working']:
+                          actual_cc = (res.get('country_code') or '').upper()
+                          if actual_cc == current_expected_cc:
+                              active_proxy = res
+                              active_proxy['proxy_type_label'] = 'redscrape'
+                              use_proxy = True
+                              print(f"SUCCESS: Redscrape PRIMARY proxy active [{res['working_protocol'].upper()}] -> IP: {res['ip']} | CC: {actual_cc}")
+                              break
+                          else:
+                              print(f"      -> WARNING: Redscrape IP Country '{actual_cc}' != expected '{current_expected_cc}'. Retrying...")
+                              time.sleep(2)
+                      else:
+                          if attempt < MAX_ATTEMPTS - 1:
+                              print(f"      -> Proxy failed to ping. Waiting 2 seconds...")
+                              time.sleep(2)
+                          else:
+                              print("FATAL: All Redscrape attempts failed to ping. Aborting script.")
+                              sys.exit(1)
 
               elif manual_proxies:
                   print(f"[Manual Proxy] Assigning Proxies via stride distribution (Total: {len(manual_proxies)}, Tasks: {tasks_total})...")
@@ -1451,14 +1617,115 @@ jobs:
                               sys.exit(1)
 
               elif floppy_keys:
-                  # (Floppy logic retained – full original block)
-                  print("[FloppyData] Per-device path.")
-                  # ... full original Floppy block ...
+                  FLOPPY_BASE = "https://api.floppydata.net"
+                  proxy_type = "mobile" if mobile else "residential"
+
+                  for attempt in range(MAX_ATTEMPTS):
+                      current_expected_cc = cc_input.upper()
+                      if attempt >= 7 and fallback_country_input != "No Fallback":
+                          fallback_cc = country_map.get(fallback_country_input, "us").upper()
+                          if current_expected_cc != fallback_cc:
+                              current_expected_cc = fallback_cc
+                              print(f"      -> Fallback: Switching to selected fallback country {current_expected_cc}...")
+
+                      key_idx = (absolute_idx // 15 + attempt) % len(floppy_keys)
+                      current_key = floppy_keys[key_idx]
+                      print(f"[FloppyData] Testing API Key ending in ...{current_key[-4:]} (Attempt {attempt+1}/{MAX_ATTEMPTS})")
+
+                      try:
+                          creds_resp = requests.get(f"{FLOPPY_BASE}/v1/rotating/smartParamsCredentials",
+                                                    headers={"X-Api-Key": current_key}, timeout=12)
+                          if creds_resp.status_code != 200: continue
+                          creds_data = creds_resp.json()
+
+                          params = {"type": proxy_type, "country": current_expected_cc,
+                                    "protocol": "http", "rotation": "0" if sticky else "-1"}
+                          if sticky: params["session"] = f"t{task_index}p_{str(uuid.uuid4())[:4]}_{attempt}"
+
+                          builder_resp = requests.get(f"{FLOPPY_BASE}/v1/rotating/smartParamsBuilder",
+                                                      headers={"X-Api-Key": current_key}, params=params, timeout=12)
+                          b_data = builder_resp.json()
+
+                          user = b_data.get("username", creds_data.get("username", ""))
+                          pwd  = b_data.get("password", creds_data.get("password", ""))
+                          host = b_data.get("host", "geo.g-w.info")
+                          port = b_data.get("port", 10080)
+
+                          pinfo = {
+                              'username': user, 'password': pwd, 'host': host, 'port': int(port),
+                              'server': f"{host}:{port}", 'url': f"http://{user}:{pwd}@{host}:{port}"
+                          }
+
+                          res = validate_proxy(pinfo)
+                          if res['working']:
+                              actual_cc = (res.get('country_code') or '').upper()
+                              if actual_cc == current_expected_cc:
+                                  active_proxy = res
+                                  active_proxy['proxy_type_label'] = 'floppydata'
+                                  use_proxy = True
+                                  print(f"SUCCESS: FloppyData PRIMARY proxy active [{res['working_protocol'].upper()}] -> IP: {res['ip']} | CC: {actual_cc}")
+                                  break
+                              else:
+                                  print(f"      -> WARNING: FloppyData IP Country '{actual_cc}' != expected '{current_expected_cc}'. Retrying...")
+                                  time.sleep(2)
+                          else:
+                              if attempt < MAX_ATTEMPTS - 1:
+                                  time.sleep(2)
+                              else:
+                                  print("FATAL: Failed to find working FloppyData proxy. Aborting script.")
+                                  sys.exit(1)
+                      except Exception as e:
+                          if attempt == MAX_ATTEMPTS - 1:
+                              print("FATAL: Failed to connect to FloppyData API after attempts. Aborting script.")
+                              sys.exit(1)
 
               elif scrapeops_keys:
-                  # (ScrapeOps logic retained)
-                  print("[ScrapeOps] Per-device path.")
-                  # ... full original ScrapeOps block ...
+                  for attempt in range(MAX_ATTEMPTS):
+                      current_expected_cc = cc_input.upper()
+                      api_cc_param = cc_input.lower()
+
+                      if attempt >= 7 and fallback_country_input != "No Fallback":
+                          fallback_cc = country_map.get(fallback_country_input, "us").upper()
+                          if current_expected_cc != fallback_cc:
+                              current_expected_cc = fallback_cc
+                              api_cc_param = fallback_cc.lower()
+                              print(f"      -> Fallback: Switching to selected fallback country {current_expected_cc}...")
+
+                      key_idx = (absolute_idx // 15 + attempt) % len(scrapeops_keys)
+                      current_key = scrapeops_keys[key_idx]
+                      print(f"[ScrapeOps] Testing API Key ending in ...{current_key[-4:]} (Attempt {attempt+1}/{MAX_ATTEMPTS})")
+
+                      proxy_user = f"scrapeops.country={api_cc_param}"
+                      if mobile: proxy_user += ".mobile=true"
+
+                      sess1 = f"t{task_index}p{str(uuid.uuid4())[:4]}"
+                      user1 = proxy_user + (f".sticky_session={sess1}" if sticky else "")
+
+                      pinfo = {
+                          'username': user1, 'password': current_key,
+                          'host': 'residential-proxy.scrapeops.io', 'port': 8181,
+                          'server': 'residential-proxy.scrapeops.io:8181',
+                          'url': f"http://{user1}:{current_key}@residential-proxy.scrapeops.io:8181"
+                      }
+
+                      res = validate_proxy(pinfo)
+                      if res['working']:
+                          actual_cc = (res.get('country_code') or '').upper()
+                          if actual_cc == current_expected_cc:
+                              active_proxy = res
+                              active_proxy['proxy_type_label'] = 'scrapeops'
+                              use_proxy = True
+                              print(f"SUCCESS: ScrapeOps PRIMARY proxy active [{res['working_protocol'].upper()}] -> IP: {res['ip']} | CC: {actual_cc}")
+                              break
+                          else:
+                              print(f"      -> WARNING: ScrapeOps IP Country '{actual_cc}' != expected '{current_expected_cc}'. Retrying...")
+                              time.sleep(2)
+                      else:
+                          if attempt < MAX_ATTEMPTS - 1:
+                              time.sleep(2)
+                          else:
+                              print("FATAL: All ScrapeOps attempts failed to ping. Aborting script.")
+                              sys.exit(1)
 
               if proxy_input and not without_proxy and not active_proxy:
                   print("FATAL: Failed to parse or connect to any provided proxies. Aborting script.")
@@ -1472,7 +1739,6 @@ jobs:
                       'windows_locale': 'en-US', 'windows_keyboard': '0409:00000409'
                   }
 
-          # Common finalization (both paths)
           cc_final = (active_proxy.get('country_code') or 'US').upper()
           device_name = f"T{os.environ.get('TASK_INDEX','1')}-{os.environ.get('SHORT_OS','OS')}-{os.environ.get('SHORT_SW','SW')}-{os.environ.get('ACTION','task').capitalize()}-{cc_final}" + (f"-{os.environ.get('PROFILE_TAG','')}" if os.environ.get('PROFILE_TAG') else "")
           print(f"Assigned Identity: {device_name}")
@@ -1494,10 +1760,10 @@ jobs:
               f.write(f"WINDOWS_KEYBOARD={active_proxy.get('windows_keyboard', '0409:00000409')}\n")
               f.write(f"DEVICE_NAME={device_name}\n")
               f.write(f"PROFILE_TAG={os.environ.get('PROFILE_TAG', '')}\n")
- 
-             - name: Disable Windows Defender & Edge SmartScreen
-               shell: pwsh
-                run: |
+
+      - name: Disable Windows Defender & Edge SmartScreen
+        shell: pwsh
+        run: |
           Write-Host "========== SYSTEM PREPARATION ==========" -ForegroundColor Cyan
           Write-Host "[Defender] Disabling Windows Defender Realtime Monitoring..." -ForegroundColor Yellow
           Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
