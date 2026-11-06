@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWQ3NjdkMDcyYjFlNzVmOGJiYmJiOCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZDc2N2QwNzJiMWU3NWY4YmJiYmIzIn0.cO4h6UZccDy9KJ1FbvazTj3Y5O1PTWV3DRHA8RjKNxU'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWQ3MDcxNGNlOGMzNjI2NzMwOWYwMyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZDcwNzE0Y2U4YzM2MjY3MzA5ZWZiIn0.qCe-Ug3KdMP51dYgi6FRTGnFIkr4H-HHWEeE-hap3zY'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -621,34 +621,25 @@ jobs:
 
 
 
+
   proxy_batch_generation:
     name: Proxy Batch Generation
     needs: prepare_matrix
     if: needs.prepare_matrix.outputs.has_tasks == 'true' && inputs.generate_all_proxies == true && inputs.use_without_proxy != true
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     outputs:
       pool_size: ${{ steps.generate.outputs.pool_size }}
+      initial_size: ${{ steps.generate.outputs.initial_size }}
     steps:
-      - name: Generate Initial 10% Proxy Pool
-        id: generate
+      - name: 1. Calculate Targets & Prepare Environment
+        id: calc
         shell: python
         env:
           TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
           NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
-          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
-          WITHOUT_PROXY: ${{ inputs.use_without_proxy }}
-          COUNTRY: ${{ inputs.proxy_country }}
-          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
-          STICKY: ${{ inputs.sticky_sessions }}
-          GENERATE_ALL: ${{ inputs.generate_all_proxies }}
         run: |
-          import os, json, random, re, time, uuid, sys
-
-          print("============================================================")
-          print(" PROXY BATCH GENERATION JOB - INITIAL 10% POOL")
-          print("============================================================")
-
+          import os, math
           try:
               tasks_total = int(os.environ.get("TASKS_TOTAL", "0"))
           except:
@@ -658,24 +649,75 @@ jobs:
           except:
               num_devices = 1
 
-          if tasks_total <= 0:
-              print("[ProxyBatch] No tasks. Exiting.")
-              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-                  f.write("pool_size=0\n")
-              sys.exit(0)
+          # Total needed = tasks + 10-15% buffer
+          buffer_pct = 0.12
+          total_needed = tasks_total + max(3, int(tasks_total * buffer_pct) + 1)
 
-          without_proxy = os.environ.get("WITHOUT_PROXY", "false").lower() == "true"
-          if without_proxy:
-              print("[ProxyBatch] use_without_proxy=true. Skipping generation.")
+          # Initial pool = 5% of total_needed (minimum 5)
+          initial_target = max(5, int(total_needed * 0.05) + 1)
+
+          print("============================================================")
+          print(" PROXY BATCH GENERATION - TARGET CALCULATION")
+          print("============================================================")
+          print(f"  Tasks total (install+click+surf) : {tasks_total}")
+          print(f"  Max parallel devices             : {num_devices}")
+          print(f"  Buffer (10-15%)                  : ~{int(buffer_pct*100)}%")
+          print(f"  Total proxies needed (w/ buffer) : {total_needed}")
+          print(f"  INITIAL 5% pool target           : {initial_target}")
+          print(f"  Remaining after initial          : {total_needed - initial_target}")
+          print("============================================================")
+          print("Strategy:")
+          print("  1. Generate the initial 5% pool with full validation & naming.")
+          print("  2. Upload artifact so device matrix can start using these proxies.")
+          print("  3. Continue generating more proxies and keep updating the pool.")
+          print("  4. Devices ONLY use pool proxies. On-demand API gen is last resort.")
+          print("============================================================")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"tasks_total={tasks_total}\n")
+              f.write(f"total_needed={total_needed}\n")
+              f.write(f"initial_target={initial_target}\n")
+
+      - name: 2. Generate Initial 5% Proxy Pool (Blocking)
+        id: generate
+        shell: python
+        env:
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          TOTAL_NEEDED: ${{ steps.calc.outputs.total_needed }}
+          INITIAL_TARGET: ${{ steps.calc.outputs.initial_target }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import os, json, random, re, time, uuid, sys, string
+
+          print("============================================================")
+          print(" STEP 2: GENERATING INITIAL 5% PROXY POOL")
+          print("============================================================")
+
+          try:
+              tasks_total = int(os.environ.get("TASKS_TOTAL", "0"))
+              total_needed = int(os.environ.get("TOTAL_NEEDED", "0"))
+              initial_target = int(os.environ.get("INITIAL_TARGET", "5"))
+          except:
+              tasks_total = total_needed = 0
+              initial_target = 5
+
+          if tasks_total <= 0 or initial_target <= 0:
+              print("[ProxyBatch] No tasks / zero target. Writing empty pool.")
+              with open("proxy_pool.json", "w") as f:
+                  json.dump([], f)
               with open(os.environ["GITHUB_OUTPUT"], "a") as f:
                   f.write("pool_size=0\n")
+                  f.write("initial_size=0\n")
               sys.exit(0)
 
           proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
           country_input = os.environ.get("COUNTRY", "USA")
           fallback_country_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
           mobile = os.environ.get("MOBILE", "false").lower() == "true"
-          sticky = os.environ.get("STICKY", "false").lower() == "true"
 
           country_map = {
               "USA": "us", "UK": "gb", "Canada": "ca", "Australia": "au", "Germany": "de", "France": "fr",
@@ -712,7 +754,7 @@ jobs:
                       "Asia/Jakarta": "SE Asia Standard Time", "Australia/Sydney": "AUS Eastern Standard Time"}
               return _map.get(iana_tz, "UTC")
 
-          def build_success_dict(pinfo, proto, cc, cname, ip, city, region, tz):
+          def build_success_dict(pinfo, proto, cc, cname, ip, city, region, tz, display_name):
               return {
                   **pinfo,
                   'working': True,
@@ -726,19 +768,18 @@ jobs:
                   'timezone_iana': tz,
                   'timezone_windows': tz_to_windows_tz(tz),
                   'windows_locale': country_code_to_locale(cc),
-                  'windows_keyboard': country_code_to_keyboard(cc)
+                  'windows_keyboard': country_code_to_keyboard(cc),
+                  'display_name': display_name
               }
 
           def validate_proxy(pinfo):
               try:
-                  import requests
-                  import urllib3
+                  import requests, urllib3
                   urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
               except ImportError:
                   import subprocess
                   subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "urllib3", "--quiet"])
-                  import requests
-                  import urllib3
+                  import requests, urllib3
                   urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
               protocols_to_test = ['http', 'socks5']
@@ -748,12 +789,10 @@ jobs:
                   ("http://ipwho.is/", "ipwho.is"),
                   ("https://api.myip.com", "myip.com")
               ]
-
               for proto in protocols_to_test:
                   auth_str = f"{pinfo['username']}:{pinfo['password']}@" if pinfo.get('username') else ""
                   test_url = f"{proto}://{auth_str}{pinfo['host']}:{pinfo['port']}"
                   proxies_cfg = {"http": test_url, "https": test_url}
-
                   for url, name in endpoints:
                       try:
                           resp = requests.get(url, proxies=proxies_cfg, timeout=12, verify=False)
@@ -761,34 +800,22 @@ jobs:
                               data = resp.json()
                               cc = tz = city = region = ""
                               ip = "unknown"
-
                               if name == "ip-api.com" and data.get('status') == 'success':
-                                  cc = data.get('countryCode')
-                                  tz = data.get('timezone')
-                                  ip = data.get('query')
-                                  city = data.get('city')
-                                  region = data.get('regionName')
+                                  cc = data.get('countryCode'); tz = data.get('timezone')
+                                  ip = data.get('query'); city = data.get('city'); region = data.get('regionName')
                               elif name == "ipinfo.io" and "ip" in data:
-                                  cc = data.get('country')
-                                  tz = data.get('timezone')
-                                  ip = data.get('ip')
-                                  city = data.get('city')
-                                  region = data.get('region')
+                                  cc = data.get('country'); tz = data.get('timezone')
+                                  ip = data.get('ip'); city = data.get('city'); region = data.get('region')
                               elif name == "ipwho.is" and data.get('success'):
-                                  cc = data.get('country_code')
-                                  tz = data.get('timezone', {}).get('id')
-                                  ip = data.get('ip')
-                                  city = data.get('city')
-                                  region = data.get('region')
+                                  cc = data.get('country_code'); tz = data.get('timezone', {}).get('id')
+                                  ip = data.get('ip'); city = data.get('city'); region = data.get('region')
                               elif name == "myip.com" and "ip" in data:
-                                  cc = data.get('cc')
-                                  ip = data.get('ip')
-
+                                  cc = data.get('cc'); ip = data.get('ip')
                               if ip and ip != "unknown":
-                                  return build_success_dict(pinfo, proto, cc or 'US', cc or 'US', ip, city or '', region or '', tz or 'UTC')
+                                  return True, cc or 'US', ip, city or '', region or '', tz or 'UTC', proto
                       except Exception:
                           pass
-              return {'working': False, **pinfo}
+              return False, None, None, None, None, None, None
 
           def parse_generic_proxy(proxy_str):
               original = proxy_str.strip()
@@ -799,62 +826,53 @@ jobs:
                   protocol, rest = rest.split('://', 1)
                   if protocol.lower() == 'geolocation':
                       protocol = 'http'
-
               rest = re.sub(r':(\d+):[A-Za-z].*$', r':\1', rest)
-
               match_up_hp = re.search(r'([^:@\s]+):([^:@\s]+)@([^:@\s]+):(\d+)', rest)
               if match_up_hp:
                   user, pwd, host, port = match_up_hp.groups()
                   return {'original': original, 'protocol': protocol, 'username': user, 'password': pwd,
                           'host': host, 'port': int(port), 'server': f"{host}:{port}",
-                          'country_name': None, 'country_code': None,
                           'url': f"{protocol}://{user}:{pwd}@{host}:{port}"}
-
               match_hp_up = re.search(r'^([^:@\s]+):(\d+):([^:@\s]+):([^:@\s]+)', rest)
               if match_hp_up:
                   host, port, user, pwd = match_hp_up.groups()
                   return {'original': original, 'protocol': protocol, 'username': user, 'password': pwd,
                           'host': host, 'port': int(port), 'server': f"{host}:{port}",
-                          'country_name': None, 'country_code': None,
                           'url': f"{protocol}://{user}:{pwd}@{host}:{port}"}
-
               match_up_hp2 = re.search(r'^([^:@\s]+):([^:@\s]+):([^:@\s]+):(\d+)', rest)
               if match_up_hp2:
                   user, pwd, host, port = match_up_hp2.groups()
                   return {'original': original, 'protocol': protocol, 'username': user, 'password': pwd,
                           'host': host, 'port': int(port), 'server': f"{host}:{port}",
-                          'country_name': None, 'country_code': None,
                           'url': f"{protocol}://{user}:{pwd}@{host}:{port}"}
-
               match_hp = re.search(r'^([^:@\s]+):(\d+)', rest)
               if match_hp:
                   host, port = match_hp.groups()
                   return {'original': original, 'protocol': protocol, 'username': '', 'password': '',
                           'host': host, 'port': int(port), 'server': f"{host}:{port}",
-                          'country_name': None, 'country_code': None,
                           'url': f"{protocol}://{host}:{port}"}
-
               return None
 
-          # Parse keys / proxies
+          def make_display_name(num, cc):
+              rand = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+              return f"{num}-{cc.upper()}-{rand}"
+
+          # Parse input keys
           bytesflow_proxies = []
           manual_proxies = []
+          gologin_keys = []
           scrapeops_keys = []
           floppy_keys = []
           redscrape_keys = []
-          gologin_keys = []
 
           if proxy_input:
+              GOLOGIN_KEY_RE = re.compile(r'^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$')
               SCRAPEOPS_KEY_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
               FLOPPY_KEY_RE = re.compile(r'^[A-Za-z0-9_]{30,80}$')
               REDSCRAPE_KEY_RE = re.compile(r'^[0-9a-f]{32}$', re.IGNORECASE)
-              GOLOGIN_KEY_RE = re.compile(r'^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$')
-
-              raw_items = proxy_input.split()
-              for item in raw_items:
+              for item in proxy_input.split():
                   item = item.strip()
                   if not item: continue
-
                   if GOLOGIN_KEY_RE.match(item):
                       gologin_keys.append(item)
                   elif "bytesflows.com" in item.lower():
@@ -869,24 +887,19 @@ jobs:
                       if len(item) > 5:
                           manual_proxies.append(item)
 
-          # ========== INITIAL 10% TARGET ==========
-          initial_pct = 0.10
-          initial_target = max(8, int(tasks_total * initial_pct) + 3)
-          needed = initial_target
-          print(f"[ProxyBatch] Tasks total     : {tasks_total}")
-          print(f"[ProxyBatch] Max-parallel    : {num_devices}")
-          print(f"[ProxyBatch] Initial target  : {needed} proxies (~10%)")
-          print(f"[ProxyBatch] Strategy        : Generate only this pool so devices can start quickly.")
-          print(f"[ProxyBatch] Remaining tasks will use on-demand generation for unique proxies.")
+          print(f"[ProxyBatch] Keys detected -> GoLogin: {len(gologin_keys)} | BytesFlow: {len(bytesflow_proxies)} | Manual: {len(manual_proxies)}")
+          print(f"[ProxyBatch] Initial 5% target: {initial_target}  |  Total needed (w/ buffer): {total_needed}")
           print("")
 
           collected = []
           consecutive_failures = 0
-          MAX_CONSECUTIVE_FAILS = 8
+          MAX_CONSECUTIVE_FAILS = 10
+          proxy_counter = 0
 
-          # ----- GoLogin -----
-          if gologin_keys and len(collected) < needed:
-              print(f"[ProxyBatch-GoLogin] Generating via GoLogin API ({len(gologin_keys)} key(s) available)...")
+          # ========== GoLogin generation (preferred) ==========
+          if gologin_keys and len(collected) < initial_target:
+              print(f"[ProxyBatch-GoLogin] Starting generation of initial pool via GoLogin API...")
+              print(f"[ProxyBatch-GoLogin] Proxies will be created with visible names and LEFT in the GoLogin dashboard (app.gologin.com/proxy).")
               try:
                   import requests, urllib3
                   urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -898,28 +911,35 @@ jobs:
 
               GOLOGIN_API_BASE = "https://api.gologin.com"
               attempt = 0
-              while len(collected) < needed and attempt < needed * 5:
+              while len(collected) < initial_target and attempt < initial_target * 6:
                   current_expected_cc = cc_input.upper()
-                  if attempt >= 7 and fallback_country_input != "No Fallback":
+                  if attempt >= 6 and fallback_country_input != "No Fallback":
                       fallback_cc = country_map.get(fallback_country_input, "us").upper()
                       if current_expected_cc != fallback_cc:
                           current_expected_cc = fallback_cc
+                          print(f"[ProxyBatch-GoLogin] Switching to fallback country: {current_expected_cc}")
 
-                  key_idx = (attempt // 5) % len(gologin_keys)
+                  key_idx = (attempt // 4) % len(gologin_keys)
                   current_key = gologin_keys[key_idx]
+                  proxy_counter += 1
+                  display_name = make_display_name(proxy_counter, current_expected_cc)
+
                   headers = {
                       "Authorization": f"Bearer {current_key}",
                       "Content-Type": "application/json"
                   }
+                  # customName makes the proxy visible & named in GoLogin dashboard
                   payload = {
                       "countryCode": current_expected_cc.lower(),
-                      "isMobile": False,
+                      "isMobile": bool(mobile),
                       "isDC": False,
-                      "customName": f"BATCH-{str(uuid.uuid4())[:8]}"
+                      "customName": display_name
                   }
+
+                  print(f"[ProxyBatch-GoLogin] Attempt {attempt+1} | Creating proxy '{display_name}' (country={current_expected_cc}) ...")
                   try:
                       resp = requests.post(f"{GOLOGIN_API_BASE}/users-proxies/mobile-proxy",
-                                           headers=headers, json=payload, timeout=15, verify=False)
+                                           headers=headers, json=payload, timeout=18, verify=False)
                       if resp.status_code in [200, 201]:
                           data = resp.json()
                           host = data.get("host") or data.get("ip") or data.get("server") or "proxy.gologin.com"
@@ -932,22 +952,28 @@ jobs:
                               'host': host, 'port': int(port), 'server': f"{host}:{port}",
                               'url': f"http://{username}:{password}@{host}:{port}" if username else f"http://{host}:{port}"
                           }
-                          res = validate_proxy(pinfo)
-                          if res.get('working'):
-                              actual_cc = (res.get('country_code') or '').upper()
+                          ok, cc, ip, city, region, tz, proto = validate_proxy(pinfo)
+                          if ok:
+                              actual_cc = (cc or current_expected_cc).upper()
                               if actual_cc == current_expected_cc or fallback_country_input == "No Fallback":
+                                  res = build_success_dict(pinfo, proto, actual_cc, actual_cc, ip, city, region, tz, display_name)
                                   res['proxy_type_label'] = 'gologin'
                                   collected.append(res)
-                                  print(f"[ProxyBatch-GoLogin] ✅ Proxy #{len(collected)}/{needed} READY | IP: {res.get('ip')} | Country: {actual_cc} | Host: {host}:{port}")
+                                  pct = (len(collected) / initial_target) * 100
+                                  print(f"[ProxyBatch-GoLogin] ✅ [{len(collected)}/{initial_target}] ({pct:.1f}%) READY")
+                                  print(f"                      Name : {display_name}")
+                                  print(f"                      IP   : {ip}  |  Country: {actual_cc}  |  City: {city or 'n/a'}")
+                                  print(f"                      Host : {host}:{port}  |  Protocol: {proto}")
+                                  print(f"                      (Visible in GoLogin dashboard as '{display_name}')")
                                   consecutive_failures = 0
                               else:
-                                  print(f"[ProxyBatch-GoLogin] Country mismatch {actual_cc} != {current_expected_cc}, retrying...")
+                                  print(f"[ProxyBatch-GoLogin] ❌ Country mismatch ({actual_cc} != {current_expected_cc}), discarding")
                                   consecutive_failures += 1
                           else:
-                              print(f"[ProxyBatch-GoLogin] ❌ Validation failed (attempt {attempt+1})")
+                              print(f"[ProxyBatch-GoLogin] ❌ Validation failed for '{display_name}'")
                               consecutive_failures += 1
                       else:
-                          print(f"[ProxyBatch-GoLogin] ❌ API {resp.status_code}: {resp.text[:120]}")
+                          print(f"[ProxyBatch-GoLogin] ❌ API {resp.status_code}: {resp.text[:150]}")
                           consecutive_failures += 1
                   except Exception as e:
                       print(f"[ProxyBatch-GoLogin] ❌ Exception: {e}")
@@ -955,16 +981,17 @@ jobs:
 
                   attempt += 1
                   if consecutive_failures >= MAX_CONSECUTIVE_FAILS:
-                      print(f"[ProxyBatch-GoLogin] Stopping early after {consecutive_failures} consecutive failures (limit/quota). Using {len(collected)} proxies.")
+                      print(f"[ProxyBatch-GoLogin] ⚠ Stopping initial generation after {consecutive_failures} consecutive failures (API limit / key issue).")
+                      print(f"[ProxyBatch-GoLogin] Proceeding with {len(collected)} successfully generated proxies.")
                       break
-                  time.sleep(0.7)
+                  time.sleep(0.8)
 
-          # ----- BytesFlow -----
-          if bytesflow_proxies and len(collected) < needed:
-              print(f"[ProxyBatch-BytesFlow] Generating sessions from {len(bytesflow_proxies)} base proxy(ies)...")
+          # ========== BytesFlow fallback ==========
+          if bytesflow_proxies and len(collected) < initial_target:
+              print(f"[ProxyBatch-BytesFlow] Generating remaining from BytesFlow base proxies...")
               consecutive_failures = 0
               attempt = 0
-              while len(collected) < needed and attempt < needed * 4:
+              while len(collected) < initial_target and attempt < initial_target * 4:
                   raw_p = bytesflow_proxies[attempt % len(bytesflow_proxies)]
                   pinfo_temp = parse_generic_proxy(raw_p)
                   if pinfo_temp and pinfo_temp.get('username'):
@@ -974,27 +1001,28 @@ jobs:
                       prt = pinfo_temp['port']
                       bmatch = re.search(r"^(?:u-)?([A-Za-z0-9]+)", usr)
                       base_user = bmatch.group(1) if bmatch else usr.split("-")[0]
-
                       current_expected_cc = cc_input.upper()
-                      if attempt >= 7 and fallback_country_input != "No Fallback":
+                      if attempt >= 5 and fallback_country_input != "No Fallback":
                           fallback_cc = country_map.get(fallback_country_input, "us").upper()
                           if current_expected_cc != fallback_cc:
                               current_expected_cc = fallback_cc
-
-                      params = [f"u-{base_user}", f"loc-{current_expected_cc}", "t-10",
-                                f"s-{str(uuid.uuid4().hex)[:8]}"]
+                      params = [f"u-{base_user}", f"loc-{current_expected_cc}", "t-10", f"s-{str(uuid.uuid4().hex)[:8]}"]
                       new_user = "-".join(params)
                       pinfo = {
                           'username': new_user, 'password': pwd, 'host': hst, 'port': int(prt),
                           'server': f"{hst}:{prt}", 'url': f"http://{new_user}:{pwd}@{hst}:{prt}"
                       }
-                      res = validate_proxy(pinfo)
-                      if res.get('working'):
-                          actual_cc = (res.get('country_code') or '').upper()
+                      proxy_counter += 1
+                      display_name = make_display_name(proxy_counter, current_expected_cc)
+                      ok, cc, ip, city, region, tz, proto = validate_proxy(pinfo)
+                      if ok:
+                          actual_cc = (cc or current_expected_cc).upper()
                           if actual_cc == current_expected_cc:
+                              res = build_success_dict(pinfo, proto, actual_cc, actual_cc, ip, city, region, tz, display_name)
                               res['proxy_type_label'] = 'bytesflow'
                               collected.append(res)
-                              print(f"[ProxyBatch-BytesFlow] ✅ Proxy #{len(collected)}/{needed} READY | IP: {res.get('ip')} | Type: bytesflow")
+                              pct = (len(collected) / initial_target) * 100
+                              print(f"[ProxyBatch-BytesFlow] ✅ [{len(collected)}/{initial_target}] ({pct:.1f}%) READY | Name: {display_name} | IP: {ip}")
                               consecutive_failures = 0
                           else:
                               consecutive_failures += 1
@@ -1008,44 +1036,289 @@ jobs:
                       break
                   time.sleep(0.5)
 
-          # ----- Manual proxies -----
-          if manual_proxies and len(collected) < needed:
+          # ========== Manual proxies ==========
+          if manual_proxies and len(collected) < initial_target:
               print(f"[ProxyBatch-Manual] Validating {len(manual_proxies)} manual proxy string(s)...")
               for mp in manual_proxies:
-                  if len(collected) >= needed: break
+                  if len(collected) >= initial_target: break
                   pinfo = parse_generic_proxy(mp)
                   if pinfo:
-                      res = validate_proxy(pinfo)
-                      if res.get('working'):
+                      ok, cc, ip, city, region, tz, proto = validate_proxy(pinfo)
+                      if ok:
+                          proxy_counter += 1
+                          display_name = make_display_name(proxy_counter, cc or "US")
+                          res = build_success_dict(pinfo, proto, cc or "US", cc or "US", ip, city, region, tz, display_name)
                           res['proxy_type_label'] = 'manual'
                           collected.append(res)
-                          print(f"[ProxyBatch-Manual] ✅ Proxy #{len(collected)}/{needed} READY | IP: {res.get('ip')}")
+                          print(f"[ProxyBatch-Manual] ✅ [{len(collected)}/{initial_target}] READY | Name: {display_name} | IP: {ip}")
 
-          # Final summary
+          # Finalise initial pool
           print("")
+          print("============================================================")
+          print(" INITIAL 5% POOL GENERATION COMPLETE")
+          print("============================================================")
           if len(collected) == 0:
-              print("[ProxyBatch] WARNING: Zero proxies collected. All devices will generate on-demand.")
-          elif len(collected) < needed:
-              print(f"[ProxyBatch] PARTIAL SUCCESS: {len(collected)}/{needed} proxies collected (API may be limited).")
+              print("[ProxyBatch] ⚠ WARNING: Zero proxies collected for initial pool.")
+              print("[ProxyBatch] Device jobs will fall back to on-demand generation.")
           else:
-              print(f"[ProxyBatch] SUCCESS: Initial pool of {len(collected)} unique validated proxies ready.")
-          print(f"[ProxyBatch] These will be distributed uniquely to the first {len(collected)} tasks.")
-          print(f"[ProxyBatch] Remaining tasks use on-demand generation (unique sessions).")
+              print(f"[ProxyBatch] ✅ Collected {len(collected)} / {initial_target} proxies for initial pool.")
+              print(f"[ProxyBatch] These proxies are uniquely named and remain visible in GoLogin dashboard.")
+              print(f"[ProxyBatch] Device matrix will now be allowed to start and consume these proxies.")
           print("============================================================")
 
           random.shuffle(collected)
 
-          # Write artifact
-          pool_path = "proxy_pool.json"
-          with open(pool_path, "w", encoding="utf-8") as f:
+          with open("proxy_pool.json", "w", encoding="utf-8") as f:
               json.dump(collected, f, indent=2)
 
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               f.write(f"pool_size={len(collected)}\n")
+              f.write(f"initial_size={len(collected)}\n")
 
-          print(f"[ProxyBatch] Wrote {len(collected)} proxies to {pool_path}")
+          print(f"[ProxyBatch] Wrote initial pool ({len(collected)} proxies) to proxy_pool.json")
 
-      - name: Upload Proxy Pool Artifact
+      - name: 3. Upload Initial Proxy Pool Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-pool
+          path: proxy_pool.json
+          retention-days: 1
+          if-no-files-found: warn
+
+      - name: 4. Continue Generating Additional Proxies (Background-style)
+        shell: python
+        env:
+          TOTAL_NEEDED: ${{ steps.calc.outputs.total_needed }}
+          INITIAL_SIZE: ${{ steps.generate.outputs.initial_size }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+        run: |
+          import os, json, random, re, time, uuid, sys, string
+
+          print("============================================================")
+          print(" STEP 4: CONTINUOUS PROXY GENERATION (feeding more into pool)")
+          print("============================================================")
+
+          try:
+              total_needed = int(os.environ.get("TOTAL_NEEDED", "0"))
+              already = int(os.environ.get("INITIAL_SIZE", "0"))
+          except:
+              total_needed = 0
+              already = 0
+
+          remaining_target = max(0, total_needed - already)
+          if remaining_target <= 0:
+              print("[ProxyBatch-Continue] Initial pool already covers total needed. No further generation required.")
+              sys.exit(0)
+
+          print(f"[ProxyBatch-Continue] Already have : {already}")
+          print(f"[ProxyBatch-Continue] Still need   : {remaining_target} more (to reach total_needed={total_needed})")
+          print(f"[ProxyBatch-Continue] Will keep generating and periodically updating the artifact.")
+          print("")
+
+          # Load existing pool
+          try:
+              with open("proxy_pool.json", "r", encoding="utf-8") as f:
+                  collected = json.load(f)
+          except:
+              collected = []
+
+          proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
+          country_input = os.environ.get("COUNTRY", "USA")
+          fallback_country_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
+          mobile = os.environ.get("MOBILE", "false").lower() == "true"
+
+          country_map = {
+              "USA": "us", "UK": "gb", "Canada": "ca", "Australia": "au", "Germany": "de", "France": "fr",
+              "Brazil": "br", "Mexico": "mx", "Spain": "es", "Vietnam": "vn", "Switzerland": "ch",
+              "Indonesia": "id", "Italy": "it", "Netherlands": "nl", "Poland": "pl"
+          }
+          cc_input = country_map.get(country_input, "us")
+
+          def country_code_to_locale(cc):
+              _map = {"US": "en-US", "GB": "en-GB", "CA": "en-CA", "AU": "en-AU", "DE": "de-DE",
+                      "FR": "fr-FR", "BR": "pt-BR", "MX": "es-MX", "ES": "es-ES", "VN": "vi-VN",
+                      "CH": "de-CH", "ID": "id-ID", "IT": "it-IT", "NL": "nl-NL", "PL": "pl-PL"}
+              return _map.get(cc.upper(), "en-US")
+
+          def country_code_to_keyboard(cc):
+              _map = {"US": "0409:00000409", "GB": "0809:00000809", "CA": "1009:00000409",
+                      "AU": "0C09:00000409", "DE": "0407:00000407", "FR": "040C:0000040C",
+                      "BR": "0416:00000416", "MX": "080A:0000080A", "ES": "0C0A:0000080A",
+                      "VN": "042A:0000042A", "CH": "0807:00000807", "ID": "0421:00000409",
+                      "IT": "0410:00000410", "NL": "0413:00020409", "PL": "0415:00000415"}
+              return _map.get(cc.upper(), "0409:00000409")
+
+          def tz_to_windows_tz(iana_tz):
+              _map = {"America/New_York": "Eastern Standard Time", "America/Chicago": "Central Standard Time",
+                      "America/Denver": "Mountain Standard Time", "America/Phoenix": "US Mountain Standard Time",
+                      "America/Los_Angeles": "Pacific Standard Time", "America/Toronto": "Eastern Standard Time",
+                      "America/Sao_Paulo": "E. South America Standard Time",
+                      "America/Mexico_City": "Central Standard Time (Mexico)",
+                      "Europe/London": "GMT Standard Time", "Europe/Paris": "Romance Standard Time",
+                      "Europe/Berlin": "W. Europe Standard Time", "Europe/Madrid": "Romance Standard Time",
+                      "Europe/Rome": "W. Europe Standard Time", "Europe/Amsterdam": "W. Europe Standard Time",
+                      "Europe/Warsaw": "Central European Standard Time",
+                      "Asia/Ho_Chi_Minh": "SE Asia Standard Time", "Europe/Zurich": "W. Europe Standard Time",
+                      "Asia/Jakarta": "SE Asia Standard Time", "Australia/Sydney": "AUS Eastern Standard Time"}
+              return _map.get(iana_tz, "UTC")
+
+          def build_success_dict(pinfo, proto, cc, cname, ip, city, region, tz, display_name):
+              return {
+                  **pinfo,
+                  'working': True,
+                  'working_protocol': proto,
+                  'server_with_proto': f"http://{pinfo['host']}:{pinfo['port']}",
+                  'country_code': cc,
+                  'country_name': cname,
+                  'ip': ip,
+                  'city': city,
+                  'region': region,
+                  'timezone_iana': tz,
+                  'timezone_windows': tz_to_windows_tz(tz),
+                  'windows_locale': country_code_to_locale(cc),
+                  'windows_keyboard': country_code_to_keyboard(cc),
+                  'display_name': display_name
+              }
+
+          def validate_proxy(pinfo):
+              try:
+                  import requests, urllib3
+                  urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+              except ImportError:
+                  import subprocess
+                  subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "urllib3", "--quiet"])
+                  import requests, urllib3
+                  urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+              for proto in ['http', 'socks5']:
+                  auth_str = f"{pinfo['username']}:{pinfo['password']}@" if pinfo.get('username') else ""
+                  test_url = f"{proto}://{auth_str}{pinfo['host']}:{pinfo['port']}"
+                  proxies_cfg = {"http": test_url, "https": test_url}
+                  for url, name in [("http://ip-api.com/json/", "ip-api.com"), ("https://ipinfo.io/json", "ipinfo.io")]:
+                      try:
+                          resp = requests.get(url, proxies=proxies_cfg, timeout=12, verify=False)
+                          if resp.status_code == 200:
+                              data = resp.json()
+                              if name == "ip-api.com" and data.get('status') == 'success':
+                                  return True, data.get('countryCode'), data.get('query'), data.get('city'), data.get('regionName'), data.get('timezone'), proto
+                              if name == "ipinfo.io" and "ip" in data:
+                                  return True, data.get('country'), data.get('ip'), data.get('city'), data.get('region'), data.get('timezone'), proto
+                      except Exception:
+                          pass
+              return False, None, None, None, None, None, None
+
+          def make_display_name(num, cc):
+              rand = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+              return f"{num}-{cc.upper()}-{rand}"
+
+          gologin_keys = []
+          GOLOGIN_KEY_RE = re.compile(r'^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$')
+          if proxy_input:
+              for item in proxy_input.split():
+                  if GOLOGIN_KEY_RE.match(item.strip()):
+                      gologin_keys.append(item.strip())
+
+          if not gologin_keys:
+              print("[ProxyBatch-Continue] No GoLogin keys available for continuous generation. Stopping.")
+              sys.exit(0)
+
+          print(f"[ProxyBatch-Continue] Continuing with {len(gologin_keys)} GoLogin key(s)...")
+          consecutive_failures = 0
+          MAX_CONSECUTIVE_FAILS = 12
+          proxy_counter = already
+          attempt = 0
+          max_attempts = remaining_target * 5
+
+          try:
+              import requests, urllib3
+              urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+          except ImportError:
+              import subprocess
+              subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "urllib3", "--quiet"])
+              import requests, urllib3
+              urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+          GOLOGIN_API_BASE = "https://api.gologin.com"
+
+          while len(collected) < total_needed and attempt < max_attempts:
+              current_expected_cc = cc_input.upper()
+              if attempt >= 8 and fallback_country_input != "No Fallback":
+                  fallback_cc = country_map.get(fallback_country_input, "us").upper()
+                  if current_expected_cc != fallback_cc:
+                      current_expected_cc = fallback_cc
+
+              key_idx = (attempt // 4) % len(gologin_keys)
+              current_key = gologin_keys[key_idx]
+              proxy_counter += 1
+              display_name = make_display_name(proxy_counter, current_expected_cc)
+
+              headers = {"Authorization": f"Bearer {current_key}", "Content-Type": "application/json"}
+              payload = {
+                  "countryCode": current_expected_cc.lower(),
+                  "isMobile": bool(mobile),
+                  "isDC": False,
+                  "customName": display_name
+              }
+
+              try:
+                  resp = requests.post(f"{GOLOGIN_API_BASE}/users-proxies/mobile-proxy",
+                                       headers=headers, json=payload, timeout=18, verify=False)
+                  if resp.status_code in [200, 201]:
+                      data = resp.json()
+                      host = data.get("host") or data.get("ip") or data.get("server") or "proxy.gologin.com"
+                      port = data.get("port") or data.get("httpPort") or 8080
+                      username = data.get("username") or data.get("user") or data.get("login") or ""
+                      password = data.get("password") or data.get("pass") or ""
+                      pinfo = {
+                          'username': username, 'password': password,
+                          'host': host, 'port': int(port), 'server': f"{host}:{port}",
+                          'url': f"http://{username}:{password}@{host}:{port}" if username else f"http://{host}:{port}"
+                      }
+                      ok, cc, ip, city, region, tz, proto = validate_proxy(pinfo)
+                      if ok:
+                          actual_cc = (cc or current_expected_cc).upper()
+                          res = build_success_dict(pinfo, proto, actual_cc, actual_cc, ip, city or '', region or '', tz or 'UTC', display_name)
+                          res['proxy_type_label'] = 'gologin'
+                          collected.append(res)
+                          pct_total = (len(collected) / total_needed) * 100 if total_needed else 0
+                          print(f"[ProxyBatch-Continue] ✅ [{len(collected)}/{total_needed}] ({pct_total:.1f}% of total needed)")
+                          print(f"                       Name: {display_name} | IP: {ip} | Country: {actual_cc}")
+                          consecutive_failures = 0
+
+                          # Periodically rewrite the pool file so later devices can pick up more proxies
+                          if len(collected) % 5 == 0 or len(collected) >= total_needed:
+                              with open("proxy_pool.json", "w", encoding="utf-8") as f:
+                                  json.dump(collected, f, indent=2)
+                              print(f"[ProxyBatch-Continue] Updated proxy_pool.json (now {len(collected)} proxies)")
+                      else:
+                          consecutive_failures += 1
+                  else:
+                      print(f"[ProxyBatch-Continue] API {resp.status_code}: {resp.text[:100]}")
+                      consecutive_failures += 1
+              except Exception as e:
+                  print(f"[ProxyBatch-Continue] Exception: {e}")
+                  consecutive_failures += 1
+
+              attempt += 1
+              if consecutive_failures >= MAX_CONSECUTIVE_FAILS:
+                  print(f"[ProxyBatch-Continue] ⚠ Stopping continuous generation after {consecutive_failures} consecutive failures.")
+                  print(f"[ProxyBatch-Continue] Final pool size: {len(collected)}")
+                  break
+              time.sleep(0.75)
+
+          # Final write
+          with open("proxy_pool.json", "w", encoding="utf-8") as f:
+              json.dump(collected, f, indent=2)
+
+          print("")
+          print("============================================================")
+          print(f" CONTINUOUS GENERATION FINISHED")
+          print(f" Final pool size: {len(collected)} / {total_needed} needed")
+          print("============================================================")
+
+      - name: 5. Re-upload Updated Proxy Pool
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -1053,21 +1326,31 @@ jobs:
           path: proxy_pool.json
           retention-days: 1
           if-no-files-found: ignore
+          overwrite: true
 
-      - name: Pool Summary
+      - name: 6. Final Summary
         run: |
           echo "============================================================"
-          echo " PROXY BATCH GENERATION COMPLETE"
+          echo " PROXY BATCH GENERATION JOB COMPLETE"
           echo "============================================================"
-          echo "Pool size written to outputs and uploaded as artifact 'proxy-pool'."
-          echo "remote_session jobs can now download it and assign unique proxies."
-          echo "Devices that cannot obtain a proxy from the pool will generate on-demand."
+          if [ -f proxy_pool.json ]; then
+            COUNT=$(python3 -c "import json; print(len(json.load(open('proxy_pool.json'))))")
+            echo "Final proxy pool size: $COUNT"
+            echo "Proxies are uniquely named (N-CC-xxxxxx) and remain visible in GoLogin dashboard."
+          else
+            echo "No proxy_pool.json found."
+          fi
+          echo "Device matrix jobs will consume unique proxies from this pool."
+          echo "On-demand API generation is used ONLY if the pool is empty or exhausted."
           echo "============================================================"
 
   remote_session:
     name: ${{ matrix.display_name }}
-    needs: prepare_matrix
-    if: needs.prepare_matrix.outputs.has_tasks == 'true'
+    needs: [prepare_matrix, proxy_batch_generation]
+    if: |
+      always() &&
+      needs.prepare_matrix.outputs.has_tasks == 'true' &&
+      (needs.proxy_batch_generation.result == 'success' || needs.proxy_batch_generation.result == 'skipped')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
 
@@ -1077,14 +1360,15 @@ jobs:
       matrix: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
 
     steps:
-      - name: Download Proxy Pool Artifact (if ready)
+      - name: Download Proxy Pool Artifact
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: proxy-pool
           path: ${{ runner.temp }}/proxy-pool
-        # If the Proxy Batch Generation job has not finished (or was skipped),
-        # this step fails softly and the device falls back to on-demand generation.
+        # Because remote_session now needs proxy_batch_generation, the initial
+        # 5% pool is guaranteed to be present when this step runs (unless the
+        # proxy job was skipped because generate_all_proxies=false).
 
       - name: Device Spawn Delay (Batch Intermission)
         shell: python
@@ -1158,13 +1442,14 @@ jobs:
           urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
           # ------------------------------------------------------------------
-          # Prefer unique proxy from the Proxy Batch Generation artifact
-          # (indexed by absolute_idx). Falls back to matrix pre-assigned or
-          # pure on-demand generation.
+          # STRICT RULE: Use proxy from the Proxy Batch Generation pool first.
+          # Only if the pool is missing / empty / exhausted do we fall back to
+          # on-demand API key generation.
           # ------------------------------------------------------------------
           active_proxy = None
           use_proxy = False
           absolute_idx = int(os.environ.get("ABSOLUTE_IDX", "1"))
+          pool_source = "none"
 
           pool_candidates = [
               os.path.join(os.environ.get("RUNNER_TEMP", "/tmp"), "proxy-pool", "proxy_pool.json"),
@@ -1177,15 +1462,21 @@ jobs:
                   try:
                       with open(p, "r", encoding="utf-8") as fh:
                           pool = json.load(fh)
-                      print(f"[ProxyPool] Loaded artifact pool with {len(pool)} proxies from {p}")
-                      break
+                      if isinstance(pool, list) and len(pool) > 0:
+                          print(f"[ProxyPool] ✅ Loaded batch pool with {len(pool)} proxies from {p}")
+                          pool_source = p
+                          break
+                      else:
+                          print(f"[ProxyPool] File {p} exists but is empty")
                   except Exception as e:
                       print(f"[ProxyPool] Failed to load {p}: {e}")
 
           if pool and len(pool) > 0:
-              # Unique assignment by 0-based index (wrap if pool smaller than tasks)
+              # Unique assignment by 0-based index. If pool is smaller than total
+              # tasks we still assign uniquely by wrapping, but prefer not to.
               idx = (absolute_idx - 1) % len(pool)
               p = pool[idx]
+              display_name = p.get("display_name") or f"pool-{idx+1}"
               active_proxy = {
                   'server': (p.get("server_with_proto") or p.get("server") or "").replace("http://", "").replace("https://", ""),
                   'server_with_proto': p.get("server_with_proto") or p.get("server") or "",
@@ -1200,11 +1491,20 @@ jobs:
                   'timezone_iana': p.get("timezone_iana") or "UTC",
                   'windows_locale': p.get("windows_locale") or "en-US",
                   'windows_keyboard': p.get("windows_keyboard") or "0409:00000409",
-                  'working': True
+                  'working': True,
+                  'display_name': display_name
               }
               use_proxy = True
-              print(f"========== USING PROXY FROM BATCH POOL (unique index {idx}) ==========")
-              print(f"Pool size: {len(pool)} | Assigned IP: {active_proxy['ip']} ({active_proxy['country_code']}) | Type: {active_proxy['proxy_type_label']}")
+              print("========== USING PROXY FROM BATCH POOL ==========")
+              print(f"  Source file   : {pool_source}")
+              print(f"  Pool size     : {len(pool)}")
+              print(f"  Assigned idx  : {idx} (absolute_idx={absolute_idx})")
+              print(f"  Proxy name    : {display_name}")
+              print(f"  IP / Country  : {active_proxy['ip']} / {active_proxy['country_code']}")
+              print(f"  Type          : {active_proxy['proxy_type_label']}")
+              print("=================================================")
+          else:
+              print("[ProxyPool] ⚠ No usable batch pool found. Will fall back to on-demand generation only if necessary.")
 
           preassigned = os.environ.get("PREASSIGNED", "false").lower() == "true"
           if active_proxy is None and preassigned and os.environ.get("PRE_PROXY_SERVER"):
@@ -1227,7 +1527,10 @@ jobs:
               }
               use_proxy = True
               print(f"Pre-assigned: {active_proxy['proxy_type_label']} -> IP {active_proxy['ip']} ({active_proxy['country_code']})")
-          else:
+
+          # Only enter on-demand generation if we still have no proxy
+          if active_proxy is None:
+              print("[ProxyPool] No pool proxy available -> falling back to on-demand API generation")
               proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
               without_proxy = os.environ.get("WITHOUT_PROXY", "false").lower() == "true"
               country_input = os.environ.get("COUNTRY", "USA")
