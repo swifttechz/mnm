@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '3'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWU5NTZkN2U4ODU3OGIzNDVmNDNmOSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZTk1NmQ3ZTg4NTc4YjM0NWY0M2U5In0.Gki1jLbBi6GOnyofDnlbdrOsPmoCOCLv8s1YwiuzyC4'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWQ3MDcxNGNlOGMzNjI2NzMwOWYwMyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZDcwNzE0Y2U4YzM2MjY3MzA5ZWZiIn0.qCe-Ug3KdMP51dYgi6FRTGnFIkr4H-HHWEeE-hap3zY'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -615,6 +615,17 @@ jobs:
           print("[Pool] Device #N always takes pool proxy #N. API-key generation per device is last-resort only.")
           print("[Matrix] All tasks start with preassigned_proxy=false; devices fetch their proxy from the pool.")
 
+          # Visitor profiles: shuffled deck so surf tasks get DIFFERENT profiles (no repeats until all 100 are used)
+          surf_total = action_list.count("surf")
+          _profile_deck = []
+          while len(_profile_deck) < surf_total:
+              _block = list(range(1, 101))
+              random.shuffle(_block)
+              _profile_deck.extend(_block)
+          _profile_deck = _profile_deck[:surf_total]
+          if surf_total:
+              print(f"[Surf] {surf_total} surf task(s) -> {len(set(_profile_deck))} distinct visitor profiles (of 100). Runtime cap 180s, randomised per session.")
+
           includes = []
           for i in range(tasks_total):
               action_mode = action_list[i]
@@ -623,7 +634,7 @@ jobs:
 
               delay_sec = batch_delays.get(batch_idx, 0) if batch_idx > 0 else 0
 
-              profile_id = random.randint(1, 100) if action_mode == "surf" else None
+              profile_id = _profile_deck.pop(0) if action_mode == "surf" else None
               profile_tag = f"P{profile_id}" if profile_id else ""
               display_name = f"{absolute_idx}-{short_os_tag}-{short_sw_tag}-{action_mode.capitalize()}" + (f"-{profile_tag}" if profile_tag else "")
 
@@ -4107,8 +4118,16 @@ jobs:
                   return False
 
           # =========================================================================
-          # 100 VISITOR PROFILES ENGINE (P1 - P100) & ADVANCED SURF SIMULATOR
+          # 100 VISITOR PROFILES ENGINE (P1 - P100) & ADVANCED SURF SIMULATOR  (v2)
+          #  - HARD CAP: whole surf engine (page load + browsing) never exceeds 180s
+          #  - Randomised runtime per session (triangular + bounce / sticky outliers)
+          #  - 100 deterministic personas (8 archetypes) + per-session mood variation
+          #  - Curved (bezier) mouse paths, eased scrolling, keyboard scrolling,
+          #    idle/away moments, weighted + phase-aware action selection
           # =========================================================================
+
+          SURF_HARD_CAP_SEC = 180   # absolute maximum runtime of the surf engine
+          SURF_MIN_SEC = 35         # shortest allowed session
 
           SAFE_SURF_KEYWORDS = [
               "about", "features", "overview", "product", "learn more", "explore",
@@ -4124,77 +4143,195 @@ jobs:
               "quit", "sign out", "logout", "delete", "remove"
           ]
 
+          # ---------------------------------------------------------------------------
+          # Session clock: every sub-action asks it how much time is left, so the engine
+          # can never run past the hard cap (even inside page-load waits / pauses).
+          # ---------------------------------------------------------------------------
+          class SurfClock:
+              def __init__(self, total_sec):
+                  self.t0 = time.time()
+                  self.total = max(10, min(int(total_sec), SURF_HARD_CAP_SEC))
+
+              def elapsed(self):
+                  return time.time() - self.t0
+
+              def remaining(self):
+                  return self.total - self.elapsed()
+
+
+          _SURF_CLOCK = None
+          _CLICKED_LABELS = set()
+          SURF_STATS = {"scroll": 0, "keyscroll": 0, "read": 0, "select": 0, "link": 0,
+                        "rove": 0, "idle": 0, "scroll_back": 0, "back_nav": 0, "footer_dive": 0}
+
+
+          def surf_remaining():
+              if _SURF_CLOCK is None:
+                  return 9999.0
+              return _SURF_CLOCK.remaining()
+
+
+          def surf_sleep(sec):
+              """Sleep but never beyond the surf deadline."""
+              time.sleep(max(0.0, min(sec, surf_remaining())))
+
+
+          # ---------------------------------------------------------------------------
+          # Archetypes: each trait is a (low, high) range. A profile id picks one
+          # archetype and then draws its own fixed traits from those ranges using a
+          # seeded RNG -> P37 is always the same "person", P38 a different one.
+          # ---------------------------------------------------------------------------
+          ARCHETYPES = [
+              {"name": "Deep Content Reader",
+               "dur_low": (95, 125), "dur_high": (150, 180), "mode_pos": (0.55, 0.85),
+               "pause_min": (3.5, 5.5), "pause_span": (3.0, 5.0), "down": (0.78, 0.88),
+               "links": (1, 2), "stay": (14, 26), "select": (0.30, 0.50), "speed": (0.70, 0.95),
+               "idle": (0.04, 0.10), "idle_len": (4, 9), "key": (0.05, 0.15), "bounce": (0.02, 0.05),
+               "sticky": (0.15, 0.30), "footer": (0.10, 0.25), "glance": (2.5, 5.0), "overshoot": (0.08, 0.16),
+               "weights": {"scroll": (0.30, 0.38), "read": (0.30, 0.40), "select": (0.05, 0.10), "link": (0.05, 0.10),
+                           "rove": (0.05, 0.10), "keyscroll": (0.03, 0.08), "idle": (0.02, 0.05), "scroll_back": (0.06, 0.12)}},
+              {"name": "Fast Skimmer / Scanner",
+               "dur_low": (45, 65), "dur_high": (95, 135), "mode_pos": (0.30, 0.60),
+               "pause_min": (1.0, 1.8), "pause_span": (1.0, 2.2), "down": (0.72, 0.82),
+               "links": (2, 4), "stay": (7, 14), "select": (0.05, 0.15), "speed": (1.20, 1.60),
+               "idle": (0.01, 0.04), "idle_len": (3, 6), "key": (0.15, 0.30), "bounce": (0.06, 0.12),
+               "sticky": (0.05, 0.12), "footer": (0.15, 0.30), "glance": (1.2, 2.5), "overshoot": (0.15, 0.28),
+               "weights": {"scroll": (0.42, 0.52), "read": (0.10, 0.18), "select": (0.01, 0.04), "link": (0.10, 0.16),
+                           "rove": (0.08, 0.14), "keyscroll": (0.08, 0.14), "idle": (0.00, 0.02), "scroll_back": (0.03, 0.08)}},
+              {"name": "Interactive Explorer",
+               "dur_low": (75, 100), "dur_high": (135, 175), "mode_pos": (0.45, 0.75),
+               "pause_min": (2.0, 3.2), "pause_span": (2.0, 3.8), "down": (0.66, 0.76),
+               "links": (3, 5), "stay": (11, 22), "select": (0.15, 0.30), "speed": (0.95, 1.25),
+               "idle": (0.02, 0.06), "idle_len": (3, 7), "key": (0.06, 0.16), "bounce": (0.03, 0.07),
+               "sticky": (0.12, 0.25), "footer": (0.08, 0.18), "glance": (1.8, 3.8), "overshoot": (0.10, 0.20),
+               "weights": {"scroll": (0.24, 0.32), "read": (0.14, 0.22), "select": (0.03, 0.08), "link": (0.16, 0.24),
+                           "rove": (0.12, 0.20), "keyscroll": (0.03, 0.08), "idle": (0.01, 0.04), "scroll_back": (0.04, 0.09)}},
+              {"name": "Downside & Footer Researcher",
+               "dur_low": (85, 115), "dur_high": (140, 180), "mode_pos": (0.50, 0.80),
+               "pause_min": (2.5, 4.0), "pause_span": (2.5, 4.5), "down": (0.84, 0.92),
+               "links": (2, 3), "stay": (11, 21), "select": (0.12, 0.28), "speed": (0.90, 1.15),
+               "idle": (0.03, 0.08), "idle_len": (4, 9), "key": (0.10, 0.22), "bounce": (0.02, 0.05),
+               "sticky": (0.15, 0.28), "footer": (0.55, 0.85), "glance": (2.0, 4.0), "overshoot": (0.08, 0.18),
+               "weights": {"scroll": (0.36, 0.46), "read": (0.18, 0.26), "select": (0.02, 0.06), "link": (0.08, 0.14),
+                           "rove": (0.05, 0.10), "keyscroll": (0.06, 0.12), "idle": (0.01, 0.04), "scroll_back": (0.03, 0.07)}},
+              {"name": "Casual Wandering Visitor",
+               "dur_low": (55, 80), "dur_high": (110, 160), "mode_pos": (0.35, 0.70),
+               "pause_min": (1.6, 2.6), "pause_span": (2.0, 3.6), "down": (0.62, 0.74),
+               "links": (1, 3), "stay": (9, 19), "select": (0.10, 0.22), "speed": (0.85, 1.20),
+               "idle": (0.04, 0.10), "idle_len": (3, 8), "key": (0.05, 0.14), "bounce": (0.05, 0.10),
+               "sticky": (0.06, 0.14), "footer": (0.08, 0.20), "glance": (1.5, 3.5), "overshoot": (0.10, 0.22),
+               "weights": {"scroll": (0.26, 0.34), "read": (0.18, 0.26), "select": (0.02, 0.07), "link": (0.08, 0.14),
+                           "rove": (0.14, 0.22), "keyscroll": (0.03, 0.08), "idle": (0.03, 0.07), "scroll_back": (0.05, 0.10)}},
+              {"name": "Distracted Multitasker",
+               "dur_low": (50, 75), "dur_high": (100, 150), "mode_pos": (0.25, 0.55),
+               "pause_min": (1.5, 2.8), "pause_span": (3.0, 6.0), "down": (0.60, 0.72),
+               "links": (0, 2), "stay": (8, 17), "select": (0.05, 0.15), "speed": (0.80, 1.10),
+               "idle": (0.18, 0.32), "idle_len": (6, 14), "key": (0.04, 0.10), "bounce": (0.07, 0.14),
+               "sticky": (0.04, 0.10), "footer": (0.05, 0.12), "glance": (2.0, 5.0), "overshoot": (0.06, 0.14),
+               "weights": {"scroll": (0.20, 0.28), "read": (0.20, 0.28), "select": (0.01, 0.04), "link": (0.04, 0.09),
+                           "rove": (0.10, 0.16), "keyscroll": (0.02, 0.06), "idle": (0.12, 0.20), "scroll_back": (0.04, 0.08)}},
+              {"name": "Methodical Top-to-Bottom Reader",
+               "dur_low": (100, 130), "dur_high": (155, 180), "mode_pos": (0.55, 0.85),
+               "pause_min": (3.0, 4.5), "pause_span": (2.5, 4.5), "down": (0.90, 0.96),
+               "links": (1, 2), "stay": (13, 24), "select": (0.15, 0.30), "speed": (0.75, 1.00),
+               "idle": (0.02, 0.06), "idle_len": (4, 8), "key": (0.30, 0.50), "bounce": (0.01, 0.04),
+               "sticky": (0.18, 0.32), "footer": (0.35, 0.60), "glance": (2.5, 4.5), "overshoot": (0.04, 0.10),
+               "weights": {"scroll": (0.30, 0.38), "read": (0.28, 0.36), "select": (0.03, 0.07), "link": (0.05, 0.09),
+                           "rove": (0.04, 0.08), "keyscroll": (0.12, 0.20), "idle": (0.01, 0.03), "scroll_back": (0.02, 0.05)}},
+              {"name": "Quick Bounce Visitor",
+               "dur_low": (35, 45), "dur_high": (60, 95), "mode_pos": (0.20, 0.50),
+               "pause_min": (0.9, 1.6), "pause_span": (0.8, 1.8), "down": (0.70, 0.80),
+               "links": (0, 1), "stay": (6, 11), "select": (0.02, 0.08), "speed": (1.20, 1.70),
+               "idle": (0.00, 0.03), "idle_len": (3, 5), "key": (0.10, 0.24), "bounce": (0.15, 0.30),
+               "sticky": (0.02, 0.06), "footer": (0.05, 0.15), "glance": (1.0, 2.0), "overshoot": (0.12, 0.24),
+               "weights": {"scroll": (0.46, 0.58), "read": (0.10, 0.16), "select": (0.00, 0.03), "link": (0.05, 0.10),
+                           "rove": (0.10, 0.16), "keyscroll": (0.06, 0.12), "idle": (0.00, 0.02), "scroll_back": (0.02, 0.06)}},
+          ]
+
+
           def get_visitor_profile(profile_tag):
               try:
                   p_id = int(re.sub(r"[^\d]", "", profile_tag))
               except Exception:
                   p_id = random.randint(1, 100)
-
               p_id = max(1, min(100, p_id))
 
-              # Procedurally determine 1 of 5 behavioral archetypes
-              if 1 <= p_id <= 20:
-                  archetype = "Deep Content Reader"
-                  duration_min, duration_max = 160, 360
-                  scroll_speed = "slow"
-                  pause_min, pause_max = 4.0, 9.0
-                  down_scroll_prob = 0.82
-                  link_click_target = random.randint(1, 2)
-                  subpage_stay = random.uniform(14.0, 28.0)
-                  text_select_prob = 0.40
-              elif 21 <= p_id <= 40:
-                  archetype = "Fast Skimmer / Scanner"
-                  duration_min, duration_max = 60, 150
-                  scroll_speed = "fast"
-                  pause_min, pause_max = 1.2, 3.5
-                  down_scroll_prob = 0.75
-                  link_click_target = random.randint(2, 4)
-                  subpage_stay = random.uniform(8.0, 16.0)
-                  text_select_prob = 0.10
-              elif 41 <= p_id <= 60:
-                  archetype = "Interactive Explorer"
-                  duration_min, duration_max = 120, 280
-                  scroll_speed = "medium"
-                  pause_min, pause_max = 2.5, 6.0
-                  down_scroll_prob = 0.70
-                  link_click_target = random.randint(3, 5)
-                  subpage_stay = random.uniform(12.0, 24.0)
-                  text_select_prob = 0.25
-              elif 61 <= p_id <= 80:
-                  archetype = "Downside & Footer Researcher"
-                  duration_min, duration_max = 140, 320
-                  scroll_speed = "medium"
-                  pause_min, pause_max = 3.0, 7.5
-                  down_scroll_prob = 0.88
-                  link_click_target = random.randint(2, 3)
-                  subpage_stay = random.uniform(12.0, 22.0)
-                  text_select_prob = 0.20
-              else:
-                  archetype = "Casual Wandering Visitor"
-                  duration_min, duration_max = 90, 240
-                  scroll_speed = "random"
-                  pause_min, pause_max = 2.0, 5.5
-                  down_scroll_prob = 0.68
-                  link_click_target = random.randint(1, 3)
-                  subpage_stay = random.uniform(10.0, 20.0)
-                  text_select_prob = 0.30
+              arch = ARCHETYPES[(p_id - 1) * len(ARCHETYPES) // 100]
+              rng = random.Random(p_id * 7919 + 13)   # deterministic "person" per profile id
+
+              def u(key):
+                  lo, hi = arch[key]
+                  return rng.uniform(lo, hi)
+
+              dur_low = min(u("dur_low"), SURF_HARD_CAP_SEC - 25)
+              dur_high = min(max(u("dur_high"), dur_low + 15), SURF_HARD_CAP_SEC)
+              weights = {k: rng.uniform(lo, hi) for k, (lo, hi) in arch["weights"].items()}
+              links_lo, links_hi = arch["links"]
+              base_links = rng.randint(links_lo, links_hi)
+
+              # Per-session mood: genuinely random each run, so the same profile never behaves identically twice
+              mood = random.uniform(0.85, 1.15)
+              energy = random.uniform(0.90, 1.12)
+              link_target = max(0, min(6, base_links + random.choice([-1, 0, 0, 1])))
+
+              pause_min = u("pause_min") * mood
+              pause_max = pause_min + u("pause_span") * mood
+              speed = u("speed") * energy
 
               return {
                   "profile_id": f"P{p_id}",
-                  "archetype": archetype,
-                  "duration_min": duration_min,
-                  "duration_max": duration_max,
-                  "scroll_speed": scroll_speed,
+                  "archetype": arch["name"],
+                  "dur_low": dur_low,
+                  "dur_high": dur_high,
+                  "dur_mode_pos": u("mode_pos"),
+                  "duration_min": int(dur_low),
+                  "duration_max": int(dur_high),
+                  "scroll_speed": "fast" if speed > 1.15 else ("slow" if speed < 0.9 else "medium"),
+                  "speed": speed,
                   "pause_min": pause_min,
                   "pause_max": pause_max,
-                  "down_scroll_prob": down_scroll_prob,
-                  "link_click_target": link_click_target,
-                  "subpage_stay": subpage_stay,
-                  "text_select_prob": text_select_prob
+                  "down_scroll_prob": u("down"),
+                  "link_click_target": link_target,
+                  "subpage_stay": u("stay") * mood,
+                  "text_select_prob": u("select"),
+                  "idle_prob": u("idle"),
+                  "idle_len": arch["idle_len"],
+                  "key_scroll_prob": u("key"),
+                  "bounce_prob": u("bounce"),
+                  "sticky_prob": u("sticky"),
+                  "footer_prob": u("footer"),
+                  "glance": u("glance"),
+                  "overshoot_prob": u("overshoot"),
+                  "max_depth": 2,
+                  "weights": weights,
+                  "mood": mood,
               }
 
+
+          def sample_session_duration(profile):
+              """Randomised total runtime (page load included). Never above SURF_HARD_CAP_SEC."""
+              lo, hi = profile["dur_low"], profile["dur_high"]
+              mode = lo + (hi - lo) * profile["dur_mode_pos"]
+              kind = "normal"
+              d = random.triangular(lo, hi, mode)
+              roll = random.random()
+              if roll < profile["bounce_prob"]:
+                  kind = "early-bounce"
+                  d = random.uniform(SURF_MIN_SEC, max(SURF_MIN_SEC + 8, lo * 0.65))
+              elif roll > 1.0 - profile["sticky_prob"]:
+                  kind = "highly-engaged"
+                  d = random.uniform(hi * 0.90, hi)
+              d *= random.uniform(0.95, 1.05)
+              d = int(max(SURF_MIN_SEC, min(d, SURF_HARD_CAP_SEC - 5)))
+              return d, kind
+
+
+          # ---------------------------------------------------------------------------
+          # Page load verifier (deadline aware)
+          # ---------------------------------------------------------------------------
           def wait_for_page_to_fully_load(edge_window, timeout=35):
-              log_msg("PageVerifier", "Verifying webpage load and DOM stabilization...")
+              timeout = max(2, min(timeout, surf_remaining() - 1))
+              log_msg("PageVerifier", f"Verifying webpage load and DOM stabilization (max {timeout:.0f}s)...")
               start_check = time.time()
               last_descendant_count = -1
               stable_ticks = 0
@@ -4207,7 +4344,6 @@ jobs:
                           time.sleep(1)
                           continue
 
-                      # Count active UI elements in Edge Document container
                       count = 0
                       for doc in edge_window.descendants(control_type="Document"):
                           count += len(doc.children())
@@ -4222,7 +4358,6 @@ jobs:
                               stable_ticks = 0
                               last_descendant_count = count
                       else:
-                          # Fallback checking descendants count
                           desc_cnt = len(edge_window.descendants())
                           if desc_cnt > 15:
                               log_msg("PageVerifier", f"DOM elements active ({desc_cnt} nodes). Page ready.")
@@ -4234,71 +4369,179 @@ jobs:
               log_msg("PageVerifier", "Timeout reached waiting for page load. Proceeding with best-effort state.")
               return True
 
-          def human_smooth_move(x, y, duration=None):
+
+          # ---------------------------------------------------------------------------
+          # Mouse: curved (bezier) paths, variable speed, occasional overshoot+correct
+          # ---------------------------------------------------------------------------
+          def _clamp_screen(x, y):
               try:
+                  sw, sh = pyautogui.size()
+              except Exception:
+                  sw, sh = 1920, 1080
+              return int(max(3, min(sw - 4, x))), int(max(3, min(sh - 4, y)))
+
+
+          def _bezier_path(x1, y1, x2, y2, steps):
+              dist = math.hypot(x2 - x1, y2 - y1) or 1.0
+              nx, ny = -(y2 - y1) / dist, (x2 - x1) / dist
+              bend1 = random.uniform(-0.22, 0.22) * dist
+              bend2 = random.uniform(-0.22, 0.22) * dist
+              c1 = (x1 + (x2 - x1) * 0.30 + nx * bend1, y1 + (y2 - y1) * 0.30 + ny * bend1)
+              c2 = (x1 + (x2 - x1) * 0.70 + nx * bend2, y1 + (y2 - y1) * 0.70 + ny * bend2)
+              pts = []
+              for i in range(1, steps + 1):
+                  t = i / steps
+                  t = t * t * (3 - 2 * t)  # smoothstep easing: slow start/end, fast middle
+                  a = (1 - t) ** 3
+                  b = 3 * (1 - t) ** 2 * t
+                  c = 3 * (1 - t) * t ** 2
+                  d = t ** 3
+                  pts.append((a * x1 + b * c1[0] + c * c2[0] + d * x2, a * y1 + b * c1[1] + c * c2[1] + d * y2))
+              return pts
+
+
+          def human_smooth_move(x, y, duration=None, speed=1.0, overshoot_prob=0.0):
+              try:
+                  x, y = _clamp_screen(x, y)
+                  cx, cy = pyautogui.position()
+                  dist = math.hypot(x - cx, y - cy)
+                  if dist < 4:
+                      return
                   if duration is None:
-                      duration = random.uniform(0.35, 0.75)
-                  pyautogui.moveTo(x, y, duration=duration, tween=pyautogui.easeInOutQuad)
-                  if random.random() < 0.45:
-                      jx = random.randint(-5, 5)
-                      jy = random.randint(-5, 5)
-                      pyautogui.moveRel(jx, jy, duration=random.uniform(0.1, 0.2))
+                      duration = max(0.18, min(1.4, dist / (950.0 * max(0.4, speed)) + random.uniform(0.08, 0.28)))
+                  duration = min(duration, max(0.1, surf_remaining() - 0.5))
+
+                  targets = [(x, y)]
+                  if overshoot_prob and dist > 220 and random.random() < overshoot_prob:
+                      ox, oy = _clamp_screen(x + random.randint(-28, 28), y + random.randint(-22, 22))
+                      targets = [(ox, oy), (x, y)]
+
+                  for idx, (tx, ty) in enumerate(targets):
+                      seg_dur = duration if idx == 0 else random.uniform(0.12, 0.28)
+                      sx, sy = pyautogui.position()
+                      steps = int(max(8, min(55, math.hypot(tx - sx, ty - sy) / 14)))
+                      for (px, py) in _bezier_path(sx, sy, tx, ty, steps):
+                          px, py = _clamp_screen(px, py)
+                          pyautogui.moveTo(px, py, duration=0, _pause=False)
+                          time.sleep(seg_dur / steps)
+                  if random.random() < 0.40:
+                      jx, jy = random.randint(-4, 4), random.randint(-4, 4)
+                      pyautogui.moveRel(jx, jy, duration=random.uniform(0.05, 0.15), _pause=False)
               except Exception:
                   pass
 
-          def human_natural_scroll(direction="down", intensity="medium"):
+
+          def ensure_pointer_on_content(speed=1.0):
+              """Mouse-wheel only scrolls the page when the pointer is over it."""
               try:
-                  if intensity == "short":
-                      ticks_count = random.randint(2, 4)
-                      step_size = random.randint(70, 120)
-                  elif intensity == "long":
-                      ticks_count = random.randint(6, 12)
-                      step_size = random.randint(120, 220)
-                  else:
-                      ticks_count = random.randint(3, 7)
-                      step_size = random.randint(90, 160)
-
-                  multiplier = -1 if direction == "down" else 1
-
-                  for _ in range(ticks_count):
-                      pyautogui.scroll(multiplier * step_size)
-                      time.sleep(random.uniform(0.06, 0.18))
-
-                  time.sleep(random.uniform(0.3, 0.8))
+                  sw, sh = pyautogui.size()
+                  x, y = pyautogui.position()
+                  if y < sh * 0.22 or y > sh * 0.94 or x < sw * 0.05 or x > sw * 0.95:
+                      human_smooth_move(random.randint(int(sw * 0.25), int(sw * 0.75)),
+                                        random.randint(int(sh * 0.35), int(sh * 0.75)), speed=speed)
               except Exception:
                   pass
 
-          def human_reading_pause(min_s=2.5, max_s=6.5):
+
+          # ---------------------------------------------------------------------------
+          # Scrolling: eased wheel scroll, momentary hesitation, overshoot correction,
+          # plus keyboard paging (PageDown / arrows) as an alternative style
+          # ---------------------------------------------------------------------------
+          def human_natural_scroll(direction="down", intensity="medium", overshoot_prob=0.10, speed=1.0):
+              try:
+                  ensure_pointer_on_content(speed)
+                  cfg = {"short": (2, 4, 70, 120), "medium": (3, 7, 90, 160), "long": (6, 12, 120, 220)}[intensity]
+                  ticks_count = random.randint(cfg[0], cfg[1])
+                  step_size = random.randint(cfg[2], cfg[3])
+                  sign = -1 if direction == "down" else 1
+
+                  for i in range(ticks_count):
+                      if surf_remaining() <= 1:
+                          return
+                      pos = (i + 0.5) / ticks_count
+                      ease = 0.55 + 0.9 * math.sin(math.pi * pos)   # gentle start, quick middle, gentle stop
+                      pyautogui.scroll(int(sign * step_size * ease * random.uniform(0.9, 1.1)), _pause=False)
+                      time.sleep(random.uniform(0.04, 0.16) / max(0.6, speed))
+                      if random.random() < 0.06:
+                          surf_sleep(random.uniform(0.25, 0.7))      # momentary hesitation
+
+                  if random.random() < overshoot_prob:
+                      surf_sleep(random.uniform(0.2, 0.5))
+                      pyautogui.scroll(int(-sign * random.randint(40, 110)), _pause=False)  # scrolled too far, nudge back
+                  surf_sleep(random.uniform(0.3, 0.8))
+              except Exception:
+                  pass
+
+
+          def human_key_scroll(direction="down"):
+              try:
+                  ensure_pointer_on_content()
+                  if random.random() < 0.5:
+                      key = "pagedown" if direction == "down" else "pageup"
+                      pyautogui.press(key, presses=random.randint(1, 2), interval=random.uniform(0.35, 0.8), _pause=False)
+                  else:
+                      key = "down" if direction == "down" else "up"
+                      pyautogui.press(key, presses=random.randint(3, 8), interval=random.uniform(0.05, 0.12), _pause=False)
+                  surf_sleep(random.uniform(0.3, 0.9))
+              except Exception:
+                  pass
+
+
+          # ---------------------------------------------------------------------------
+          # Reading / idle / selection behaviours (all deadline aware)
+          # ---------------------------------------------------------------------------
+          def human_reading_pause(min_s=2.5, max_s=6.5, parked_prob=0.15):
               pause_time = random.uniform(min_s, max_s)
-              log_msg("Reader", f"Pausing to read content ({pause_time:.1f}s)...")
+              pause_time = min(pause_time, max(0.0, surf_remaining() - 1.0))
+              if pause_time < 0.3:
+                  return
+              parked = random.random() < parked_prob   # eyes on page, hand off the mouse
+              log_msg("Reader", f"Reading pause ({pause_time:.1f}s){' - mouse parked' if parked else ''}...")
               start_p = time.time()
               while time.time() - start_p < pause_time:
-                  if random.random() < 0.35:
-                      dx = random.randint(-20, 20)
-                      dy = random.randint(-12, 12)
-                      pyautogui.moveRel(dx, dy, duration=random.uniform(0.2, 0.45))
-                  time.sleep(random.uniform(0.4, 0.9))
+                  if not parked and random.random() < 0.35:
+                      dx, dy = random.randint(-20, 20), random.randint(-12, 12)
+                      pyautogui.moveRel(dx, dy, duration=random.uniform(0.2, 0.45), _pause=False)
+                  time.sleep(min(random.uniform(0.4, 0.9), max(0.05, pause_time - (time.time() - start_p))))
+
+
+          def human_idle_away(profile):
+              lo, hi = profile["idle_len"]
+              d = min(random.uniform(lo, hi), max(0.0, surf_remaining() - 8.0))
+              if d < 1.5:
+                  return False
+              log_msg("HumanSurf", f"Attention drift: looking away from screen for {d:.1f}s (no input)...")
+              surf_sleep(d)
+              return True
+
 
           def human_text_selection_simulation():
               try:
                   sw, sh = pyautogui.size()
                   sx = random.randint(int(sw * 0.25), int(sw * 0.65))
                   sy = random.randint(int(sh * 0.35), int(sh * 0.75))
-                  human_smooth_move(sx, sy, duration=0.35)
+                  human_smooth_move(sx, sy)
                   pyautogui.mouseDown()
-                  drag_len = random.randint(60, 220)
-                  pyautogui.moveRel(drag_len, 0, duration=random.uniform(0.3, 0.6))
+                  drag_len = random.randint(60, 240)
+                  pyautogui.moveRel(drag_len, random.randint(-6, 6), duration=random.uniform(0.3, 0.7))
                   pyautogui.mouseUp()
                   log_msg("Reader", f"Simulated text highlighting ({drag_len}px).")
-                  time.sleep(random.uniform(0.6, 1.4))
-                  pyautogui.click()
+                  surf_sleep(random.uniform(0.8, 1.8))
               except Exception:
-                  pass
+                  try:
+                      pyautogui.mouseUp()
+                  except Exception:
+                      pass
 
-          def find_and_interact_middle_or_downside(edge_window):
+
+          # ---------------------------------------------------------------------------
+          # Link finder: middle / lower part of the page only, safe-keyword preference,
+          # never the same label twice, hover dwell before clicking
+          # ---------------------------------------------------------------------------
+          def find_and_interact_middle_or_downside(edge_window, speed=1.0, overshoot_prob=0.1):
               sw, sh = pyautogui.size()
               candidate_links = []
-
+              scan_t0 = time.time()
               log_msg("LinkFinder", "Searching for interactive elements strictly in MIDDLE or DOWNSIDE...")
 
               try:
@@ -4309,160 +4552,254 @@ jobs:
                               continue
                           txt = (el.window_text() or "").strip()
                           nm = (el.element_info.name or "").strip()
-                          combined = f"{txt} {nm}".lower()
+                          combined = f"{txt} {nm}".lower().strip()
                           if not combined or len(combined) > 70:
                               continue
+                          if combined in _CLICKED_LABELS:
+                              continue
 
-                          # Avoid header / top menu area strictly (y > 25% of screen height)
                           rect = el.rectangle()
                           cx = rect.mid_point().x
                           cy = rect.mid_point().y
-
                           if cy < (sh * 0.25):
                               continue
-
                           if any(bad in combined for bad in DANGEROUS_CLICK_KEYWORDS):
                               continue
-
-                          # Accept items in middle (30% to 70%) or downside (> 70%)
                           if (sw * 0.08) < cx < (sw * 0.92) and (sh * 0.28) < cy < (sh * 0.90):
                               is_safe_kw = any(good in combined for good in SAFE_SURF_KEYWORDS)
                               candidate_links.append((is_safe_kw, el, cx, cy, combined))
                       except Exception:
                           continue
 
-                  if candidate_links:
-                      # Prioritize safe content keywords and lower position
-                      candidate_links.sort(key=lambda x: (x[0], x[3]), reverse=True)
-                      chosen = random.choice(candidate_links[:min(10, len(candidate_links))])
-                      _, target_el, cx, cy, label = chosen
-                      log_msg("LinkFinder", f"Found middle/downside link: '{label[:40]}' at ({cx}, {cy}). Moving mouse...")
+                  log_msg("LinkFinder", f"Scan finished in {time.time() - scan_t0:.1f}s: {len(candidate_links)} candidate(s).")
+                  if surf_remaining() < 12:
+                      log_msg("LinkFinder", "Not enough session time left to follow a link. Skipping.")
+                      return False
 
-                      human_smooth_move(cx, cy, duration=random.uniform(0.45, 0.85))
-                      time.sleep(random.uniform(0.2, 0.5))
+                  if candidate_links:
+                      safe_first = [c for c in candidate_links if c[0]]
+                      pool = safe_first if (safe_first and random.random() < 0.75) else candidate_links
+                      pool.sort(key=lambda x: x[3], reverse=True)
+                      chosen = random.choice(pool[:min(10, len(pool))])
+                      _, target_el, cx, cy, label = chosen
+                      _CLICKED_LABELS.add(label)
+                      log_msg("LinkFinder", f"Chosen link: '{label[:40]}' at ({cx}, {cy}). Moving mouse...")
+
+                      human_smooth_move(cx, cy, speed=speed, overshoot_prob=overshoot_prob)
+                      surf_sleep(random.uniform(0.25, 0.9))     # hover dwell before committing
 
                       clicked = False
                       if random.random() < 0.85:
                           try:
                               target_el.click_input()
                               clicked = True
-                              log_msg("LinkFinder", f"Clicked target link successfully.")
+                              log_msg("LinkFinder", "Clicked target link successfully.")
                           except Exception:
                               pass
                       if not clicked:
                           pyautogui.click(cx, cy)
-                          log_msg("LinkFinder", f"Clicked target link via PyAutoGUI coordinates.")
+                          log_msg("LinkFinder", "Clicked target link via PyAutoGUI coordinates.")
                       return True
               except Exception as e:
                   log_msg("LinkFinder", f"Middle/downside search failed: {e}")
               return False
 
+
+          # ---------------------------------------------------------------------------
+          # Action picker: weighted by persona, shaped by session phase, anti-repetition
+          # ---------------------------------------------------------------------------
+          def pick_action(profile, phase, history, clicks_executed, depth, remaining):
+              w = dict(profile["weights"])
+              w["idle"] = w.get("idle", 0.0) + profile["idle_prob"] * 0.5
+              w["select"] = w.get("select", 0.0) * (0.5 + profile["text_select_prob"])
+              if phase == "early":
+                  w["read"] *= 1.3
+                  w["link"] *= 0.5
+              elif phase == "late":
+                  w["link"] *= 0.5
+                  w["scroll"] *= 1.15
+              if clicks_executed >= profile["link_click_target"] or remaining <= 40 or depth >= profile["max_depth"]:
+                  w["link"] = 0.0
+              if remaining < 14:
+                  w["idle"] = 0.0
+                  w["select"] = 0.0
+              if len(history) >= 2 and history[-1] == history[-2]:
+                  w[history[-1]] = w.get(history[-1], 0.0) * 0.15
+              keys = [k for k in w if w[k] > 0]
+              if not keys:
+                  return "scroll"
+              return random.choices(keys, weights=[w[k] for k in keys])[0]
+
+
+          def write_surf_flag(name, text):
+              try:
+                  with open(os.path.join(tempfile.gettempdir(), name), "w") as f:
+                      f.write(text)
+              except Exception:
+                  pass
+
+
           def run_human_surfing_simulation(desktop, edge_window, profile_tag="P1"):
+              global _SURF_CLOCK
               profile = get_visitor_profile(profile_tag)
+              session_duration, duration_kind = sample_session_duration(profile)
+              _SURF_CLOCK = SurfClock(session_duration)
+              clock = _SURF_CLOCK
+
+              # Tell the PowerShell watcher immediately (its budget starts from this moment)
+              write_surf_flag("surf_duration.txt", str(clock.total))
+              write_surf_flag("surf_start.txt", str(int(time.time())))
+
               log_msg("HumanSurf", "============================================================")
               log_msg("HumanSurf", f" VISITOR PROFILE LOADED: [{profile['profile_id']}] {profile['archetype'].upper()}")
               log_msg("HumanSurf", "============================================================")
+              log_msg("HumanSurf", f"Persona traits : speed={profile['speed']:.2f} ({profile['scroll_speed']}) | pause={profile['pause_min']:.1f}-{profile['pause_max']:.1f}s | down-scroll={profile['down_scroll_prob']:.0%} | mood={profile['mood']:.2f}")
+              log_msg("HumanSurf", f"Behaviour      : link target={profile['link_click_target']} | subpage stay~{profile['subpage_stay']:.0f}s | select={profile['text_select_prob']:.0%} | idle={profile['idle_prob']:.0%} | keyboard-scroll={profile['key_scroll_prob']:.0%} | footer-dive={profile['footer_prob']:.0%}")
+              log_msg("HumanSurf", f"Runtime window : {profile['duration_min']}-{profile['duration_max']}s (hard cap {SURF_HARD_CAP_SEC}s)")
+              log_msg("HumanSurf", f"SESSION RUNTIME ASSIGNED: {clock.total}s [{duration_kind}] (includes page load)")
 
-              wait_for_page_to_fully_load(edge_window, timeout=30)
+              wait_for_page_to_fully_load(edge_window, timeout=25)
 
-              # Random surfing duration calculated dynamically upon page load
-              session_duration = random.randint(profile['duration_min'], profile['duration_max'])
-              log_msg("HumanSurf", f"Dynamic surfing session duration assigned: {session_duration} seconds (Range: {profile['duration_min']}-{profile['duration_max']}s)")
-
-              # Broadcast planned duration to PowerShell watcher
-              try:
-                  with open(os.path.join(tempfile.gettempdir(), "surf_duration.txt"), "w") as f:
-                      f.write(str(session_duration))
-              except Exception: pass
-
-              start_time = time.time()
               sw, sh = pyautogui.size()
+              speed = profile["speed"]
+              ovs = profile["overshoot_prob"]
 
-              # Step 1: Initial glance at content
+              # Landing glance
               log_msg("HumanSurf", "Initial landing glance. User observing top content...")
-              human_reading_pause(min_s=2.0, max_s=4.0)
+              human_reading_pause(min_s=profile["glance"] * 0.8, max_s=profile["glance"] * 1.4, parked_prob=0.3)
 
-              # Step 2: First deliberate scroll down to middle section
-              log_msg("HumanSurf", "Beginning first natural scroll down into middle content...")
-              human_natural_scroll(direction="down", intensity="medium")
-              human_reading_pause(min_s=profile['pause_min'], max_s=profile['pause_max'])
+              # First deliberate scroll
+              if surf_remaining() > 5:
+                  log_msg("HumanSurf", "Beginning first natural scroll down into middle content...")
+                  human_natural_scroll("down", random.choice(["short", "medium"]), ovs, speed)
+                  SURF_STATS["scroll"] += 1
+                  human_reading_pause(profile["pause_min"], profile["pause_max"])
 
               clicks_executed = 0
               subpage_depth = 0
-              subpage_entered_time = 0
+              subpage_entered_time = 0.0
+              current_stay = profile["subpage_stay"]
+              footer_done = False
+              history = []
 
-              while (time.time() - start_time) < session_duration:
-                  elapsed = time.time() - start_time
-                  remaining = session_duration - elapsed
-                  if remaining <= 0:
-                      break
+              while surf_remaining() > 1.0:
+                  remaining = surf_remaining()
+                  frac = clock.elapsed() / clock.total
+                  phase = "early" if frac < 0.25 else ("late" if frac > 0.75 else "mid")
 
                   try:
                       edge_window.set_focus()
                   except Exception:
                       pass
 
-                  action_roll = random.random()
+                  # One-off footer dive for "researcher" personas in the second half
+                  if (not footer_done and frac > 0.45 and remaining > 20 and random.random() < profile["footer_prob"] * 0.25):
+                      footer_done = True
+                      SURF_STATS["footer_dive"] += 1
+                      log_msg("HumanSurf", f"[t={clock.elapsed():.0f}/{clock.total}s] Heading to the footer area (long scroll down)...")
+                      for _ in range(random.randint(2, 3)):
+                          human_natural_scroll("down", "long", ovs, speed)
+                      human_reading_pause(profile["pause_min"], profile["pause_max"])
+                      history.append("scroll")
+                      continue
 
-                  # 1. Scroll action (Downwards or back Up to re-read)
-                  if action_roll < 0.45:
-                      direction = "down" if random.random() < profile['down_scroll_prob'] else "up"
-                      intensity = random.choice(["short", "medium"]) if profile['scroll_speed'] != "fast" else "long"
-                      log_msg("HumanSurf", f"Scrolling {direction.upper()} ({intensity} intensity)...")
-                      human_natural_scroll(direction=direction, intensity=intensity)
+                  action = pick_action(profile, phase, history, clicks_executed, subpage_depth, remaining)
+                  history.append(action)
+                  tag = f"[t={clock.elapsed():.0f}/{clock.total}s|{phase}]"
 
-                  # 2. Reading pause
-                  elif action_roll < 0.70:
-                      human_reading_pause(min_s=profile['pause_min'], max_s=profile['pause_max'])
+                  if action == "scroll":
+                      direction = "down" if random.random() < profile["down_scroll_prob"] else "up"
+                      if profile["scroll_speed"] == "fast":
+                          intensity = random.choice(["medium", "long", "long"])
+                      elif profile["scroll_speed"] == "slow":
+                          intensity = random.choice(["short", "short", "medium"])
+                      else:
+                          intensity = random.choice(["short", "medium", "medium", "long"])
+                      if random.random() < profile["key_scroll_prob"]:
+                          log_msg("HumanSurf", f"{tag} Keyboard scroll {direction.upper()}...")
+                          human_key_scroll(direction)
+                          SURF_STATS["keyscroll"] += 1
+                      else:
+                          log_msg("HumanSurf", f"{tag} Scrolling {direction.upper()} ({intensity})...")
+                          human_natural_scroll(direction, intensity, ovs, speed)
+                          SURF_STATS["scroll"] += 1
 
-                  # 3. Text selection simulation
-                  elif action_roll < (0.70 + profile['text_select_prob'] * 0.3):
+                  elif action == "scroll_back":
+                      log_msg("HumanSurf", f"{tag} Scrolling back UP to re-read something...")
+                      human_natural_scroll("up", random.choice(["short", "medium"]), ovs, speed)
+                      human_reading_pause(profile["pause_min"], profile["pause_max"])
+                      SURF_STATS["scroll_back"] += 1
+
+                  elif action == "read":
+                      human_reading_pause(profile["pause_min"], profile["pause_max"])
+                      SURF_STATS["read"] += 1
+
+                  elif action == "keyscroll":
+                      direction = "down" if random.random() < profile["down_scroll_prob"] else "up"
+                      log_msg("HumanSurf", f"{tag} Keyboard scroll {direction.upper()}...")
+                      human_key_scroll(direction)
+                      SURF_STATS["keyscroll"] += 1
+
+                  elif action == "select":
                       human_text_selection_simulation()
+                      SURF_STATS["select"] += 1
 
-                  # 4. Interactive exploration: Click middle or downside links
-                  elif clicks_executed < profile['link_click_target'] and remaining > 25:
-                      log_msg("HumanSurf", f"Attempting link interaction ({clicks_executed+1}/{profile['link_click_target']})...")
-                      if find_and_interact_middle_or_downside(edge_window):
+                  elif action == "idle":
+                      if human_idle_away(profile):
+                          SURF_STATS["idle"] += 1
+
+                  elif action == "link":
+                      log_msg("HumanSurf", f"{tag} Link interaction ({clicks_executed + 1}/{profile['link_click_target']})...")
+                      if find_and_interact_middle_or_downside(edge_window, speed, ovs):
                           clicks_executed += 1
                           subpage_depth += 1
                           subpage_entered_time = time.time()
+                          current_stay = profile["subpage_stay"] * random.uniform(0.8, 1.25)
+                          SURF_STATS["link"] += 1
                           log_msg("HumanSurf", "Waiting for subpage to load...")
-                          time.sleep(3)
+                          surf_sleep(random.uniform(2.0, 3.5))
                           wait_for_page_to_fully_load(edge_window, timeout=15)
-                          # Scroll subpage
-                          human_natural_scroll(direction="down", intensity="short")
-                          human_reading_pause(min_s=4.0, max_s=8.0)
+                          human_natural_scroll("down", "short", ovs, speed)
+                          human_reading_pause(max(2.5, profile["pause_min"]), max(5.0, profile["pause_max"]))
 
-                  # 5. Natural mouse roving across content
-                  else:
+                  else:  # rove
                       rx = random.randint(int(sw * 0.15), int(sw * 0.85))
                       ry = random.randint(int(sh * 0.30), int(sh * 0.80))
-                      log_msg("HumanSurf", f"Eye-tracking mouse move to ({rx}, {ry})...")
-                      human_smooth_move(rx, ry)
-                      time.sleep(random.uniform(0.5, 1.2))
+                      log_msg("HumanSurf", f"{tag} Eye-tracking mouse move to ({rx}, {ry})...")
+                      human_smooth_move(rx, ry, speed=speed, overshoot_prob=ovs)
+                      surf_sleep(random.uniform(0.5, 1.4))
+                      SURF_STATS["rove"] += 1
 
-                  # Back navigation logic if subpage time expires
-                  if subpage_depth > 0 and (time.time() - subpage_entered_time) > profile['subpage_stay']:
+                  # Back navigation once the subpage has been inspected long enough
+                  if subpage_depth > 0 and (time.time() - subpage_entered_time) > current_stay and surf_remaining() > 10:
                       if random.random() < 0.75:
-                          log_msg("HumanSurf", "Subpage inspection finished. Navigating Back (Alt + Left Arrow)...")
+                          log_msg("HumanSurf", f"[t={clock.elapsed():.0f}/{clock.total}s] Subpage inspected. Navigating Back (Alt + Left Arrow)...")
                           try:
                               edge_window.set_focus()
                               send_keys('%{LEFT}')
-                              time.sleep(3)
+                              surf_sleep(random.uniform(2.0, 3.2))
                               wait_for_page_to_fully_load(edge_window, timeout=12)
                               subpage_depth = max(0, subpage_depth - 1)
+                              SURF_STATS["back_nav"] += 1
                           except Exception:
                               pass
 
-                  time.sleep(random.uniform(0.6, 1.4))
+                  surf_sleep(random.uniform(0.5, 1.4))
 
-              # Signal completion to PowerShell
-              try:
-                  with open(os.path.join(tempfile.gettempdir(), "surf_done.flag"), "w") as f:
-                      f.write("done")
-              except Exception: pass
+              actual = clock.elapsed()
+              write_surf_flag("surf_stats.json", json.dumps({
+                  "profile": profile["profile_id"], "archetype": profile["archetype"],
+                  "assigned_sec": clock.total, "actual_sec": round(actual, 1), "kind": duration_kind,
+                  "links_followed": clicks_executed, "actions": SURF_STATS,
+              }))
+              write_surf_flag("surf_done.flag", "done")
 
-              log_msg("HumanSurf", f"Surfing session complete. Total active browsing duration: {time.time() - start_time:.1f}s.")
+              log_msg("HumanSurf", "============================================================")
+              log_msg("HumanSurf", f" SURF SESSION COMPLETE [{profile['profile_id']}] {profile['archetype']}")
+              log_msg("HumanSurf", f" Runtime  : {actual:.1f}s of {clock.total}s assigned (hard cap {SURF_HARD_CAP_SEC}s)")
+              log_msg("HumanSurf", f" Links    : {clicks_executed} followed (target {profile['link_click_target']}) | Back-navs: {SURF_STATS['back_nav']}")
+              log_msg("HumanSurf", f" Actions  : {SURF_STATS}")
+              log_msg("HumanSurf", "============================================================")
 
           def handle_automation(software_type, action_mode, profile_tag="P1", timeout=450):
               desktop = Desktop(backend="uia")
@@ -4871,38 +5208,53 @@ jobs:
 
           } elseif ($env:ACTION_MODE -eq "surf") {
               Write-Host "============================================================" -ForegroundColor Cyan
-              Write-Host " Operating in SURF pathway. Visitor Simulation Engine Active." -ForegroundColor Cyan
+              Write-Host " Operating in SURF pathway. Visitor Simulation Engine v2 Active." -ForegroundColor Cyan
               Write-Host " Visitor Profile: $env:PROFILE_TAG" -ForegroundColor Yellow
+              Write-Host " Surf runtime  : randomised per session, HARD CAP 180s" -ForegroundColor Yellow
               Write-Host "============================================================" -ForegroundColor Cyan
 
               $surfDurationFile = "$env:TEMP\surf_duration.txt"
               $surfDoneFlag     = "$env:TEMP\surf_done.flag"
-              $maxSurfCeiling   = 420
-              $elapsed          = 0
+              $surfStatsFile    = "$env:TEMP\surf_stats.json"
+              $surfHardCap      = 180   # max seconds of surfing (engine clock, starts when surfing begins)
+              $startupCeiling   = 240   # max seconds to wait for the engine to begin (Edge launch, proxy auth, interstitial)
+              $graceAfter       = 20    # slack after the assigned runtime before the watcher forces the end
               $step             = 5
-              $resolvedDuration = 180
+              $elapsed          = 0
+              $surfBeganAt      = -1
+              $resolvedDuration = $surfHardCap
 
-              while ($elapsed -lt $maxSurfCeiling) {
-                  if (Test-Path $surfDurationFile) {
+              while ($true) {
+                  if (Test-Path $surfDoneFlag) {
+                      $ranFor = if ($surfBeganAt -ge 0) { $elapsed - $surfBeganAt } else { $elapsed }
+                      Write-Host "[SURF-RUNTIME] Profile $env:PROFILE_TAG reported completion after ${ranFor}s of surfing." -ForegroundColor Green
+                      break
+                  }
+
+                  if ($surfBeganAt -lt 0 -and (Test-Path $surfDurationFile)) {
                       try {
                           $val = [int](Get-Content -Path $surfDurationFile -Raw).Trim()
-                          if ($val -ge 50 -and $val -le 400) {
-                              $resolvedDuration = $val
-                          }
+                          if ($val -ge 10 -and $val -le $surfHardCap) { $resolvedDuration = $val }
                       } catch {}
+                      $surfBeganAt = $elapsed
+                      Write-Host "[SURF-RUNTIME] Surf engine started at ${elapsed}s (startup took ${elapsed}s). Assigned runtime: ${resolvedDuration}s (cap ${surfHardCap}s)." -ForegroundColor Green
                   }
 
-                  if (Test-Path $surfDoneFlag) {
-                      Write-Host "[SURF-RUNTIME] Profile $env:PROFILE_TAG reported task completion at ${elapsed}s." -ForegroundColor Green
-                      break
+                  if ($surfBeganAt -ge 0) {
+                      $surfElapsed = $elapsed - $surfBeganAt
+                      if ($surfElapsed -ge ($resolvedDuration + $graceAfter)) {
+                          Write-Host "[SURF-RUNTIME] Runtime budget exceeded (${surfElapsed}s of ${resolvedDuration}s + ${graceAfter}s grace). Concluding session." -ForegroundColor Yellow
+                          break
+                      }
+                      $pct = [math]::Min(100, [int](100 * $surfElapsed / [math]::Max(1, $resolvedDuration)))
+                      Write-Host "[SURF-RUNTIME] Browsing active [$env:PROFILE_TAG]: $surfElapsed / $resolvedDuration s ($pct%)" -ForegroundColor Cyan
+                  } else {
+                      if ($elapsed -ge $startupCeiling) {
+                          Write-Host "[SURF-RUNTIME] Surf engine never started within ${startupCeiling}s. Concluding session." -ForegroundColor Red
+                          break
+                      }
+                      Write-Host "[SURF-RUNTIME] Waiting for surf engine to start (Edge launch / proxy auth / page load): $elapsed / $startupCeiling s" -ForegroundColor DarkGray
                   }
-
-                  if ($elapsed -ge ($resolvedDuration + 15)) {
-                      Write-Host "[SURF-RUNTIME] Surfing duration budget reached (${resolvedDuration}s). Concluding session." -ForegroundColor Cyan
-                      break
-                  }
-
-                  Write-Host "[SURF-RUNTIME] Browsing active [$env:PROFILE_TAG]: $elapsed / $resolvedDuration seconds elapsed..." -ForegroundColor Cyan
 
                   $unexpectedDownloads = Get-ChildItem -Path $dlFolder -File -ErrorAction SilentlyContinue
                   if ($unexpectedDownloads.Count -gt 0) {
@@ -4914,7 +5266,10 @@ jobs:
                   $elapsed += $step
               }
 
-              Write-Host "[Runtime] Surf tracking duration complete ($elapsed s). All actions finished." -ForegroundColor Green
+              if (Test-Path $surfStatsFile) {
+                  Write-Host "[SURF-RUNTIME] Session report: $(Get-Content -Path $surfStatsFile -Raw)" -ForegroundColor Magenta
+              }
+              Write-Host "[Runtime] Surf tracking complete ($elapsed s total incl. startup). All actions finished." -ForegroundColor Green
               Write-Host "[Runtime] Surf pathway exiting cleanly." -ForegroundColor Magenta
               exit 0
 
