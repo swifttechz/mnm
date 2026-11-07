@@ -1,0 +1,795 @@
+name: GoLogin Signup Automation
+
+# Save as: .github/workflows/gologin-signup.yml
+# Run from: Actions tab -> "GoLogin Signup Automation" -> Run workflow
+# USE A PRIVATE REPO: workflow inputs, logs and artifacts will contain the password and API keys.
+
+run-name: GoLogin signup x${{ inputs.account_count }} on ${{ inputs.runner_image }} (WARP=${{ inputs.use_cloudflare_warp }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      gologin_email:
+        description: "Base GoLogin email (e.g. techxst@proton.me). Account 1 uses it as-is."
+        required: true
+        type: string
+      gologin_password:
+        description: "GoLogin password (same for every account, min 8 chars)"
+        required: true
+        type: string
+      runner_image:
+        description: "Runner OS / version (free-tier GitHub-hosted runners)"
+        required: true
+        type: choice
+        default: windows-latest
+        options:
+          # ---- Windows (x64) ----
+          - windows-latest      # alias -> current default Windows Server
+          - windows-2025        # Windows Server 2025
+          - windows-2022        # Windows Server 2022
+          # ---- macOS Apple Silicon (arm64) ----
+          - macos-latest        # alias -> current default macOS
+          - macos-26            # macOS 26
+          - macos-15            # macOS 15 Sequoia
+          - macos-14            # macOS 14 Sonoma
+          # ---- macOS Intel (x64) ----
+          - macos-26-intel      # macOS 26 Intel
+          - macos-15-intel      # macOS 15 Intel
+      account_count:
+        description: "Number of GoLogin accounts to create (1-25). Extra accounts use email+tagN@domain"
+        required: true
+        type: string
+        default: "1"
+      email_alias_tag:
+        description: "Plus-alias tag: account 2 = user+TAG1@domain, account 3 = user+TAG2@domain ..."
+        required: false
+        type: string
+        default: "ggl"
+      use_cloudflare_warp:
+        description: "Install + connect Cloudflare WARP (1.1.1.1) before opening Edge"
+        required: false
+        type: boolean
+        default: false
+      continue_if_warp_fails:
+        description: "If WARP can't connect, continue without it instead of failing the job"
+        required: false
+        type: boolean
+        default: false
+      max_parallel:
+        description: "How many accounts to run at the same time (each gets its own runner/IP)"
+        required: false
+        type: string
+        default: "2"
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) Validate inputs + build the list of accounts (plus-addressing)
+  # ---------------------------------------------------------------------------
+  prepare:
+    name: Prepare account list
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+      max_parallel: ${{ steps.build.outputs.max_parallel }}
+    steps:
+      - name: Validate inputs and build matrix
+        id: build
+        env:
+          BASE_EMAIL: ${{ inputs.gologin_email }}
+          PASSWORD: ${{ inputs.gologin_password }}
+          COUNT: ${{ inputs.account_count }}
+          TAG: ${{ inputs.email_alias_tag }}
+          MAXPAR: ${{ inputs.max_parallel }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+
+          [[ "$COUNT" =~ ^[0-9]+$ ]] && (( COUNT >= 1 && COUNT <= 25 )) || fail "account_count must be an integer 1-25 (got '$COUNT')"
+          [[ "$MAXPAR" =~ ^[0-9]+$ ]] && (( MAXPAR >= 1 && MAXPAR <= 20 )) || MAXPAR=2
+          [[ "$BASE_EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || fail "gologin_email is not a valid email"
+          (( ${#PASSWORD} >= 8 )) || fail "gologin_password must be at least 8 characters"
+          [[ "$TAG" =~ ^[A-Za-z0-9._-]*$ ]] || fail "email_alias_tag may only contain letters, digits, . _ -"
+          TAG="${TAG:-ggl}"
+
+          local_part="${BASE_EMAIL%@*}"
+          domain="${BASE_EMAIL#*@}"
+
+          items='[]'
+          for ((i = 1; i <= COUNT; i++)); do
+            if (( i == 1 )); then
+              email="$BASE_EMAIL"
+            else
+              email="${local_part}+${TAG}$((i - 1))@${domain}"
+            fi
+            items=$(jq -c --argjson i "$i" --arg e "$email" '. + [{index:$i,email:$e}]' <<<"$items")
+          done
+
+          matrix=$(jq -c '{include: .}' <<<"$items")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "max_parallel=$MAXPAR" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Planned accounts"
+            echo "| # | Email |"
+            echo "|---|-------|"
+            jq -r '.[] | "| \(.index) | \(.email) |"' <<<"$items"
+          } >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.[] | "account \(.index): \(.email)"' <<<"$items"
+
+  # ---------------------------------------------------------------------------
+  # 2) One runner per account: (optional WARP) -> Edge -> GoLogin signup -> API key
+  # ---------------------------------------------------------------------------
+  signup:
+    name: "Account ${{ matrix.index }} - ${{ matrix.email }}"
+    needs: prepare
+    runs-on: ${{ inputs.runner_image }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(needs.prepare.outputs.max_parallel) }}
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      ACC_INDEX: ${{ matrix.index }}
+      ACC_EMAIL: ${{ matrix.email }}
+      ACC_PASSWORD: ${{ inputs.gologin_password }}
+      PLAYWRIGHT_VERSION: "1.55.0"
+      OUT_DIR: .work/out
+    steps:
+      - name: Runner info + public IP (before WARP)
+        run: |
+          echo "Runner OS: $RUNNER_OS  Arch: $RUNNER_ARCH  Image: ${ImageOS:-n/a} ${ImageVersion:-}"
+          echo "Public IP: $(curl -fsS --max-time 15 https://api.ipify.org || echo unknown)"
+
+      # ---------------- Cloudflare WARP: Windows ----------------
+      - name: Cloudflare WARP - install and connect (Windows)
+        if: ${{ inputs.use_cloudflare_warp && runner.os == 'Windows' }}
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $msi = Join-Path $env:RUNNER_TEMP 'Cloudflare_WARP.msi'
+
+          $ok = $false
+          foreach ($i in 1..3) {
+            try {
+              Invoke-WebRequest -Uri 'https://downloads.cloudflareclient.com/v1/download/windows/ga' `
+                -OutFile $msi -UseBasicParsing -MaximumRedirection 10
+              if ((Get-Item $msi).Length -gt 5MB) { $ok = $true; break }
+            } catch { Write-Host "Download attempt $i failed: $_"; Start-Sleep -Seconds 5 }
+          }
+          if (-not $ok) { throw 'Could not download the WARP MSI' }
+
+          Write-Host 'Installing WARP MSI...'
+          $p = Start-Process msiexec.exe -ArgumentList @('/i', "`"$msi`"", '/qn', '/norestart') -Wait -PassThru
+          if ($p.ExitCode -notin 0, 3010) { throw "msiexec exit code $($p.ExitCode)" }
+
+          $dir = 'C:\Program Files\Cloudflare\Cloudflare WARP'
+          $cli = Join-Path $dir 'warp-cli.exe'
+          if (-not (Test-Path $cli)) { throw "warp-cli.exe not found at $cli" }
+          Add-Content -Path $env:GITHUB_PATH -Value $dir
+
+          try { Start-Service -Name 'CloudflareWARP' -ErrorAction Stop } catch { Write-Host "Start-Service: $_" }
+
+          # Open the GUI too (best effort) - the CLI does the actual connecting
+          try { Start-Process (Join-Path $dir 'Cloudflare WARP.exe') -ErrorAction Stop } catch { Write-Host "GUI launch skipped: $_" }
+
+          function W {
+            param([string[]]$a)
+            $o = & $cli '--accept-tos' @a 2>&1 | Out-String
+            $code = $LASTEXITCODE
+            Write-Host "warp-cli $($a -join ' ')  => exit $code"
+            if ($o.Trim()) { Write-Host $o.Trim() }
+            return $code
+          }
+
+          # Wait for the daemon
+          $ready = $false
+          foreach ($i in 1..30) {
+            $o = & $cli '--accept-tos' 'status' 2>&1 | Out-String
+            if ($LASTEXITCODE -eq 0 -and $o -notmatch 'Unable to connect|daemon') { $ready = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          Write-Host "WARP daemon ready: $ready"
+
+          # Register (new syntax first, legacy syntax as fallback)
+          if ((W @('registration', 'new')) -ne 0) { [void](W @('register')) }
+
+          # Keep the runner <-> GitHub/Azure control channels out of the tunnel (best effort)
+          foreach ($h in 'github.com', 'githubusercontent.com', 'actions.githubusercontent.com', 'blob.core.windows.net') {
+            [void](W @('tunnel', 'host', 'add', $h))
+          }
+          foreach ($ip in '168.63.129.16', '169.254.169.254') { [void](W @('tunnel', 'ip', 'add', $ip)) }
+
+          [void](W @('connect'))
+
+          foreach ($i in 1..30) {
+            $o = & $cli '--accept-tos' 'status' 2>&1 | Out-String
+            if ($o -match 'Connected') { Write-Host 'WARP reports Connected'; break }
+            Start-Sleep -Seconds 2
+          }
+          [void](W @('status'))
+
+      # ---------------- Cloudflare WARP: macOS ----------------
+      - name: Cloudflare WARP - install and connect (macOS)
+        if: ${{ inputs.use_cloudflare_warp && runner.os == 'macOS' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          PKG="$RUNNER_TEMP/Cloudflare_WARP.pkg"
+
+          ok=0
+          for i in 1 2 3; do
+            if curl -fL --retry 3 --max-time 300 -o "$PKG" https://downloads.cloudflareclient.com/v1/download/macos/ga \
+               && [[ $(stat -f%z "$PKG") -gt 5000000 ]]; then ok=1; break; fi
+            echo "download attempt $i failed"; sleep 5
+          done
+          [[ $ok -eq 1 ]] || { echo "::error::Could not download WARP pkg"; exit 1; }
+
+          echo "Installing WARP pkg..."
+          sudo installer -pkg "$PKG" -target / || { echo "::error::pkg install failed"; exit 1; }
+
+          CLI=""
+          for c in /usr/local/bin/warp-cli "/Applications/Cloudflare WARP.app/Contents/Resources/warp-cli"; do
+            [[ -x "$c" ]] && CLI="$c" && break
+          done
+          [[ -n "$CLI" ]] || { echo "::error::warp-cli not found after install"; exit 1; }
+          echo "warp-cli: $CLI"
+
+          # Open the GUI app (best effort)
+          open -a "Cloudflare WARP" || true
+          sleep 8
+
+          W() { "$CLI" --accept-tos "$@" 2>&1 | sed 's/^/    /'; local rc=${PIPESTATUS[0]}; echo "warp-cli $* => exit $rc"; return $rc; }
+
+          for i in $(seq 1 30); do
+            out=$("$CLI" --accept-tos status 2>&1 || true)
+            if ! grep -qiE 'unable to connect|daemon' <<<"$out"; then break; fi
+            sleep 2
+          done
+          echo "$out"
+
+          W registration new || W register || true
+
+          for h in github.com githubusercontent.com actions.githubusercontent.com blob.core.windows.net; do W tunnel host add "$h" || true; done
+          for ip in 168.63.129.16 169.254.169.254; do W tunnel ip add "$ip" || true; done
+
+          W connect || true
+
+          for i in $(seq 1 30); do
+            "$CLI" --accept-tos status 2>&1 | grep -qi 'connected' && { echo "WARP reports Connected"; break; }
+            sleep 2
+          done
+          W status || true
+
+          echo "--- system extensions (macOS needs user approval for the WARP network extension) ---"
+          systemextensionsctl list 2>&1 | head -20 || true
+
+      # ---------------- Verify WARP really is on ----------------
+      - name: Cloudflare WARP - verify connection
+        if: ${{ inputs.use_cloudflare_warp }}
+        env:
+          WARP_CONTINUE: ${{ inputs.continue_if_warp_fails }}
+        run: |
+          set -uo pipefail
+          connected=0
+          for i in $(seq 1 20); do
+            trace=$(curl -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)
+            if grep -Eq '^warp=(on|plus)' <<<"$trace"; then connected=1; break; fi
+            sleep 3
+          done
+          echo "--- cdn-cgi/trace ---"; echo "$trace"
+          if [[ $connected -eq 1 ]]; then
+            echo "WARP is ON. Public IP now: $(curl -fsS --max-time 15 https://api.ipify.org || echo unknown)"
+          else
+            for c in warp-cli /usr/local/bin/warp-cli "/Applications/Cloudflare WARP.app/Contents/Resources/warp-cli" "/c/Program Files/Cloudflare/Cloudflare WARP/warp-cli.exe"; do
+              if command -v "$c" >/dev/null 2>&1 || [[ -x "$c" ]]; then "$c" --accept-tos status || true; break; fi
+            done
+            if [[ "$WARP_CONTINUE" == "true" ]]; then
+              echo "::warning::WARP did not connect - continuing WITHOUT it (continue_if_warp_fails=true)"
+            else
+              echo "::error::WARP did not connect (warp=off). On macOS runners this is expected when the network extension cannot be approved headlessly. Re-run with a Windows runner, or tick 'continue_if_warp_fails'."
+              exit 1
+            fi
+          fi
+
+      # ---------------- Browser automation ----------------
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Playwright (library only - uses the system Microsoft Edge)
+        run: |
+          set -euo pipefail
+          mkdir -p .work/out
+          cd .work
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund "playwright@${PLAYWRIGHT_VERSION}"
+
+      - name: Write helper scripts
+        run: |
+          cat > .work/probe.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          try {
+            const b = await chromium.launch({ channel: 'msedge', headless: true });
+            console.log('Microsoft Edge OK, version', b.version());
+            await b.close();
+          } catch (e) {
+            console.error('Edge launch failed:', e.message);
+            process.exit(1);
+          }
+          EOF
+
+          cat > .work/signup.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const EMAIL = process.env.ACC_EMAIL;
+          const PASSWORD = process.env.ACC_PASSWORD;
+          const IDX = process.env.ACC_INDEX || '1';
+          const OUT = path.resolve(process.env.OUT_DIR || 'out');
+          fs.mkdirSync(OUT, { recursive: true });
+
+          const log = (...a) => console.log(`[${new Date().toISOString()}] [acc ${IDX}]`, ...a);
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const rand = (a, b) => a + Math.floor(Math.random() * (b - a));
+          const JWT = /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g;
+
+          let shotN = 0;
+          async function shot(page, label) {
+            try {
+              await page.screenshot({ path: path.join(OUT, `${String(++shotN).padStart(2, '0')}-${label}.png`) });
+            } catch {}
+          }
+
+          const candidates = [];
+          function addCandidate(token, source) {
+            if (!token || candidates.some((c) => c.token === token)) return;
+            candidates.push({ token, source });
+            log(`token candidate found via ${source} (${token.length} chars)`);
+          }
+
+          async function findVisible(page, locs, timeout = 5000) {
+            const end = Date.now() + timeout;
+            while (Date.now() < end) {
+              for (const l of locs) {
+                const f = l.first();
+                if (await f.isVisible().catch(() => false)) return f;
+              }
+              await sleep(250);
+            }
+            return null;
+          }
+
+          async function clickFirst(page, locs, timeout = 3000) {
+            const el = await findVisible(page, locs, timeout);
+            if (!el) return false;
+            try {
+              await el.click({ timeout: 5000 });
+            } catch {
+              await el.click({ force: true, timeout: 3000 }).catch(() => {});
+            }
+            return true;
+          }
+
+          async function waitAny(checks, timeout) {
+            const end = Date.now() + timeout;
+            while (Date.now() < end) {
+              for (const [name, fn] of checks) {
+                if (await fn().catch(() => false)) return name;
+              }
+              await sleep(400);
+            }
+            return null;
+          }
+
+          async function typeInto(locator, text) {
+            await locator.click();
+            await locator.fill('');
+            await locator.pressSequentially(text, { delay: rand(25, 60) });
+          }
+
+          async function launch() {
+            const base = {
+              channel: 'msedge',
+              args: ['--disable-blink-features=AutomationControlled', '--no-first-run', '--no-default-browser-check'],
+              ignoreDefaultArgs: ['--enable-automation'],
+            };
+            try {
+              return await chromium.launch({ ...base, headless: false });
+            } catch (e) {
+              log('Headed Edge launch failed, falling back to headless:', e.message.split('\n')[0]);
+              return await chromium.launch({ ...base, headless: true });
+            }
+          }
+
+          async function tickTos(page) {
+            const cb = page.locator('input[type="checkbox"]').first();
+            if ((await cb.count()) > 0) {
+              if (await cb.isChecked().catch(() => false)) return true;
+              await cb.check({ force: true, timeout: 3000 }).catch(() => {});
+              if (await cb.isChecked().catch(() => false)) return true;
+            }
+            // custom-styled checkbox: click the left edge of the label
+            const label = page.locator('label:has-text("I agree")').first();
+            if (await label.isVisible().catch(() => false)) {
+              await label.click({ position: { x: 4, y: 8 } }).catch(() => {});
+            } else {
+              await page.getByText(/I agree to the/i).first().click({ position: { x: 2, y: 8 } }).catch(() => {});
+            }
+            if ((await cb.count()) > 0) return await cb.isChecked().catch(() => false);
+            return true;
+          }
+
+          async function dismissOverlays(page, rounds = 8) {
+            for (let r = 0; r < rounds; r++) {
+              let acted = false;
+              acted =
+                (await clickFirst(
+                  page,
+                  [
+                    page.getByRole('button', { name: /got it/i }),
+                    page.getByText(/skip recommended setup/i),
+                    page.getByRole('button', { name: /^not now$/i }),
+                    page.getByRole('button', { name: /^(close|skip|maybe later|no thanks)$/i }),
+                    page.locator('button[aria-label="Close" i], [aria-label="close" i]'),
+                  ],
+                  700
+                )) || acted;
+              if (await page.getByText(/have you ever used antidetect/i).first().isVisible().catch(() => false)) {
+                acted = (await clickFirst(page, [page.getByText(/no, never used any/i)], 700)) || acted;
+              }
+              if (!acted) break;
+              await sleep(900);
+            }
+          }
+
+          async function isDashboard(page) {
+            return (
+              (await page.getByRole('button', { name: /add profile/i }).first().isVisible().catch(() => false)) ||
+              (await page.getByText(/^all profiles$/i).first().isVisible().catch(() => false))
+            );
+          }
+
+          async function openSignup(page) {
+            const urls = [
+              process.env.GOLOGIN_SIGNUP_URL,
+              'https://app.gologin.com/#/createUser',
+              'https://app.gologin.com/signup',
+              'https://app.gologin.com/#/signup',
+            ].filter(Boolean);
+            const emailBox = page.getByPlaceholder(/your email/i).first();
+            for (const u of urls) {
+              try {
+                log('opening', u);
+                await page.goto(u, { waitUntil: 'domcontentloaded', timeout: 45000 });
+                await emailBox.waitFor({ state: 'visible', timeout: 15000 });
+                return u;
+              } catch (e) {
+                log('signup URL did not show the form:', u);
+              }
+            }
+            log('falling back to the marketing site');
+            await page.goto('https://gologin.com', { waitUntil: 'domcontentloaded', timeout: 45000 });
+            await clickFirst(
+              page,
+              [
+                page.getByRole('link', { name: /sign ?up|try .*free|get started|start for free/i }),
+                page.getByRole('button', { name: /sign ?up|try .*free|get started|start for free/i }),
+              ],
+              8000
+            );
+            await emailBox.waitFor({ state: 'visible', timeout: 30000 });
+            return page.url();
+          }
+
+          async function readClipboard(page) {
+            try {
+              const t = await page.evaluate(() => navigator.clipboard.readText());
+              for (const m of t.match(JWT) || []) addCandidate(m, 'clipboard');
+            } catch {}
+          }
+
+          async function scanPage(page, source) {
+            const texts = await page
+              .evaluate(() => {
+                const out = [document.body ? document.body.innerText : ''];
+                document.querySelectorAll('input,textarea').forEach((e) => out.push(e.value || ''));
+                document.querySelectorAll('[data-token],[title]').forEach((e) => {
+                  out.push(e.getAttribute('data-token') || '');
+                  out.push(e.getAttribute('title') || '');
+                });
+                return out;
+              })
+              .catch(() => []);
+            for (const t of texts) for (const m of t.match(JWT) || []) addCandidate(m, source);
+          }
+
+          // Method A: Settings -> API -> "New Token"
+          async function tokenViaSettings(page) {
+            log('Method A: API token page');
+            await page.goto('https://app.gologin.com/#/personalArea/TokenApi', { waitUntil: 'domcontentloaded' });
+            await sleep(3000);
+            await dismissOverlays(page, 3);
+            const newTokenLocs = [
+              page.getByRole('button', { name: /new token/i }),
+              page.getByText(/^\s*new token\s*$/i),
+              page.getByRole('button', { name: /(create|generate).{0,12}token/i }),
+            ];
+            let btn = await findVisible(page, newTokenLocs, 8000);
+            if (!btn) {
+              log('New Token button not visible, trying the sidebar "API & MCP" entry');
+              await clickFirst(page, [page.getByText(/API\s*&\s*MCP/i), page.getByRole('link', { name: /^api/i })], 4000);
+              await sleep(2500);
+              await dismissOverlays(page, 2);
+              btn = await findVisible(page, newTokenLocs, 8000);
+            }
+            await scanPage(page, 'settings-page-existing');
+            await shot(page, 'api-page');
+            if (!btn) {
+              log('Method A: could not find a "New Token" button');
+              return;
+            }
+            await btn.click().catch(() => {});
+            await sleep(1500);
+            const nameInput = page.locator('[role="dialog"] input[type="text"], [class*="modal" i] input[type="text"]').first();
+            if (await nameInput.isVisible().catch(() => false)) await nameInput.fill(`actions-${IDX}`).catch(() => {});
+            await clickFirst(page, [page.getByRole('button', { name: /^(create|generate|save|confirm|ok|done|continue)\b/i })], 2500);
+            await sleep(2500);
+            await scanPage(page, 'settings-page-new');
+            await clickFirst(page, [page.getByRole('button', { name: /copy/i }), page.getByText(/^copy( token)?$/i)], 2000);
+            await readClipboard(page);
+            await shot(page, 'api-page-after-new-token');
+          }
+
+          // Method B: the recorded steps (Run profile -> API control -> Copy token -> Stop)
+          async function tokenViaCloudApiControl(page) {
+            log('Method B: recorded Run -> API control -> Copy token path');
+            await page.goto('https://app.gologin.com/', { waitUntil: 'domcontentloaded' });
+            await sleep(3000);
+            await dismissOverlays(page, 4);
+            const run = await findVisible(page, [page.getByRole('button', { name: 'Run', exact: true })], 10000);
+            if (!run) {
+              log('Method B: no Run button found');
+              return;
+            }
+            await run.click();
+            await sleep(1200);
+            if (!(await clickFirst(page, [page.getByText(/api control/i)], 5000))) {
+              log('Method B: "API control" entry not found');
+              return;
+            }
+            await sleep(4000);
+            await clickFirst(page, [page.getByText(/copy token/i)], 6000);
+            await readClipboard(page);
+            await scanPage(page, 'cloud-api-control');
+            await shot(page, 'api-control');
+            await clickFirst(page, [page.getByText(/^all profiles$/i)], 4000);
+            await sleep(1500);
+            await clickFirst(page, [page.getByRole('button', { name: /^stop$/i })], 5000);
+          }
+
+          async function validateToken(token) {
+            try {
+              const r = await fetch('https://api.gologin.com/user', {
+                headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+                signal: AbortSignal.timeout(20000),
+              });
+              return r.status;
+            } catch (e) {
+              return `error: ${e.message}`;
+            }
+          }
+
+          (async () => {
+            const result = {
+              index: Number(IDX), email: EMAIL, password: PASSWORD,
+              signup: false, token: null, tokenSource: null, restStatus: null, error: null,
+              finishedAt: null,
+            };
+            let browser;
+            let page;
+            try {
+              browser = await launch();
+              log('Edge version:', browser.version());
+              const context = await browser.newContext({
+                viewport: { width: 1366, height: 850 },
+                locale: 'en-US',
+                permissions: ['clipboard-read', 'clipboard-write'],
+              });
+              context.on('response', async (r) => {
+                try {
+                  const u = r.url();
+                  if (!/gologin\.com/.test(u) || !/token/i.test(u)) return;
+                  const ct = r.headers()['content-type'] || '';
+                  if (!/json|text/.test(ct)) return;
+                  const body = await r.text();
+                  for (const m of body.match(JWT) || []) addCandidate(m, 'network:' + new URL(u).pathname);
+                } catch {}
+              });
+              page = await context.newPage();
+              page.setDefaultTimeout(20000);
+
+              // ---- Step 1-2: open signup, fill email, tick ToS, "Try 7 days for Free"
+              await openSignup(page);
+              await sleep(rand(800, 1500));
+              await shot(page, 'signup-form');
+
+              if (await page.locator('iframe[src*="captcha" i], iframe[src*="turnstile" i]').first().isVisible().catch(() => false)) {
+                log('WARNING: a CAPTCHA widget is visible; it cannot be solved automatically.');
+              }
+
+              await typeInto(page.getByPlaceholder(/your email/i).first(), EMAIL);
+              await tickTos(page);
+              await shot(page, 'email-filled');
+              await clickFirst(page, [page.getByRole('button', { name: /try 7 days for free/i }), page.getByRole('button', { name: /try .*free|continue|sign up/i })], 8000);
+
+              // ---- Step 3-9: password + confirm + "Create an account"
+              const stage1 = await waitAny(
+                [
+                  ['password', () => page.getByPlaceholder(/your password/i).first().isVisible()],
+                  ['error', () => page.getByText(/already (registered|exists|in use|taken)|invalid email|too many|something went wrong/i).first().isVisible()],
+                ],
+                40000
+              );
+              await shot(page, 'after-email-submit');
+              if (stage1 !== 'password') throw new Error(`Password step not reached (stage=${stage1}). Possible: email already registered, CAPTCHA, or rate limit.`);
+
+              await typeInto(page.getByPlaceholder(/your password/i).first(), PASSWORD);
+              await typeInto(page.getByPlaceholder(/confirm password/i).first(), PASSWORD);
+              await tickTos(page);
+              await shot(page, 'password-filled');
+              await clickFirst(page, [page.getByRole('button', { name: /create an account/i })], 8000);
+
+              const stage2 = await waitAny(
+                [
+                  ['survey', () => page.getByText(/have you ever used antidetect/i).first().isVisible()],
+                  ['allset', () => page.getByText(/all set/i).first().isVisible()],
+                  ['dashboard', () => isDashboard(page)],
+                  ['error', () => page.getByText(/already (registered|exists|in use|taken)|password is too|something went wrong/i).first().isVisible()],
+                ],
+                60000
+              );
+              await shot(page, 'after-create-account');
+              if (stage2 === 'error' || stage2 === null) throw new Error(`Account creation did not complete (stage=${stage2})`);
+              result.signup = true;
+              log('Account created:', EMAIL);
+
+              // ---- Step 10-16: survey / install popups / skip setup / close modals
+              for (let i = 0; i < 6 && !(await isDashboard(page)); i++) {
+                await dismissOverlays(page, 6);
+                await sleep(1500);
+              }
+              if (!(await isDashboard(page))) {
+                log('Dashboard not reached through the onboarding screens; navigating directly');
+                await page.goto('https://app.gologin.com/', { waitUntil: 'domcontentloaded' });
+                await sleep(3000);
+              }
+              await dismissOverlays(page, 6);
+              await shot(page, 'dashboard');
+
+              // ---- API key
+              try { await tokenViaSettings(page); } catch (e) { log('Method A error:', e.message.split('\n')[0]); }
+              if (!candidates.length) {
+                try { await tokenViaCloudApiControl(page); } catch (e) { log('Method B error:', e.message.split('\n')[0]); }
+              }
+
+              const pick =
+                candidates.find((c) => c.source.startsWith('settings') || c.source.startsWith('network') || c.source === 'clipboard') ||
+                candidates[0];
+              if (pick) {
+                result.token = pick.token;
+                result.tokenSource = pick.source;
+                result.restStatus = await validateToken(pick.token);
+              } else {
+                throw new Error('Signup succeeded but no API token could be extracted. Check the screenshots artifact.');
+              }
+            } catch (e) {
+              result.error = e.message;
+              console.log(`::error::Account ${IDX} (${EMAIL}): ${e.message}`);
+              if (page) {
+                await shot(page, 'FAILURE');
+                try { fs.writeFileSync(path.join(OUT, 'failure-page.html'), await page.content()); } catch {}
+              }
+              process.exitCode = 1;
+            } finally {
+              result.finishedAt = new Date().toISOString();
+              fs.writeFileSync(path.join(OUT, 'result.json'), JSON.stringify(result, null, 2));
+              console.log('\n================ GOLOGIN RESULT ================');
+              console.log('account #' + IDX);
+              console.log('email   :', EMAIL);
+              console.log('signup  :', result.signup ? 'OK' : 'FAILED');
+              console.log('API KEY :', result.token || '(not captured)');
+              console.log('source  :', result.tokenSource || '-');
+              console.log('REST /user check (HTTP status):', result.restStatus ?? '-');
+              console.log('================================================\n');
+              if (result.token) console.log(`::notice title=GoLogin API key (account ${IDX})::${result.token}`);
+              if (process.env.GITHUB_STEP_SUMMARY) {
+                const md = [
+                  `### Account ${IDX}: ${EMAIL}`,
+                  `- Signup: **${result.signup ? 'OK' : 'FAILED'}**`,
+                  `- API key: \`${result.token || 'not captured'}\``,
+                  `- Source: ${result.tokenSource || '-'}  |  REST check: ${result.restStatus ?? '-'}`,
+                  result.error ? `- Error: ${result.error}` : '',
+                  '',
+                ].join('\n');
+                try { fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n'); } catch {}
+              }
+              if (browser) await browser.close().catch(() => {});
+            }
+          })();
+          EOF
+
+      - name: Make sure Microsoft Edge is available
+        working-directory: .work
+        run: |
+          if ! node probe.mjs; then
+            echo "Edge not usable - installing via Playwright..."
+            npx playwright install msedge
+            node probe.mjs
+          fi
+
+      - name: Open Edge -> GoLogin signup -> capture API key
+        working-directory: .work
+        env:
+          OUT_DIR: out
+        run: node signup.mjs
+
+      - name: Upload screenshots + result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: result-${{ matrix.index }}
+          path: .work/out
+          if-no-files-found: warn
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 3) Combined report of every account + API key
+  # ---------------------------------------------------------------------------
+  report:
+    name: Combined API key report
+    needs: [prepare, signup]
+    if: ${{ always() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: result-*
+          path: all
+        continue-on-error: true
+
+      - name: Print and summarise all accounts
+        run: |
+          shopt -s nullglob
+          files=(all/*/result.json)
+          if (( ${#files[@]} == 0 )); then echo "::warning::No result files were produced"; exit 0; fi
+
+          jq -s 'sort_by(.index)' "${files[@]}" > all-results.json
+
+          echo "=================== ALL GOLOGIN ACCOUNTS ==================="
+          jq -r '.[] | "#\(.index)  \(.email)\n    signup : \(.signup)\n    API KEY: \(.token // "NOT CAPTURED")\n    error  : \(.error // "-")\n"' all-results.json
+          echo "============================================================"
+
+          {
+            echo "## GoLogin accounts - combined"
+            echo "| # | Email | Signup | API key |"
+            echo "|---|-------|--------|---------|"
+            jq -r '.[] | "| \(.index) | \(.email) | \(if .signup then "OK" else "FAILED" end) | `\(.token // "not captured")` |"' all-results.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload combined results
+        uses: actions/upload-artifact@v4
+        with:
+          name: gologin-all-results
+          path: all-results.json
+          if-no-files-found: ignore
+          retention-days: 7
