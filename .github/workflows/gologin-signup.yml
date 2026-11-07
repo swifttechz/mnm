@@ -1,3 +1,4 @@
+
 name: GoLogin Signup Automation
 
 # Save as: .github/workflows/gologin-signup.yml
@@ -617,14 +618,34 @@ jobs:
       - name: "[6/12] Install Playwright (library only - uses the system Microsoft Edge)"
         run: |
           set -euo pipefail
-          mkdir -p .work/out
-          cd .work
-          npm init -y >/dev/null
+
+          # Use a directory name that is a valid npm package name (no leading dot)
+          WORK_DIR="automation"
+          mkdir -p "$WORK_DIR/out"
+          cd "$WORK_DIR"
+
+          # Explicit package.json so npm never derives the name from the folder
+          cat > package.json <<'PKG'
+          {
+            "name": "gologin-signup-automation",
+            "version": "1.0.0",
+            "private": true,
+            "description": "Temporary workspace for GoLogin signup Playwright automation"
+          }
+          PKG
+
+          echo "Installing playwright@${PLAYWRIGHT_VERSION} ..."
           npm install --no-audit --no-fund "playwright@${PLAYWRIGHT_VERSION}"
+
+          echo "Playwright installed successfully."
+          ls -la node_modules/playwright 2>/dev/null || ls -la node_modules/ 2>/dev/null | head -20
 
       - name: "[7/12] Write automation scripts"
         run: |
-          cat > .work/probe.mjs <<'EOF'
+          WORK_DIR="automation"
+          mkdir -p "$WORK_DIR/out"
+
+          cat > "$WORK_DIR/probe.mjs" <<'EOF'
           import { chromium } from 'playwright';
           try {
             const b = await chromium.launch({ channel: 'msedge', headless: true });
@@ -636,7 +657,7 @@ jobs:
           }
           EOF
 
-          cat > .work/signup.mjs <<'EOF'
+          cat > "$WORK_DIR/signup.mjs" <<'EOF'
           import { chromium } from 'playwright';
           import fs from 'node:fs';
           import path from 'node:path';
@@ -1083,7 +1104,7 @@ jobs:
           EOF
 
       - name: "[8/12] Make sure Microsoft Edge is available"
-        working-directory: .work
+        working-directory: automation
         run: |
           if ! node probe.mjs; then
             echo "Edge not usable - installing via Playwright..."
@@ -1093,7 +1114,7 @@ jobs:
 
       - name: "[9/12] Open Edge -> GoLogin signup -> Copy token -> save + print API key"
         id: automation
-        working-directory: .work
+        working-directory: automation
         timeout-minutes: 15
         env:
           OUT_DIR: out
@@ -1105,7 +1126,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: result-${{ matrix.index }}
-          path: .work/out
+          path: automation/out
           if-no-files-found: warn
           retention-days: 7
 
