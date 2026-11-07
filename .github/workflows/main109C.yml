@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWVlMmZmMTQ5NGFmOWQ1NDBjNDBkYyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZWUyZmYxNDk0YWY5ZDU0MGM0MGQ4In0.xb6MX7SsgsthMXLCyB7x7ux9Ps4XSyZMMCb1KAL8xtA'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWVlNDVjYjlhN2Q1OWM3OTY5ZGRiMiIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZWU0NWNiOWE3ZDU5Yzc5NjlkZDljIn0.46YAEEUkIIXID_yHg-Jfowntt2BLjHcyiEqdZKMfBPs'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
