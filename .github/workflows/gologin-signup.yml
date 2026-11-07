@@ -785,7 +785,7 @@ jobs:
           async function openSignup(page) {
             const urls = [
               process.env.GOLOGIN_SIGNUP_URL,
-              'https://app.gologin.com/#/createUser',
+              'https://app.gologin.com/sign-up',
               'https://app.gologin.com/signup',
               'https://app.gologin.com/#/signup',
             ].filter(Boolean);
