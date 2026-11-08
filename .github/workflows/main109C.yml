@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '3'
+        default: '1'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWZlYzI2ZmQ0ZmYyMTNkYjhlNTVhYiIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZmVjMjZmZDRmZjIxM2RiOGU1NTljIn0.ZK6aNa6KPvxbbfNnQRB30u83wQ0L8n8vzq-9XW9zTNQ'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWZlZWY0MzJkMmIxOTA1NWNlMjkzMSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZmVlZjQzMmQyYjE5MDU1Y2UyOTJkIn0.3Re3zOb5VNxNWt4Rn-doyHZE0B9ky2NSgPmBaVlBhfI'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
