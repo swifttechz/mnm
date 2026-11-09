@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '3'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -62,17 +62,17 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '0'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '200'
+        default: '15'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '50'
+        default: '0'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -100,7 +100,7 @@ on:
           - '07. Opera - Peggy'
           - '08. Opera - Tufayl'
           
-        default: '04. Opera - Oliver'
+        default: '06. Opera - Fahmad'
       manual_software_url:
         description: 'Manual URL'
         required: false
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjEzNDA2NTUwZjMyYTMxNzE3YmM2ZCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmMTM0MDY1NTBmMzJhMzE3MTdiYzQ5In0.LqxxYOfGKyeyApJtgWvX_1dNcAHu5BqYhJhsXYfS9ww'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjEzNWFjNzg1ZmI2M2M0ZDQ5M2NmMiIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmMTM1YWM3ODVmYjYzYzRkNDkzY2U3In0.l4yDn50XDV6C83gCYRIjT1ddBpzeSieU7HsuHRGPgKU'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -146,7 +146,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'Spain'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -168,7 +168,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'Spain'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
