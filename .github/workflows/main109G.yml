@@ -1,5 +1,5 @@
 
-name: Parallel mx10.9C
+name: Parallel mx10.9G
 
 on:
   workflow_dispatch:
