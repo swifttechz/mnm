@@ -1,4 +1,4 @@
-name: Parallel mx10.9C
+name: Parallel mx10.9
 
 on:
   workflow_dispatch:
@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '3'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjFjZmIyNjU1MmY4MjljM2RjYjliMyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmMWNmYjI2NTUyZjgyOWMzZGNiOWFmIn0.RYvFB15GSAKk7PrJwXSI9QOe0Js92eQ7DihEo4ZOhNY'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWQ3MDcxNGNlOGMzNjI2NzMwOWYwMyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZDcwNzE0Y2U4YzM2MjY3MzA5ZWZiIn0.qCe-Ug3KdMP51dYgi6FRTGnFIkr4H-HHWEeE-hap3zY'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -223,7 +223,7 @@ jobs:
         run: |
           import os, re, glob
 
-          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.9C")
+          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.9")
           workflow_dir = ".github/workflows"
           target_file = None
 
@@ -3178,7 +3178,7 @@ jobs:
           Write-Host "[Proxy] Settings written to secure temp file: $credFile" -ForegroundColor DarkGray
 
           $handlerPy = @'
-          import time, sys, subprocess, random, os, tempfile, ctypes, json, math
+          import time, sys, subprocess, random, os, tempfile, ctypes, json, math, re, unicodedata
           from pywinauto import Desktop
           import pyautogui
           from pywinauto.keyboard import send_keys
@@ -3265,7 +3265,8 @@ jobs:
           ]
 
           OPERA_DONE_KEYWORDS = [
-              "done", "finish", "complete", "close", "finalize",
+              "done", "finish", "complete", "close", "finalize", "get started", "start browsing",
+              "start using opera", "lets go", "all set",
               "termine", "terminer", "fermer",
               "concluir", "finalizar", "fechar", "pronto",
               "fertig", "beenden", "schliessen",
@@ -3415,7 +3416,7 @@ jobs:
                   '--no-default-browser-check',
                   '--disable-sync',
                   '--safebrowsing-disable-download-protection',
-                  '--disable-features=msSmartScreenProtection,SmartScreenPuaEnabled,WebRtcHideLocalIpsWithMdns,CalculateNativeWinOcclusion',
+                  '--disable-features=msSmartScreenProtection,SmartScreenPuaEnabled,CalculateNativeWinOcclusion',
                   '--restore-last-session=false',
                   '--hide-crash-restore-window',
                   '--disable-blink-features=AutomationControlled',
@@ -3423,10 +3424,18 @@ jobs:
               ]
 
               if apply_masking:
-                  cmd_parts.append(f'--lang={lang_code}')
-                  cmd_parts.append(f'--accept-lang={accept_lang}')
-                  if tz_iana and tz_iana != "UTC":
-                      cmd_parts.append(f'--timezone="{tz_iana}"')
+                  resolved_lang = lang_code or "en-US"
+                  primary = resolved_lang.split('-')[0].lower()
+                  resolved_accept = accept_lang or f"{resolved_lang},{primary};q=0.9"
+                  if primary not in resolved_accept.lower():
+                      log_msg("EdgeLaunch", f"WARNING: accept_lang '{accept_lang}' doesn't match lang_code '{resolved_lang}' — correcting for fingerprint consistency.")
+                      resolved_accept = f"{resolved_lang},{primary};q=0.9"
+                  cmd_parts.append(f'--lang={resolved_lang}')
+                  cmd_parts.append(f'--accept-lang="{resolved_accept}"')
+                  # NOTE: there is no real --timezone switch on stock Edge/Chromium; the
+                  # 'Apply Proxy-Matched Locale, Timezone & Language' step already set the
+                  # actual OS timezone (Set-TimeZone/tzutil), which is what the JS Intl API reads.
+                  log_msg("EdgeLaunch", f"MASKING -> lang={resolved_lang} | accept-lang={resolved_accept} | OS timezone={tz_iana} (set earlier via tzutil, not a launch flag)")
 
               if use_proxy and proxy_server and proxy_server.strip():
                   if "://" in proxy_server:
@@ -3643,14 +3652,84 @@ jobs:
                   pass
               return False
 
+          _FOLD_SPECIAL_MAP = str.maketrans({
+              'ł': 'l', 'Ł': 'L', 'đ': 'd', 'Đ': 'D', 'ø': 'o', 'Ø': 'O',
+              'ß': 'ss', 'æ': 'ae', 'Æ': 'AE', 'œ': 'oe', 'Œ': 'OE', 'ı': 'i',
+          })
+
+          def _fold(text):
+              """Lowercase + strip diacritics (accents, tildes, cedillas, etc.) so
+              keyword matching is language-robust: 'sesion' matches 'sesión',
+              'contrasena' matches 'contraseña', 'hasło' matches 'hasło'/'haslo', and so
+              on, regardless of which accented/unaccented form is hardcoded in a list.
+              A handful of letters (ł, đ, ø, ß...) don't decompose under NFKD, so they
+              are mapped explicitly first."""
+              if not text:
+                  return ""
+              pre = text.translate(_FOLD_SPECIAL_MAP)
+              nfkd = unicodedata.normalize('NFKD', pre)
+              stripped = ''.join(ch for ch in nfkd if not unicodedata.combining(ch))
+              return stripped.lower().strip()
+
           def _matches_any(text, keyword_list):
               if not text: return False
-              tl = text.lower().strip()
-              return any(kw.lower() in tl for kw in keyword_list)
+              tl = _fold(text)
+              return any(_fold(kw) in tl for kw in keyword_list)
+
+          def _proxy_host_hint():
+              srv = (PROXY_SERVER or "").replace("http://", "").replace("https://", "")
+              host = srv.split("@")[-1].split(":")[0].strip()
+              return host if len(host) >= 4 else ""
+
+          _PROXY_HOST_HINT = ""  # resolved lazily on first use, after USE_PROXY/PROXY_SERVER are loaded
+
+          def _window_mentions_proxy_host(text):
+              global _PROXY_HOST_HINT
+              if not text: return False
+              if not _PROXY_HOST_HINT:
+                  _PROXY_HOST_HINT = _proxy_host_hint()
+              return bool(_PROXY_HOST_HINT) and _PROXY_HOST_HINT.lower() in text.lower()
 
           def _is_proxy_auth_dialog(window_text):
               if not window_text: return False
-              return _matches_any(window_text, PROXY_AUTH_TITLE_KEYWORDS)
+              return _matches_any(window_text, PROXY_AUTH_TITLE_KEYWORDS) or _window_mentions_proxy_host(window_text)
+
+          def _window_looks_like_auth_dialog(window):
+              """Locale-proof classifier combining every available signal. Any ONE of:
+              - title/keyword or proxy-host match (fast path)
+              - exactly 2 non-address Edit fields (Chromium's native auth dialog layout,
+                identical across every language/build)
+              - the proxy host string appearing anywhere in the dialog's own text
+                (e.g. 'El proxy http://geo.floppydata.com:10080 requiere...' even when
+                the heading itself doesn't literally match any keyword list)
+              is enough to flag it as a credential prompt worth attempting."""
+              try:
+                  wt = window.window_text() or ""
+              except Exception:
+                  wt = ""
+              if _is_proxy_auth_dialog(wt):
+                  return True
+              try:
+                  edits = [c for c in window.descendants(control_type="Edit") if not _is_address_bar_control(c)]
+                  if len(edits) == 2:
+                      return True
+              except Exception:
+                  pass
+              try:
+                  snippets = []
+                  for t in window.descendants(control_type="Text")[:30]:
+                      try:
+                          tt = t.window_text()
+                      except Exception:
+                          tt = ""
+                      if tt:
+                          snippets.append(tt)
+                  combined = " ".join(snippets)
+                  if combined and (_matches_any(combined, PROXY_AUTH_TITLE_KEYWORDS) or _window_mentions_proxy_host(combined)):
+                      return True
+              except Exception:
+                  pass
+              return False
 
           def _find_username_fields(container):
               results = []
@@ -3679,7 +3758,9 @@ jobs:
                           results.append(ctrl)
                           continue
                       try:
-                          if ctrl.get_property("IsPassword"):
+                          legacy = ctrl.legacy_properties()
+                          state = int(legacy.get("State", 0) or 0)
+                          if state & 0x20000000:  # STATE_SYSTEM_PROTECTED - real UIA signal for a password box
                               results.append(ctrl)
                               continue
                       except Exception: pass
@@ -4025,6 +4106,179 @@ jobs:
 
               return False
 
+          OPERA_SKIP_KEYWORDS = [
+              "skip", "skip intro", "skip tour", "no thanks", "not now", "later", "skip setup",
+              "passer", "ignorer", "plus tard",
+              "pular", "agora nao", "mais tarde",
+              "saltar", "ahora no", "mas tarde",
+              "uberspringen", "spater", "nicht jetzt",
+              "salta", "non ora", "piu tardi",
+              "overslaan", "niet nu", "later",
+              "pomin", "nie teraz", "pozniej",
+              "bo qua", "khong phai bay gio", "de sau",
+              "lewati", "nanti saja", "tidak sekarang",
+          ]
+
+          OPERA_HOME_HINTS = [
+              "speed dial", "start page", "new tab", "page d'accueil", "nouvel onglet",
+              "pagina inicial", "nova guia", "pagina de inicio", "nueva pestana",
+              "startseite", "neuer tab", "pagina iniziale", "nuova scheda",
+              "startpagina", "nieuw tabblad", "strona startowa", "nowa karta",
+              "trang chu", "tab moi", "laman utama", "tab baru",
+          ]
+
+
+          def _opera_window_looks_like_onboarding(wt):
+              """True only while the GX/Opera onboarding wizard is still on screen."""
+              if not wt:
+                  return False
+              tlf = _fold(wt)
+              if any(h in tlf for h in [_fold(x) for x in OPERA_HOME_HINTS]):
+                  return False
+              welcome_hints = ["welcome", "bienvenue", "bem-vindo", "bienvenido", "willkommen",
+                                "benvenuto", "welkom", "witamy", "chao mung", "selamat datang",
+                                "make opera", "set the mood", "personalize"]
+              if any(h in tlf for h in [_fold(x) for x in welcome_hints]):
+                  return True
+              # "01/08" style step counters are locale-proof (digits only)
+              if re.search(r"\b0?[1-9]\s*/\s*0?[89]\b", wt):
+                  return True
+              return False
+
+
+          def _snapshot_window_state(win):
+              try:
+                  wt = win.window_text() or ""
+              except Exception:
+                  wt = ""
+              try:
+                  btn_count = len(win.descendants(control_type="Button"))
+              except Exception:
+                  btn_count = -1
+              return f"{wt}|{btn_count}"
+
+
+          def dismiss_opera_onboarding(desktop, software_type, label="OperaOnboard"):
+              """
+              Robustly pushes the newly-installed Opera / Opera GX browser through its
+              first-run onboarding wizard ("Welcome to Opera GX" / theme picker / N-step
+              tour) so a real homepage (Speed Dial / Start Page) is reached.
+
+              Priority per attempt:
+                1) SKIP button (UIA exact title match, then folded partial match) -> 1 click bypasses the whole wizard
+                2) NEXT / CONTINUE button -> advances one step (loop re-tries, so works for any step count)
+                3) DONE / FINISH / GET STARTED button -> closes the wizard on the final step
+                4) Proportional coordinate click (bottom-left=skip, bottom-right=next) when no
+                   accessible control could be found at all (fully custom-drawn UI)
+                5) Keyboard Tab-cycle + Enter, verified by comparing window state before/after
+              Every step is verified against the window's actual state, so it keeps pushing
+              forward (or stops) however many steps the wizard turns out to have - it never
+              blindly fires a fixed number of key presses.
+              """
+              win = robust_maximize_opera_window(desktop, software_type, label=f"{label}-focus")
+              if not win:
+                  log_msg(label, "No Opera window found to check for onboarding. Skipping.")
+                  return True  # nothing to dismiss
+
+              try:
+                  wt0 = win.window_text() or ""
+              except Exception:
+                  wt0 = ""
+              if not _opera_window_looks_like_onboarding(wt0):
+                  log_msg(label, f"Window '{wt0}' does not look like onboarding — already on homepage.")
+                  return True
+
+              log_msg(label, f"Onboarding wizard detected: '{wt0}'. Beginning verified bypass sequence...")
+              max_attempts = 14
+              stuck_count = 0
+              deadline = time.time() + 45
+
+              for attempt in range(1, max_attempts + 1):
+                  if time.time() > deadline:
+                      log_msg(label, "Bypass deadline reached (45s). Giving up for now.")
+                      break
+
+                  try:
+                      if not win.is_visible():
+                          log_msg(label, "Window no longer visible — treating as dismissed.")
+                          return True
+                      cur_wt = win.window_text() or ""
+                  except Exception:
+                      log_msg(label, "Window handle invalid (likely closed) — treating as dismissed.")
+                      return True
+
+                  if not _opera_window_looks_like_onboarding(cur_wt):
+                      log_msg(label, f"Onboarding cleared after {attempt - 1} action(s). Now on: '{cur_wt}'")
+                      return True
+
+                  before = _snapshot_window_state(win)
+                  acted = False
+                  action_name = ""
+
+                  if click_opera_button_multilingual(desktop, win, software_type, OPERA_SKIP_KEYWORDS,
+                                                      label=f"{label}-skip-{attempt}"):
+                      acted, action_name = True, "SKIP"
+                  elif click_opera_button_multilingual(desktop, win, software_type, OPERA_NEXT_KEYWORDS,
+                                                        label=f"{label}-next-{attempt}"):
+                      acted, action_name = True, "NEXT"
+                  elif click_opera_button_multilingual(desktop, win, software_type, OPERA_DONE_KEYWORDS,
+                                                        label=f"{label}-done-{attempt}"):
+                      acted, action_name = True, "DONE"
+
+                  if not acted and stuck_count >= 1:
+                      try:
+                          rect = win.rectangle()
+                          w, h = rect.width(), rect.height()
+                          if attempt % 2 == 1:
+                              fx, fy = rect.left + int(w * 0.07), rect.top + int(h * 0.90)
+                              action_name = "coord-skip-guess"
+                          else:
+                              fx, fy = rect.left + int(w * 0.90), rect.top + int(h * 0.90)
+                              action_name = "coord-next-guess"
+                          pyautogui.moveTo(fx, fy, duration=0.25)
+                          pyautogui.click()
+                          acted = True
+                          log_msg(label, f"[{attempt}/{max_attempts}] No accessible button found — proportional coordinate click ({action_name}) at ({fx}, {fy}).")
+                      except Exception as e:
+                          log_msg(label, f"Coordinate fallback failed: {e}")
+
+                  if not acted and stuck_count >= 3:
+                      tabs = min(2 + stuck_count, 8)
+                      log_msg(label, f"[{attempt}/{max_attempts}] UI automation + coordinate guesses stuck — keyboard fallback: {tabs}x TAB then ENTER.")
+                      try:
+                          win.set_focus()
+                          time.sleep(0.3)
+                          send_keys('{TAB}' * tabs)
+                          time.sleep(0.25)
+                          send_keys('{ENTER}')
+                          acted, action_name = True, f"keyboard({tabs}xTAB+ENTER)"
+                      except Exception as e:
+                          log_msg(label, f"Keyboard fallback failed: {e}")
+
+                  if acted:
+                      log_msg(label, f"[{attempt}/{max_attempts}] Action: {action_name}. Waiting for transition...")
+                  else:
+                      log_msg(label, f"[{attempt}/{max_attempts}] No action could be taken this round.")
+
+                  time.sleep(random.uniform(1.1, 1.6))
+
+                  after = _snapshot_window_state(win)
+                  if after == before:
+                      stuck_count += 1
+                  else:
+                      stuck_count = 0
+
+              try:
+                  final_wt = win.window_text() or ""
+              except Exception:
+                  final_wt = "(window closed)"
+              still_stuck = _opera_window_looks_like_onboarding(final_wt)
+              if still_stuck:
+                  log_msg(label, f"WARNING: Onboarding still showing after {max_attempts} attempts: '{final_wt}'. Continuing anyway.")
+              else:
+                  log_msg(label, f"Onboarding bypass finished. Now on: '{final_wt}'")
+              return not still_stuck
+
           def inject_proxy_auth(window, label=""):
               if not USE_PROXY or not PROXY_USER or not PROXY_PASS:
                   return False
@@ -4033,10 +4287,26 @@ jobs:
                   user_fields = _find_username_fields(window)
                   pass_fields = _find_password_fields(window)
 
+                  if (user_fields and not pass_fields) or (pass_fields and not user_fields):
+                      try:
+                          all_edits = [c for c in window.descendants(control_type="Edit") if not _is_address_bar_control(c)]
+                      except Exception:
+                          all_edits = []
+                      if len(all_edits) == 2:
+                          known = (user_fields or pass_fields)[0]
+                          other = [c for c in all_edits if c != known]
+                          if other:
+                              if user_fields and not pass_fields:
+                                  pass_fields = [other[0]]
+                                  log_msg("ProxyAuth", f"[{label}] Password field had no locale match — inferred as the other field in this 2-field dialog.")
+                              else:
+                                  user_fields = [other[0]]
+                                  log_msg("ProxyAuth", f"[{label}] Username field had no locale match — inferred as the other field in this 2-field dialog.")
+
                   if not user_fields or not pass_fields:
                       u_struct, p_struct = _is_auth_dialog_by_structure(window)
                       if u_struct and p_struct:
-                          log_msg("ProxyAuth", f"[{label}] Using structural detection (2-field dialog).")
+                          log_msg("ProxyAuth", f"[{label}] Using structural detection (2-field dialog, no label matched in either field).")
                           user_fields = [u_struct]
                           pass_fields = [p_struct]
 
@@ -4845,6 +5115,9 @@ jobs:
               AUTH_INJECT_COOLDOWN = 8
 
               surf_simulation_executed = False
+              opera_onboarding_handled = False
+              last_opera_onboarding_try = 0
+              OPERA_ONBOARD_RETRY_COOLDOWN = 10
 
               while time.time() - start_time < timeout:
                   try:
@@ -4900,6 +5173,16 @@ jobs:
                           dismiss_interference_windows(desktop, software_type, label="continuous")
                           last_interference_sweep = now
 
+                      if (opera_window and not opera_onboarding_handled
+                              and (now - last_opera_onboarding_try) >= OPERA_ONBOARD_RETRY_COOLDOWN):
+                          last_opera_onboarding_try = now
+                          log_msg("OperaOnboard", f"Opera-family window detected: '{opera_window.window_text()}'. Checking for first-run onboarding...")
+                          try:
+                              cleared = dismiss_opera_onboarding(desktop, software_type, label="OperaOnboard")
+                              opera_onboarding_handled = bool(cleared)
+                          except Exception as e:
+                              log_msg("OperaOnboard", f"dismiss_opera_onboarding exception: {e}")
+
                       if USE_PROXY and (now - last_auth_inject_time > AUTH_INJECT_COOLDOWN):
                           auth_injected_this_tick = False
                           try:
@@ -4907,7 +5190,7 @@ jobs:
                                   awt = auth_window.window_text() or ""
                                   if "Microsoft Edge" in awt and awt != "Microsoft Edge": continue
                                   if _is_target_software_window(awt, software_type): continue
-                                  if _is_proxy_auth_dialog(awt):
+                                  if _window_looks_like_auth_dialog(auth_window):
                                       last_auth_inject_time = now
                                       log_msg("ProxyAuth", f"[TopLevel] Auth dialog: '{awt}' — injecting...")
                                       injected = inject_proxy_auth(auth_window, label=f"toplevel-{awt[:30]}")
@@ -4919,16 +5202,36 @@ jobs:
 
                           if not auth_injected_this_tick and edge_window:
                               try:
-                                  for child in edge_window.children():
+                                  for child in edge_window.descendants():
+                                      try:
+                                          ct = child.element_info.control_type
+                                      except Exception:
+                                          ct = ""
+                                      if ct not in ("Pane", "Window", "Group", "Dialog", "Custom"):
+                                          continue
                                       cwt = child.window_text() or ""
-                                      if _is_proxy_auth_dialog(cwt):
+                                      if _window_looks_like_auth_dialog(child):
                                           last_auth_inject_time = now
-                                          log_msg("ProxyAuth", f"[EdgeChild] Embedded auth dialog: '{cwt}'")
+                                          log_msg("ProxyAuth", f"[EdgeChild] Embedded auth dialog (depth-scanned): '{cwt}'")
                                           injected = inject_proxy_auth(child, label=f"edge-child-{cwt[:20]}")
                                           if injected:
                                               proxy_auth_time = time.time()
                                               auth_injected_this_tick = True
                                               break
+                              except Exception: pass
+
+                          if not auth_injected_this_tick and edge_window and (now - last_auth_inject_time <= AUTH_INJECT_COOLDOWN + 0.01):
+                              # Final deep pass: scan the whole Edge window directly. inject_proxy_auth()
+                              # itself only fills fields when a username/password/proxy-host signal is
+                              # present (see step 5), so this cannot blind-fill an unrelated page form.
+                              try:
+                                  ewt = edge_window.window_text() or ""
+                                  if _window_mentions_proxy_host(ewt) or USE_PROXY:
+                                      injected = inject_proxy_auth(edge_window, label="edge-deep-scan")
+                                      if injected:
+                                          last_auth_inject_time = now
+                                          proxy_auth_time = time.time()
+                                          auth_injected_this_tick = True
                               except Exception: pass
 
                       if not download_windows_closed and os.path.exists(sentinel_path):
