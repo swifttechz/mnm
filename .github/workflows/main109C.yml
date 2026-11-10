@@ -1,4 +1,4 @@
-name: Parallel mx10.9
+name: Parallel mx10.9C
 
 on:
   workflow_dispatch:
@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '3'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -73,6 +73,16 @@ on:
         required: true
         type: string
         default: '50'
+      enable_scroll:
+        description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
+        required: true
+        type: boolean
+        default: false
+      enable_surf:
+        description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
+        required: true
+        type: boolean
+        default: true
       software_choice:
         description: 'Software & Link'
         required: true
@@ -120,7 +130,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjJhNzY1MTMxMDQ4OGJmMjE5YTczMiIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmMmE3NjUxMzEwNDg4YmYyMTlhNzAzIn0.PqlKv4up1wORvKkztD92L0drv9nT9jCaSaXd3lPmR20'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWQ3MDcxNGNlOGMzNjI2NzMwOWYwMyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZDcwNzE0Y2U4YzM2MjY3MzA5ZWZiIn0.qCe-Ug3KdMP51dYgi6FRTGnFIkr4H-HHWEeE-hap3zY'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -220,10 +230,12 @@ jobs:
           IN_STICKY: ${{ inputs.sticky_sessions }}
           IN_PROXY_INPUT: ${{ inputs.scrapeops_api_key }}
           IN_GENERATE_ALL: ${{ inputs.generate_all_proxies }}
+          IN_SCROLL: ${{ inputs.enable_scroll }}
+          IN_SURF_ENABLE: ${{ inputs.enable_surf }}
         run: |
           import os, re, glob
 
-          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.9")
+          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.9C")
           workflow_dir = ".github/workflows"
           target_file = None
 
@@ -261,7 +273,9 @@ jobs:
               "fallback_country": os.getenv("IN_FALLBACK"),
               "mobile_proxies": os.getenv("IN_MOBILE"),
               "sticky_sessions": os.getenv("IN_STICKY"),
-              "generate_all_proxies": os.getenv("IN_GENERATE_ALL")
+              "generate_all_proxies": os.getenv("IN_GENERATE_ALL"),
+              "enable_scroll": os.getenv("IN_SCROLL"),
+              "enable_surf": os.getenv("IN_SURF_ENABLE")
           }
 
           raw_proxies = os.getenv("IN_PROXY_INPUT", "").split()
@@ -296,7 +310,7 @@ jobs:
 
           in_inputs_section = False
 
-          bool_keys = ["run_manual_link", "apply_masking", "use_without_proxy", "mobile_proxies", "sticky_sessions", "generate_all_proxies"]
+          bool_keys = ["run_manual_link", "apply_masking", "use_without_proxy", "mobile_proxies", "sticky_sessions", "generate_all_proxies", "enable_scroll", "enable_surf"]
 
           for line in lines:
               if re.match(r"^[ \t]*inputs:\s*$", line):
@@ -359,7 +373,6 @@ jobs:
       chunk_size: ${{ steps.set-matrix.outputs.chunk_size }}
       chunk_count: ${{ steps.set-matrix.outputs.chunk_count }}
       chunks_total: ${{ steps.set-matrix.outputs.chunks_total }}
-      chunk_matrix: ${{ steps.set-matrix.outputs.chunk_matrix }}
       extra_pct: ${{ steps.set-matrix.outputs.extra_pct }}
     steps:
       - name: Generate Dynamic Matrix Queue
@@ -377,6 +390,8 @@ jobs:
           MANUAL_URL: ${{ inputs.manual_software_url }}
           RUN_MANUAL: ${{ inputs.run_manual_link }}
           GENERATE_ALL_PROXIES: ${{ inputs.generate_all_proxies }}
+          ENABLE_SCROLL: ${{ inputs.enable_scroll }}
+          ENABLE_SURF: ${{ inputs.enable_surf }}
           # true = initial chunk is max(5% of pool, num_devices) so the very first wave of devices is fully covered
           INITIAL_FLOOR_TO_DEVICES: 'true'
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
@@ -588,7 +603,7 @@ jobs:
           remaining = pool_total - initial_target
           chunk_size = max(10, num_devices)
           if remaining > 0:
-              chunk_size = max(chunk_size, math.ceil(remaining / 200.0))
+              chunk_size = max(chunk_size, math.ceil(remaining / 40.0))
           chunk_count = math.ceil(remaining / chunk_size) if remaining > 0 else 0
 
           chunk_includes = []
@@ -615,8 +630,35 @@ jobs:
           print("[Pool] Device #N always takes pool proxy #N. API-key generation per device is last-resort only.")
           print("[Matrix] All tasks start with preassigned_proxy=false; devices fetch their proxy from the pool.")
 
-          # Visitor profiles: shuffled deck so surf tasks get DIFFERENT profiles (no repeats until all 100 are used)
-          surf_total = action_list.count("surf")
+          # ========== POST-LOAD BEHAVIOUR (Scroll / Surf checkmarks) ==========
+          #   Scroll ON  + Surf ON  : click tasks scroll, surf tasks surf
+          #   Scroll ON  + Surf OFF : click AND surf tasks scroll
+          #   Scroll OFF + Surf ON  : click AND surf tasks surf
+          #   both OFF              : tasks just open the page (no scrolling / surfing)
+          enable_scroll = os.environ.get("ENABLE_SCROLL", "false").lower() == "true"
+          enable_surf = os.environ.get("ENABLE_SURF", "true").lower() == "true"
+
+          def resolve_behavior(mode):
+              if mode == "install":
+                  return "none"
+              if enable_scroll and enable_surf:
+                  return "scroll" if mode == "click" else "surf"
+              if enable_scroll:
+                  return "scroll"
+              if enable_surf:
+                  return "surf"
+              return "none"
+
+          behavior_list = [resolve_behavior(m) for m in action_list]
+          print("========== POST-LOAD BEHAVIOUR ==========")
+          print(f"[Behavior] Scroll checkmark: {enable_scroll} | Surf checkmark: {enable_surf}")
+          for _m in ("click", "surf"):
+              _b = [b for m, b in zip(action_list, behavior_list) if m == _m]
+              if _b:
+                  print(f"[Behavior] {_m:<5} tasks: {len(_b)} -> scroll={_b.count('scroll')} surf={_b.count('surf')} none={_b.count('none')}")
+
+          # Visitor profiles: shuffled deck so surfing tasks get DIFFERENT profiles (no repeats until all 100 are used)
+          surf_total = behavior_list.count("surf")
           _profile_deck = []
           while len(_profile_deck) < surf_total:
               _block = list(range(1, 101))
@@ -624,7 +666,7 @@ jobs:
               _profile_deck.extend(_block)
           _profile_deck = _profile_deck[:surf_total]
           if surf_total:
-              print(f"[Surf] {surf_total} surf task(s) -> {len(set(_profile_deck))} distinct visitor profiles (of 100). Runtime cap 180s, randomised per session.")
+              print(f"[Surf] {surf_total} surfing task(s) -> {len(set(_profile_deck))} distinct visitor profiles (of 100). Runtime cap 180s, randomised per session, domain-locked.")
 
           includes = []
           for i in range(tasks_total):
@@ -634,9 +676,12 @@ jobs:
 
               delay_sec = batch_delays.get(batch_idx, 0) if batch_idx > 0 else 0
 
-              profile_id = _profile_deck.pop(0) if action_mode == "surf" else None
+              behavior = behavior_list[i]
+              profile_id = _profile_deck.pop(0) if behavior == "surf" else None
               profile_tag = f"P{profile_id}" if profile_id else ""
-              display_name = f"{absolute_idx}-{short_os_tag}-{short_sw_tag}-{action_mode.capitalize()}" + (f"-{profile_tag}" if profile_tag else "")
+              display_name = (f"{absolute_idx}-{short_os_tag}-{short_sw_tag}-{action_mode.capitalize()}"
+                              + (f"-{profile_tag}" if profile_tag else "")
+                              + ("-Scroll" if behavior == "scroll" else ""))
 
               entry = {
                   "task_index":    absolute_idx,
@@ -653,12 +698,13 @@ jobs:
                   "short_os_tag":  short_os_tag,
                   "short_sw_tag":  short_sw_tag,
                   "profile_tag":   profile_tag,
+                  "post_behavior": behavior,
                   "display_name":  display_name,
                   "preassigned_proxy": "false"
               }
 
               includes.append(entry)
-              print(f"[Task Queued] {display_name} | Batch: {batch_idx} | Delay: {delay_sec}s | Action: {action_mode}")
+              print(f"[Task Queued] {display_name} | Batch: {batch_idx} | Delay: {delay_sec}s | Action: {action_mode} | Post-load: {behavior}")
 
           if not includes:
               print("Error: Valid configuration could not be generated. Exiting.")
@@ -674,23 +720,19 @@ jobs:
               f.write(f"chunk_count={chunk_count}\n")
               f.write(f"chunks_total={chunk_count + 1}\n")
               f.write(f"extra_pct={extra_pct}\n")
-              f.write(f"chunk_matrix={json.dumps({'include': chunk_includes})}\n")
           print("========== MATRIX STRUCTURE COMPLETE ==========")
-          print(f"[Matrix] {len(includes)} tasks queued. Proxy Pool Initial job generates the first {initial_target} proxies, then devices start.")
+          print(f"[Matrix] {len(includes)} tasks queued. the Proxy Pool job generates the first {initial_target} proxies (5%); devices hold at a gate until they exist.")
 
 
 
-  proxy_pool_initial:
-    name: "Proxy Pool - Initial 5% (Chunk 0) - devices wait for this"
+  proxy_pool:
+    name: "Proxy Pool (5% first, then continuous feed)"
     needs: prepare_matrix
     if: ${{ needs.prepare_matrix.outputs.has_tasks == 'true' && inputs.generate_all_proxies == true && inputs.use_without_proxy != true }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-    outputs:
-      generated: ${{ steps.generate.outputs.generated }}
-      pool_now: ${{ steps.generate.outputs.pool_now }}
+    timeout-minutes: 300
     steps:
-      - name: Pool Plan Overview
+      - name: "Pool Plan Overview"
         env:
           TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
           POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
@@ -700,39 +742,24 @@ jobs:
           CHUNK_COUNT: ${{ needs.prepare_matrix.outputs.chunk_count }}
         run: |
           echo "============================================================"
-          echo " PROXY POOL PLAN"
+          echo " PROXY POOL PLAN (single job, one step pair per chunk)"
           echo "============================================================"
           echo "Tasks (devices total)      : $TASKS_TOTAL"
           echo "Extra buffer               : ${EXTRA_PCT}%"
           echo "Total proxies planned      : $POOL_TOTAL"
-          echo "Step 1 (this job)          : generate initial $INITIAL_TARGET proxies (chunk 0)"
-          echo "Step 2 (device jobs)       : start only after step 1 and take pool proxy #N"
-          echo "Step 3 (continuous feed)   : $CHUNK_COUNT chunk(s) of up to $CHUNK_SIZE, generated while devices run"
+          echo "Step group 1 (Chunk 000)   : initial $INITIAL_TARGET proxies (5% target) -> device runners hold at a gate until this is uploaded"
+          echo "Step group 2 (Chunk 001+)  : $CHUNK_COUNT continuous chunk(s) of up to $CHUNK_SIZE, uploaded one by one while devices run"
           {
             echo "## Proxy Pool Plan"
             echo "- Tasks: **$TASKS_TOTAL** | Extra buffer: **${EXTRA_PCT}%** | Planned pool: **$POOL_TOTAL**"
-            echo "- Initial chunk (before devices): **$INITIAL_TARGET**"
-            echo "- Continuous feed: **$CHUNK_COUNT** chunk(s) of up to **$CHUNK_SIZE**"
+            echo "- Chunk 000 (initial, before devices): **$INITIAL_TARGET**"
+            echo "- Continuous feed: **$CHUNK_COUNT** chunk(s) of up to **$CHUNK_SIZE** (steps Chunk 001 ... Chunk $(printf '%03d' $CHUNK_COUNT))"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Generate Initial 5% Proxy Pool (Chunk 0)
-        id: generate
-        shell: python
-        env:
-          CHUNK_IDX: '0'
-          START_SEQ: '1'
-          END_SEQ: ${{ needs.prepare_matrix.outputs.initial_target }}
-          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
-          OUT_FILE: proxy_chunk_000.json
-          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
-          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
-          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
-          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
-          COUNTRY: ${{ inputs.proxy_country }}
-          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
-          STICKY: ${{ inputs.sticky_sessions }}
+      - name: "Install Pool Generator Scripts"
         run: |
+          python3 -m pip install --quiet "requests[socks]" urllib3 || true
+          cat > gen_chunk.py <<'GEN_PY_EOF'
           import os, sys, json, re, time, random, string, glob, datetime, subprocess
 
           try:
@@ -780,15 +807,20 @@ jobs:
           # Config
           # ----------------------------------------------------------------------------
           CHUNK_IDX = geti("CHUNK_IDX")
-          START_SEQ = geti("START_SEQ", 1)
-          END_SEQ = geti("END_SEQ", 1)
           TASKS_TOTAL = geti("TASKS_TOTAL")
           POOL_TOTAL = geti("POOL_TOTAL")
           CHUNKS_TOTAL = geti("CHUNKS_TOTAL", 1)
           NUM_DEVICES = geti("NUM_DEVICES", 1)
+          INITIAL_TARGET = max(1, geti("INITIAL_TARGET", 1))
+          CHUNK_SIZE = max(1, geti("CHUNK_SIZE", 10))
+          if CHUNK_IDX == 0:
+              START_SEQ, END_SEQ = 1, min(INITIAL_TARGET, POOL_TOTAL)
+          else:
+              START_SEQ = INITIAL_TARGET + (CHUNK_IDX - 1) * CHUNK_SIZE + 1
+              END_SEQ = min(INITIAL_TARGET + CHUNK_IDX * CHUNK_SIZE, POOL_TOTAL)
           COUNT = max(0, END_SEQ - START_SEQ + 1)
           OUT_FILE = os.environ.get("OUT_FILE", f"proxy_chunk_{CHUNK_IDX:03d}.json")
-          PRIOR_DIR = os.environ.get("PRIOR_DIR", "prior_chunks")
+          PRIOR_DIR = os.environ.get("PRIOR_DIR", ".")
           IS_INITIAL = CHUNK_IDX == 0
           TAG = "INITIAL 5%" if IS_INITIAL else f"CHUNK {CHUNK_IDX}/{CHUNKS_TOTAL - 1}"
 
@@ -1173,534 +1205,8 @@ jobs:
           if len(collected) == 0 and COUNT > 0:
               say(f"::error title=Proxy Pool {TAG}::Zero proxies generated for this chunk.")
               sys.exit(1)
-
-      - name: Upload Chunk 0 Artifact (proxy-chunk-000)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: proxy-chunk-000
-          path: proxy_chunk_000.json
-          retention-days: 1
-          if-no-files-found: ignore
-
-      - name: Initial Pool Ready
-        if: always()
-        run: |
-          echo "============================================================"
-          echo " INITIAL POOL STEP FINISHED - generated: ${{ steps.generate.outputs.generated }} / ${{ needs.prepare_matrix.outputs.initial_target }}"
-          echo " Device jobs may start now. Continuous feed starts in parallel."
-          echo "============================================================"
-
-  proxy_pool_continuous:
-    name: "Proxy Pool Chunk ${{ matrix.chunk_idx }} [#${{ matrix.start_seq }}-${{ matrix.end_seq }}]"
-    needs: [prepare_matrix, proxy_pool_initial]
-    if: ${{ !cancelled() && needs.proxy_pool_initial.result == 'success' && needs.prepare_matrix.outputs.chunk_count != '0' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix: ${{ fromJson(needs.prepare_matrix.outputs.chunk_matrix) }}
-    steps:
-      - name: Load Earlier Chunks (for cumulative stats)
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          pattern: proxy-chunk-*
-          merge-multiple: true
-          path: prior_chunks
-
-      - name: Generate Chunk ${{ matrix.chunk_idx }} (continuous feed)
-        id: generate
-        shell: python
-        env:
-          CHUNK_IDX: ${{ matrix.chunk_idx }}
-          START_SEQ: ${{ matrix.start_seq }}
-          END_SEQ: ${{ matrix.end_seq }}
-          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
-          OUT_FILE: ${{ matrix.file_name }}
-          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
-          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
-          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
-          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
-          COUNTRY: ${{ inputs.proxy_country }}
-          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
-          STICKY: ${{ inputs.sticky_sessions }}
-        run: |
-          import os, sys, json, re, time, random, string, glob, datetime, subprocess
-
-          try:
-              import requests, urllib3
-          except ImportError:
-              subprocess.check_call([sys.executable, "-m", "pip", "install", "requests[socks]", "urllib3", "--quiet"])
-              import requests, urllib3
-          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-
-          def say(m=""):
-              print(m, flush=True)
-
-
-          def group(t):
-              print("::group::" + t, flush=True)
-
-
-          def endgroup():
-              print("::endgroup::", flush=True)
-
-
-          def geti(k, d=0):
-              try:
-                  return int(os.environ.get(k, str(d)))
-              except Exception:
-                  return d
-
-
-          def bar(done, total, width=30):
-              pct = (done / total * 100.0) if total else 0.0
-              filled = int(width * min(done, total) / total) if total else 0
-              return "[" + "#" * filled + "-" * (width - filled) + f"] {pct:5.1f}%"
-
-
-          def rand_letters(n=6):
-              return "".join(random.choices(string.ascii_lowercase, k=n))
-
-
-          def now_iso():
-              return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-          # ----------------------------------------------------------------------------
-          # Config
-          # ----------------------------------------------------------------------------
-          CHUNK_IDX = geti("CHUNK_IDX")
-          START_SEQ = geti("START_SEQ", 1)
-          END_SEQ = geti("END_SEQ", 1)
-          TASKS_TOTAL = geti("TASKS_TOTAL")
-          POOL_TOTAL = geti("POOL_TOTAL")
-          CHUNKS_TOTAL = geti("CHUNKS_TOTAL", 1)
-          NUM_DEVICES = geti("NUM_DEVICES", 1)
-          COUNT = max(0, END_SEQ - START_SEQ + 1)
-          OUT_FILE = os.environ.get("OUT_FILE", f"proxy_chunk_{CHUNK_IDX:03d}.json")
-          PRIOR_DIR = os.environ.get("PRIOR_DIR", "prior_chunks")
-          IS_INITIAL = CHUNK_IDX == 0
-          TAG = "INITIAL 5%" if IS_INITIAL else f"CHUNK {CHUNK_IDX}/{CHUNKS_TOTAL - 1}"
-
-          proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
-          country_input = os.environ.get("COUNTRY", "USA")
-          fallback_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
-          mobile = os.environ.get("MOBILE", "false").lower() == "true"
-          sticky = os.environ.get("STICKY", "false").lower() == "true"
-
-          country_map = {
-              "USA": "us", "UK": "gb", "Canada": "ca", "Australia": "au", "Germany": "de", "France": "fr",
-              "Brazil": "br", "Mexico": "mx", "Spain": "es", "Vietnam": "vn", "Switzerland": "ch",
-              "Indonesia": "id", "Italy": "it", "Netherlands": "nl", "Poland": "pl",
-          }
-          cc_primary = country_map.get(country_input, "us").upper()
-          cc_fallback = None if fallback_input == "No Fallback" else country_map.get(fallback_input, "us").upper()
-
-
-          def country_code_to_locale(cc):
-              _m = {"US": "en-US", "GB": "en-GB", "CA": "en-CA", "AU": "en-AU", "DE": "de-DE",
-                    "FR": "fr-FR", "BR": "pt-BR", "MX": "es-MX", "ES": "es-ES", "VN": "vi-VN",
-                    "CH": "de-CH", "ID": "id-ID", "IT": "it-IT", "NL": "nl-NL", "PL": "pl-PL"}
-              return _m.get(cc.upper(), "en-US")
-
-
-          def country_code_to_keyboard(cc):
-              _m = {"US": "0409:00000409", "GB": "0809:00000809", "CA": "1009:00000409",
-                    "AU": "0C09:00000409", "DE": "0407:00000407", "FR": "040C:0000040C",
-                    "BR": "0416:00000416", "MX": "080A:0000080A", "ES": "0C0A:0000080A",
-                    "VN": "042A:0000042A", "CH": "0807:00000807", "ID": "0421:00000409",
-                    "IT": "0410:00000410", "NL": "0413:00020409", "PL": "0415:00000415"}
-              return _m.get(cc.upper(), "0409:00000409")
-
-
-          def tz_to_windows_tz(iana_tz):
-              _m = {"America/New_York": "Eastern Standard Time", "America/Chicago": "Central Standard Time",
-                    "America/Denver": "Mountain Standard Time", "America/Phoenix": "US Mountain Standard Time",
-                    "America/Los_Angeles": "Pacific Standard Time", "America/Toronto": "Eastern Standard Time",
-                    "America/Sao_Paulo": "E. South America Standard Time",
-                    "America/Mexico_City": "Central Standard Time (Mexico)",
-                    "Europe/London": "GMT Standard Time", "Europe/Paris": "Romance Standard Time",
-                    "Europe/Berlin": "W. Europe Standard Time", "Europe/Madrid": "Romance Standard Time",
-                    "Europe/Rome": "W. Europe Standard Time", "Europe/Amsterdam": "W. Europe Standard Time",
-                    "Europe/Warsaw": "Central European Standard Time",
-                    "Asia/Ho_Chi_Minh": "SE Asia Standard Time", "Europe/Zurich": "W. Europe Standard Time",
-                    "Asia/Jakarta": "SE Asia Standard Time", "Australia/Sydney": "AUS Eastern Standard Time"}
-              return _m.get(iana_tz, "UTC")
-
-
-          # ----------------------------------------------------------------------------
-          # Banner + plan
-          # ----------------------------------------------------------------------------
-          prior_count, prior_chunks = 0, 0
-          for fp in glob.glob(os.path.join(PRIOR_DIR, "**", "proxy_chunk_*.json"), recursive=True):
-              try:
-                  with open(fp, "r", encoding="utf-8") as fh:
-                      d = json.load(fh)
-                  if d.get("chunk_idx") == CHUNK_IDX:
-                      continue
-                  prior_count += len(d.get("proxies", []))
-                  prior_chunks += 1
-              except Exception:
-                  pass
-
-          say("=" * 72)
-          say(f" PROXY POOL GENERATION  |  {TAG}")
-          say("=" * 72)
-          say(f"[Pool] Tasks total            : {TASKS_TOTAL}")
-          say(f"[Pool] Pool total (tasks+extra): {POOL_TOTAL}  (extra buffer = {POOL_TOTAL - TASKS_TOTAL})")
-          say(f"[Pool] This chunk range       : #{START_SEQ} -> #{END_SEQ}  ({COUNT} proxies)")
-          say(f"[Pool] Already in pool        : {prior_count} proxies across {prior_chunks} earlier chunk(s)")
-          say(f"[Pool] Pool progress (before) : {bar(prior_count, POOL_TOTAL)}  {prior_count}/{POOL_TOTAL}")
-          say(f"[Pool] Country                : {cc_primary} | Fallback: {cc_fallback or 'none'} | Mobile: {mobile} | Sticky: {sticky}")
-          say(f"[Pool] Naming format          : <number>-<COUNTRY>-<6 random letters>   e.g. {START_SEQ}-{cc_primary}-{rand_letters()}")
-          say("")
-
-          # ----------------------------------------------------------------------------
-          # Key / proxy parsing
-          # ----------------------------------------------------------------------------
-          SCRAPEOPS_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
-          REDSCRAPE_RE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)
-          GOLOGIN_RE = re.compile(r"^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
-          FLOPPY_RE = re.compile(r"^[A-Za-z0-9_]{30,80}$")
-
-          gologin_keys, bytesflow_proxies, scrapeops_keys, manual_proxies = [], [], [], []
-          other_keys = 0
-          for item in proxy_input.split():
-              item = item.strip()
-              if not item:
-                  continue
-              if GOLOGIN_RE.match(item):
-                  gologin_keys.append(item)
-              elif "bytesflows.com" in item.lower():
-                  bytesflow_proxies.append(item)
-              elif REDSCRAPE_RE.match(item):
-                  other_keys += 1
-              elif SCRAPEOPS_RE.match(item):
-                  scrapeops_keys.append(item)
-              elif FLOPPY_RE.match(item) and len(item) >= 30:
-                  other_keys += 1
-              elif (":" in item or "@" in item or "://" in item or "." in item) and len(item) > 5:
-                  manual_proxies.append(item)
-
-
-          def parse_generic_proxy(proxy_str):
-              original = proxy_str.strip()
-              if not original:
-                  return None
-              protocol, rest = "http", original
-              if "://" in rest:
-                  protocol, rest = rest.split("://", 1)
-                  if protocol.lower() == "geolocation":
-                      protocol = "http"
-              rest = re.sub(r":(\d+):[A-Za-z].*$", r":\1", rest)
-              m = re.search(r"([^:@\s]+):([^:@\s]+)@([^:@\s]+):(\d+)", rest)
-              if m:
-                  u, p, h, pt = m.groups()
-                  return {"username": u, "password": p, "host": h, "port": int(pt)}
-              m = re.search(r"^([^:@\s]+):(\d+):([^:@\s]+):([^:@\s]+)", rest)
-              if m:
-                  h, pt, u, p = m.groups()
-                  return {"username": u, "password": p, "host": h, "port": int(pt)}
-              m = re.search(r"^([^:@\s]+):([^:@\s]+):([^:@\s]+):(\d+)", rest)
-              if m:
-                  u, p, h, pt = m.groups()
-                  return {"username": u, "password": p, "host": h, "port": int(pt)}
-              m = re.search(r"^([^:@\s]+):(\d+)", rest)
-              if m:
-                  h, pt = m.groups()
-                  return {"username": "", "password": "", "host": h, "port": int(pt)}
-              return None
-
-
-          # ----------------------------------------------------------------------------
-          # Validation (HTTP only - the device Edge launcher consumes http://host:port)
-          # ----------------------------------------------------------------------------
-          def validate_proxy(pinfo):
-              auth = f"{pinfo['username']}:{pinfo['password']}@" if pinfo.get("username") else ""
-              url = f"http://{auth}{pinfo['host']}:{pinfo['port']}"
-              cfg = {"http": url, "https": url}
-              endpoints = [
-                  ("http://ip-api.com/json/", "ip-api.com"),
-                  ("https://ipinfo.io/json", "ipinfo.io"),
-                  ("http://ipwho.is/", "ipwho.is"),
-                  ("https://api.myip.com", "myip.com"),
-              ]
-              for ep, name in endpoints:
-                  t0 = time.time()
-                  try:
-                      r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
-                      if r.status_code != 200:
-                          say(f"      - {name}: HTTP {r.status_code}")
-                          continue
-                      d = r.json()
-                      cc = tz = city = region = ""
-                      ip = None
-                      if name == "ip-api.com" and d.get("status") == "success":
-                          cc, tz, ip, city, region = d.get("countryCode"), d.get("timezone"), d.get("query"), d.get("city"), d.get("regionName")
-                      elif name == "ipinfo.io" and "ip" in d:
-                          cc, tz, ip, city, region = d.get("country"), d.get("timezone"), d.get("ip"), d.get("city"), d.get("region")
-                      elif name == "ipwho.is" and d.get("success"):
-                          cc, tz, ip, city, region = d.get("country_code"), (d.get("timezone") or {}).get("id"), d.get("ip"), d.get("city"), d.get("region")
-                      elif name == "myip.com" and "ip" in d:
-                          cc, ip = d.get("cc"), d.get("ip")
-                      if ip:
-                          say(f"      - validated via {name} in {int((time.time() - t0) * 1000)} ms -> IP {ip} ({cc})")
-                          return {"ip": ip, "cc": (cc or "US").upper(), "tz": tz or "UTC", "city": city or "",
-                                  "region": region or "", "latency_ms": int((time.time() - t0) * 1000)}
-                  except Exception as e:
-                      say(f"      - {name} failed: {type(e).__name__}")
-              return None
-
-
-          # ----------------------------------------------------------------------------
-          # Providers: each returns (pinfo | None, error_text)
-          # ----------------------------------------------------------------------------
-          GOLOGIN_API = "https://api.gologin.com"
-          _logged_gologin_shape = {"done": False}
-
-
-          def make_gologin(seq, cc, name, tries):
-              key = gologin_keys[(seq // 15 + tries) % len(gologin_keys)]
-              say(f"      - GoLogin API key ...{key[-6:]} -> creating proxy named '{name}' (country={cc}, mobile={mobile})")
-              try:
-                  r = requests.post(
-                      f"{GOLOGIN_API}/users-proxies/mobile-proxy",
-                      headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                      json={"countryCode": cc.lower(), "isMobile": mobile, "isDC": False, "customName": name},
-                      timeout=25, verify=False,
-                  )
-              except Exception as e:
-                  return None, f"request error {type(e).__name__}: {e}"
-              if r.status_code == 429:
-                  say("      - GoLogin rate limit (429) -> backing off 12s")
-                  time.sleep(12)
-                  return None, "rate limited (429)"
-              if r.status_code not in (200, 201):
-                  return None, f"HTTP {r.status_code}: {r.text[:160]}"
-              try:
-                  d = r.json()
-              except Exception:
-                  return None, "non-JSON response"
-              if not _logged_gologin_shape["done"]:
-                  say(f"      - GoLogin response fields: {sorted(d.keys()) if isinstance(d, dict) else type(d).__name__}")
-                  _logged_gologin_shape["done"] = True
-              host = d.get("host") or d.get("ip") or d.get("server") or "proxy.gologin.com"
-              port = d.get("port") or d.get("httpPort") or 8080
-              user = d.get("username") or d.get("user") or d.get("login") or ""
-              pwd = d.get("password") or d.get("pass") or ""
-              pid = d.get("id") or d.get("_id") or d.get("proxyId") or ""
-              say(f"      - CREATED in GoLogin account as '{name}' (id={pid or 'n/a'}) -> visible at app.gologin.com/proxy")
-              return {"username": user, "password": pwd, "host": host, "port": int(port), "gologin_id": pid}, ""
-
-
-          def make_bytesflow(seq, cc, name, tries):
-              base = parse_generic_proxy(bytesflow_proxies[tries % len(bytesflow_proxies)])
-              if not base or not base.get("username"):
-                  return None, "could not parse BytesFlow proxy string"
-              m = re.search(r"^(?:u-)?([A-Za-z0-9]+)", base["username"])
-              base_user = m.group(1) if m else base["username"].split("-")[0]
-              user = "-".join([f"u-{base_user}", f"loc-{cc}", "t-10", f"s-{rand_letters(8)}"])
-              return {"username": user, "password": base["password"], "host": base["host"], "port": base["port"]}, ""
-
-
-          def make_scrapeops(seq, cc, name, tries):
-              key = scrapeops_keys[(seq // 15 + tries) % len(scrapeops_keys)]
-              user = f"scrapeops.country={cc.lower()}"
-              if mobile:
-                  user += ".mobile=true"
-              if sticky:
-                  user += f".sticky_session=p{seq}{rand_letters(4)}"
-              return {"username": user, "password": key, "host": "residential-proxy.scrapeops.io", "port": 8181}, ""
-
-
-          def make_manual(seq, cc, name, tries):
-              p = parse_generic_proxy(manual_proxies[(seq - 1 + tries) % len(manual_proxies)])
-              if not p:
-                  return None, "could not parse manual proxy string"
-              return p, ""
-
-
-          providers = []  # (label, fn, lenient_country_when_no_fallback)
-          if gologin_keys:
-              providers.append(("gologin", make_gologin, True))
-          if bytesflow_proxies:
-              providers.append(("bytesflow", make_bytesflow, False))
-          if scrapeops_keys:
-              providers.append(("scrapeops", make_scrapeops, False))
-          if manual_proxies:
-              providers.append(("manual", make_manual, True))
-
-          say(f"[Pool] Providers detected      : " + (", ".join(p[0] for p in providers) if providers else "NONE"))
-          if other_keys:
-              say(f"[Pool] NOTE: {other_keys} key(s) of types not supported by the pool (Redscrape/FloppyData) are ignored here; devices handle them on-demand.")
-
-          collected = []
-          failures = []
-          started = time.time()
-          MAX_CONSEC = 10
-          MAX_ATTEMPTS = COUNT * 4 + 10
-          attempts = 0
-          consec = 0
-          seq_fail = 0
-          prov_idx = 0
-
-          if not providers:
-              say("::error title=Proxy Pool::No supported proxy provider/API key found in the input. Devices will fall back to on-demand generation.")
-          elif COUNT <= 0:
-              say("[Pool] Nothing to generate for this chunk.")
-          else:
-              while len(collected) < COUNT and attempts < MAX_ATTEMPTS:
-                  label, fn, lenient = providers[prov_idx]
-                  seq = START_SEQ + len(collected)
-                  expected = cc_primary
-                  if cc_fallback and seq_fail >= 7 and cc_fallback != cc_primary:
-                      expected = cc_fallback
-                  name = f"{seq}-{expected}-{rand_letters()}"
-                  attempts += 1
-                  t0 = time.time()
-                  group(f"[{TAG}] Proxy #{seq} ({len(collected) + 1}/{COUNT}) | attempt {seq_fail + 1} | provider={label}")
-                  pinfo, err = fn(seq, expected, name, seq_fail)
-                  res = None
-                  if pinfo:
-                      res = validate_proxy(pinfo)
-                      if res and not (res["cc"] == expected or (lenient and cc_fallback is None)):
-                          say(f"      - country mismatch: got {res['cc']} expected {expected}")
-                          err = f"country mismatch {res['cc']} != {expected}"
-                          res = None
-                      elif not res:
-                          err = "validation failed (no echo endpoint reachable through proxy)"
-                          if label == "gologin":
-                              say(f"      - NOTE: proxy '{name}' exists in GoLogin dashboard but failed validation (not deleted).")
-                  endgroup()
-
-                  if pinfo and res:
-                      if len(pinfo.get("password", "")) >= 8:
-                          print(f"::add-mask::{pinfo['password']}", flush=True)
-                      rec = {
-                          "seq": seq, "name": name, "gologin_id": pinfo.get("gologin_id", ""), "source": label,
-                          "host": pinfo["host"], "port": pinfo["port"],
-                          "username": pinfo.get("username", ""), "password": pinfo.get("password", ""),
-                          "server": f"{pinfo['host']}:{pinfo['port']}",
-                          "server_with_proto": f"http://{pinfo['host']}:{pinfo['port']}",
-                          "proxy_type_label": label, "working": True,
-                          "country_code": res["cc"], "country_name": res["cc"], "ip": res["ip"],
-                          "city": res["city"], "region": res["region"],
-                          "timezone_iana": res["tz"], "timezone_windows": tz_to_windows_tz(res["tz"]),
-                          "windows_locale": country_code_to_locale(res["cc"]),
-                          "windows_keyboard": country_code_to_keyboard(res["cc"]),
-                          "latency_ms": res["latency_ms"], "chunk_idx": CHUNK_IDX, "created_at": now_iso(),
-                      }
-                      collected.append(rec)
-                      consec = 0
-                      seq_fail = 0
-                      total_now = prior_count + len(collected)
-                      say(f"[Pool] OK  #{seq:<4} '{name}' | IP {res['ip']} | {res['cc']} {res['city']} | {int(time.time() - t0)}s")
-                      say(f"[Pool]     chunk {len(collected)}/{COUNT} {bar(len(collected), COUNT, 20)} | POOL {total_now}/{POOL_TOTAL} {bar(total_now, POOL_TOTAL)}")
-                  else:
-                      consec += 1
-                      seq_fail += 1
-                      failures.append({"seq": seq, "name": name, "reason": err})
-                      say(f"[Pool] FAIL #{seq:<4} '{name}' | {err} | consecutive failures: {consec}/{MAX_CONSEC}")
-                      if consec >= MAX_CONSEC:
-                          if prov_idx + 1 < len(providers):
-                              prov_idx += 1
-                              consec = 0
-                              say(f"[Pool] Switching provider -> {providers[prov_idx][0]}")
-                          else:
-                              say(f"::warning title=Proxy Pool {TAG}::Stopping early after {consec} consecutive failures (quota/limit?). Generated {len(collected)}/{COUNT}.")
-                              break
-                  time.sleep(0.7)
-
-          # ----------------------------------------------------------------------------
-          # Output
-          # ----------------------------------------------------------------------------
-          elapsed = int(time.time() - started)
-          total_after = prior_count + len(collected)
-          payload = {
-              "chunk_idx": CHUNK_IDX, "start_seq": START_SEQ, "end_seq": END_SEQ, "requested": COUNT,
-              "generated": len(collected), "failed_attempts": len(failures), "created_at": now_iso(),
-              "proxies": collected,
-          }
-          with open(OUT_FILE, "w", encoding="utf-8") as fh:
-              json.dump(payload, fh, indent=2)
-
-          say("")
-          say("=" * 72)
-          say(f" {TAG} COMPLETE in {elapsed}s")
-          say("=" * 72)
-          say(f"[Pool] Generated this chunk : {len(collected)}/{COUNT}  (failed attempts: {len(failures)})")
-          say(f"[Pool] Pool now holds       : {total_after}/{POOL_TOTAL}  {bar(total_after, POOL_TOTAL)}")
-          say(f"[Pool] Covers tasks         : {min(total_after, TASKS_TOTAL)}/{TASKS_TOTAL} (+{max(0, total_after - TASKS_TOTAL)} spare)")
-          say(f"[Pool] Artifact             : {OUT_FILE}")
-          if collected:
-              say("[Pool] Names created in GoLogin dashboard (app.gologin.com/proxy):" if gologin_keys else "[Pool] Proxy names:")
-              say("       " + ", ".join(p["name"] for p in collected))
-          if len(collected) < COUNT:
-              say(f"::warning title=Proxy Pool {TAG}::Only {len(collected)}/{COUNT} proxies generated. Devices needing the missing numbers fall back to API-key generation.")
-
-          summary = os.environ.get("GITHUB_STEP_SUMMARY")
-          if summary:
-              with open(summary, "a", encoding="utf-8") as fh:
-                  fh.write(f"## Proxy Pool - {TAG}\n\n")
-                  fh.write(f"- Range: **#{START_SEQ} - #{END_SEQ}** ({COUNT} requested)\n")
-                  fh.write(f"- Generated this chunk: **{len(collected)}/{COUNT}** | failed attempts: {len(failures)} | time: {elapsed}s\n")
-                  fh.write(f"- Pool progress: **{total_after}/{POOL_TOTAL}** ({(total_after / POOL_TOTAL * 100.0) if POOL_TOTAL else 0:.1f}%)\n")
-                  fh.write(f"- Tasks covered: {min(total_after, TASKS_TOTAL)}/{TASKS_TOTAL}\n\n")
-                  if collected:
-                      fh.write("| # | Dashboard name | IP | Country | City | Latency |\n|---|---|---|---|---|---|\n")
-                      for p in collected:
-                          fh.write(f"| {p['seq']} | `{p['name']}` | {p['ip']} | {p['country_code']} | {p['city']} | {p['latency_ms']} ms |\n")
-                  if failures:
-                      fh.write("\n<details><summary>Failed attempts</summary>\n\n")
-                      for f_ in failures[:50]:
-                          fh.write(f"- #{f_['seq']} `{f_['name']}`: {f_['reason']}\n")
-                      fh.write("\n</details>\n")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-              fh.write(f"generated={len(collected)}\n")
-              fh.write(f"pool_now={total_after}\n")
-
-          if len(collected) == 0 and COUNT > 0:
-              say(f"::error title=Proxy Pool {TAG}::Zero proxies generated for this chunk.")
-              sys.exit(1)
-
-      - name: Upload Chunk Artifact (${{ matrix.artifact_name }})
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.file_name }}
-          retention-days: 1
-          if-no-files-found: ignore
-
-  proxy_pool_report:
-    name: "Proxy Pool - Final Report"
-    needs: [prepare_matrix, proxy_pool_initial, proxy_pool_continuous]
-    if: ${{ !cancelled() && needs.proxy_pool_initial.result != 'skipped' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download All Chunks
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          pattern: proxy-chunk-*
-          merge-multiple: true
-          path: pool
-
-      - name: Build Pool Report
-        shell: python
-        env:
-          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
-          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
-          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
-          EXTRA_PCT: ${{ needs.prepare_matrix.outputs.extra_pct }}
-          CHUNK_COUNT: ${{ needs.prepare_matrix.outputs.chunk_count }}
-        run: |
+          GEN_PY_EOF
+          cat > report_pool.py <<'REPORT_PY_EOF'
           import os, json, glob
           from collections import Counter
 
@@ -1719,7 +1225,7 @@ jobs:
           CHUNKS = geti("CHUNK_COUNT") + 1
 
           chunks, proxies = [], []
-          for fp in sorted(glob.glob("pool/**/proxy_chunk_*.json", recursive=True)):
+          for fp in sorted(glob.glob("**/proxy_chunk_*.json", recursive=True)):
               try:
                   with open(fp, "r", encoding="utf-8") as fh:
                       d = json.load(fh)
@@ -1787,16 +1293,1225 @@ jobs:
           if missing:
               print(f"::warning title=Proxy Pool::{len(missing)} proxy number(s) missing: {ranges(missing)}")
           print(f"::notice title=Proxy Pool::{total}/{POOL_TOTAL} generated ({pct:.1f}%)")
+          REPORT_PY_EOF
+          python3 -m py_compile gen_chunk.py report_pool.py
+          echo "Generator scripts installed and compiled OK."
 
+      - name: "Chunk 000 - Generate (initial 5%)"
+        id: gen000
+        env:
+          CHUNK_IDX: '0'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 000 - Upload to pool (proxy-chunk-000)"
+        if: ${{ always() && steps.gen000.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-000
+          path: proxy_chunk_000.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Initial 5% ready - device runners may proceed"
+        if: ${{ always() }}
+        run: |
+          echo "============================================================"
+          echo " INITIAL POOL STEP FINISHED - generated: ${{ steps.gen000.outputs.generated }} / ${{ needs.prepare_matrix.outputs.initial_target }}"
+          echo " Device runners waiting at their gate are released now."
+          echo " Continuous feed (Chunk 001+) keeps running in this same job."
+          echo "============================================================"
+
+      - name: "Chunk 001 - Generate (continuous feed)"
+        id: gen001
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 1 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '1'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 001 - Upload to pool (proxy-chunk-001)"
+        if: ${{ !cancelled() && steps.gen001.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-001
+          path: proxy_chunk_001.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 002 - Generate (continuous feed)"
+        id: gen002
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 2 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '2'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 002 - Upload to pool (proxy-chunk-002)"
+        if: ${{ !cancelled() && steps.gen002.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-002
+          path: proxy_chunk_002.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 003 - Generate (continuous feed)"
+        id: gen003
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 3 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '3'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 003 - Upload to pool (proxy-chunk-003)"
+        if: ${{ !cancelled() && steps.gen003.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-003
+          path: proxy_chunk_003.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 004 - Generate (continuous feed)"
+        id: gen004
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 4 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '4'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 004 - Upload to pool (proxy-chunk-004)"
+        if: ${{ !cancelled() && steps.gen004.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-004
+          path: proxy_chunk_004.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 005 - Generate (continuous feed)"
+        id: gen005
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 5 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '5'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 005 - Upload to pool (proxy-chunk-005)"
+        if: ${{ !cancelled() && steps.gen005.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-005
+          path: proxy_chunk_005.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 006 - Generate (continuous feed)"
+        id: gen006
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 6 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '6'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 006 - Upload to pool (proxy-chunk-006)"
+        if: ${{ !cancelled() && steps.gen006.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-006
+          path: proxy_chunk_006.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 007 - Generate (continuous feed)"
+        id: gen007
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 7 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '7'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 007 - Upload to pool (proxy-chunk-007)"
+        if: ${{ !cancelled() && steps.gen007.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-007
+          path: proxy_chunk_007.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 008 - Generate (continuous feed)"
+        id: gen008
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 8 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '8'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 008 - Upload to pool (proxy-chunk-008)"
+        if: ${{ !cancelled() && steps.gen008.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-008
+          path: proxy_chunk_008.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 009 - Generate (continuous feed)"
+        id: gen009
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 9 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '9'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 009 - Upload to pool (proxy-chunk-009)"
+        if: ${{ !cancelled() && steps.gen009.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-009
+          path: proxy_chunk_009.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 010 - Generate (continuous feed)"
+        id: gen010
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 10 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '10'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 010 - Upload to pool (proxy-chunk-010)"
+        if: ${{ !cancelled() && steps.gen010.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-010
+          path: proxy_chunk_010.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 011 - Generate (continuous feed)"
+        id: gen011
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 11 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '11'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 011 - Upload to pool (proxy-chunk-011)"
+        if: ${{ !cancelled() && steps.gen011.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-011
+          path: proxy_chunk_011.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 012 - Generate (continuous feed)"
+        id: gen012
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 12 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '12'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 012 - Upload to pool (proxy-chunk-012)"
+        if: ${{ !cancelled() && steps.gen012.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-012
+          path: proxy_chunk_012.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 013 - Generate (continuous feed)"
+        id: gen013
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 13 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '13'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 013 - Upload to pool (proxy-chunk-013)"
+        if: ${{ !cancelled() && steps.gen013.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-013
+          path: proxy_chunk_013.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 014 - Generate (continuous feed)"
+        id: gen014
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 14 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '14'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 014 - Upload to pool (proxy-chunk-014)"
+        if: ${{ !cancelled() && steps.gen014.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-014
+          path: proxy_chunk_014.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 015 - Generate (continuous feed)"
+        id: gen015
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 15 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '15'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 015 - Upload to pool (proxy-chunk-015)"
+        if: ${{ !cancelled() && steps.gen015.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-015
+          path: proxy_chunk_015.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 016 - Generate (continuous feed)"
+        id: gen016
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 16 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '16'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 016 - Upload to pool (proxy-chunk-016)"
+        if: ${{ !cancelled() && steps.gen016.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-016
+          path: proxy_chunk_016.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 017 - Generate (continuous feed)"
+        id: gen017
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 17 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '17'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 017 - Upload to pool (proxy-chunk-017)"
+        if: ${{ !cancelled() && steps.gen017.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-017
+          path: proxy_chunk_017.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 018 - Generate (continuous feed)"
+        id: gen018
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 18 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '18'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 018 - Upload to pool (proxy-chunk-018)"
+        if: ${{ !cancelled() && steps.gen018.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-018
+          path: proxy_chunk_018.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 019 - Generate (continuous feed)"
+        id: gen019
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 19 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '19'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 019 - Upload to pool (proxy-chunk-019)"
+        if: ${{ !cancelled() && steps.gen019.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-019
+          path: proxy_chunk_019.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 020 - Generate (continuous feed)"
+        id: gen020
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 20 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '20'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 020 - Upload to pool (proxy-chunk-020)"
+        if: ${{ !cancelled() && steps.gen020.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-020
+          path: proxy_chunk_020.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 021 - Generate (continuous feed)"
+        id: gen021
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 21 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '21'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 021 - Upload to pool (proxy-chunk-021)"
+        if: ${{ !cancelled() && steps.gen021.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-021
+          path: proxy_chunk_021.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 022 - Generate (continuous feed)"
+        id: gen022
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 22 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '22'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 022 - Upload to pool (proxy-chunk-022)"
+        if: ${{ !cancelled() && steps.gen022.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-022
+          path: proxy_chunk_022.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 023 - Generate (continuous feed)"
+        id: gen023
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 23 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '23'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 023 - Upload to pool (proxy-chunk-023)"
+        if: ${{ !cancelled() && steps.gen023.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-023
+          path: proxy_chunk_023.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 024 - Generate (continuous feed)"
+        id: gen024
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 24 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '24'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 024 - Upload to pool (proxy-chunk-024)"
+        if: ${{ !cancelled() && steps.gen024.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-024
+          path: proxy_chunk_024.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 025 - Generate (continuous feed)"
+        id: gen025
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 25 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '25'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 025 - Upload to pool (proxy-chunk-025)"
+        if: ${{ !cancelled() && steps.gen025.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-025
+          path: proxy_chunk_025.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 026 - Generate (continuous feed)"
+        id: gen026
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 26 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '26'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 026 - Upload to pool (proxy-chunk-026)"
+        if: ${{ !cancelled() && steps.gen026.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-026
+          path: proxy_chunk_026.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 027 - Generate (continuous feed)"
+        id: gen027
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 27 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '27'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 027 - Upload to pool (proxy-chunk-027)"
+        if: ${{ !cancelled() && steps.gen027.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-027
+          path: proxy_chunk_027.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 028 - Generate (continuous feed)"
+        id: gen028
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 28 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '28'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 028 - Upload to pool (proxy-chunk-028)"
+        if: ${{ !cancelled() && steps.gen028.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-028
+          path: proxy_chunk_028.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 029 - Generate (continuous feed)"
+        id: gen029
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 29 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '29'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 029 - Upload to pool (proxy-chunk-029)"
+        if: ${{ !cancelled() && steps.gen029.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-029
+          path: proxy_chunk_029.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 030 - Generate (continuous feed)"
+        id: gen030
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 30 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '30'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 030 - Upload to pool (proxy-chunk-030)"
+        if: ${{ !cancelled() && steps.gen030.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-030
+          path: proxy_chunk_030.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 031 - Generate (continuous feed)"
+        id: gen031
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 31 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '31'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 031 - Upload to pool (proxy-chunk-031)"
+        if: ${{ !cancelled() && steps.gen031.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-031
+          path: proxy_chunk_031.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 032 - Generate (continuous feed)"
+        id: gen032
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 32 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '32'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 032 - Upload to pool (proxy-chunk-032)"
+        if: ${{ !cancelled() && steps.gen032.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-032
+          path: proxy_chunk_032.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 033 - Generate (continuous feed)"
+        id: gen033
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 33 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '33'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 033 - Upload to pool (proxy-chunk-033)"
+        if: ${{ !cancelled() && steps.gen033.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-033
+          path: proxy_chunk_033.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 034 - Generate (continuous feed)"
+        id: gen034
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 34 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '34'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 034 - Upload to pool (proxy-chunk-034)"
+        if: ${{ !cancelled() && steps.gen034.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-034
+          path: proxy_chunk_034.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 035 - Generate (continuous feed)"
+        id: gen035
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 35 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '35'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 035 - Upload to pool (proxy-chunk-035)"
+        if: ${{ !cancelled() && steps.gen035.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-035
+          path: proxy_chunk_035.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 036 - Generate (continuous feed)"
+        id: gen036
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 36 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '36'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 036 - Upload to pool (proxy-chunk-036)"
+        if: ${{ !cancelled() && steps.gen036.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-036
+          path: proxy_chunk_036.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 037 - Generate (continuous feed)"
+        id: gen037
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 37 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '37'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 037 - Upload to pool (proxy-chunk-037)"
+        if: ${{ !cancelled() && steps.gen037.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-037
+          path: proxy_chunk_037.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 038 - Generate (continuous feed)"
+        id: gen038
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 38 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '38'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 038 - Upload to pool (proxy-chunk-038)"
+        if: ${{ !cancelled() && steps.gen038.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-038
+          path: proxy_chunk_038.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 039 - Generate (continuous feed)"
+        id: gen039
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 39 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '39'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 039 - Upload to pool (proxy-chunk-039)"
+        if: ${{ !cancelled() && steps.gen039.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-039
+          path: proxy_chunk_039.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Chunk 040 - Generate (continuous feed)"
+        id: gen040
+        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 40 }}
+        continue-on-error: true
+        env:
+          CHUNK_IDX: '40'
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+          PRIOR_DIR: '.'
+        run: python3 gen_chunk.py
+
+      - name: "Chunk 040 - Upload to pool (proxy-chunk-040)"
+        if: ${{ !cancelled() && steps.gen040.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-040
+          path: proxy_chunk_040.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: "Final Pool Report"
+        if: ${{ !cancelled() }}
+        env:
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          EXTRA_PCT: ${{ needs.prepare_matrix.outputs.extra_pct }}
+          CHUNK_COUNT: ${{ needs.prepare_matrix.outputs.chunk_count }}
+        run: python3 report_pool.py
 
   remote_session:
     name: ${{ matrix.display_name }}
-    # Waits for the INITIAL pool job only. The continuous feed runs in parallel.
-    # !cancelled() keeps devices running even if the pool job was skipped/failed (API-key fallback).
-    needs: [prepare_matrix, proxy_pool_initial]
-    if: ${{ !cancelled() && needs.prepare_matrix.result == 'success' && needs.prepare_matrix.outputs.has_tasks == 'true' }}
+    # GitHub cannot start a dependent job while another job is still running, and the combined Proxy Pool job
+    # keeps running (continuous feed). So device runners start alongside it and the FIRST step below holds
+    # each device at a gate until the initial 5% chunk exists. No device does any work before that.
+    needs: prepare_matrix
+    if: ${{ needs.prepare_matrix.outputs.has_tasks == 'true' }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     strategy:
       fail-fast: false
@@ -1804,45 +2519,20 @@ jobs:
       matrix: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
 
     steps:
-      - name: Device Spawn Delay (Batch Intermission)
-        shell: python
-        env:
-          DELAY_SECONDS: ${{ matrix.delay_seconds }}
-          BATCH_IDX: ${{ matrix.batch_idx }}
-          ABSOLUTE_IDX: ${{ matrix.absolute_idx }}
-        run: |
-          import os, time
-
-          try:
-              delay = int(os.environ.get("DELAY_SECONDS", "0"))
-          except Exception:
-              delay = 0
-
-          batch = os.environ.get("BATCH_IDX", "0")
-          idx = os.environ.get("ABSOLUTE_IDX", "1")
-
-          if delay > 0:
-              print(f"--- BATCH {batch} INTERMISSION ACTIVE ---")
-              print(f"Device {idx} belongs to Batch {batch}.")
-              print(f"Applying uniform batch spawn delay: Sleeping for {delay} seconds to stagger execution...")
-              time.sleep(delay)
-              print("Intermission delay complete. Proceeding with payload tasks.")
-          else:
-              print(f"Device {idx} (Batch {batch}) requires no spawn delay. Executing immediately.")
-
-      - name: Acquire Proxy From Pool (wait for batch, API key only as last resort)
+      - name: "Gate - Wait for Initial 5% Proxy Pool"
         shell: python
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
-          POOL_ENABLED: ${{ needs.proxy_pool_initial.result != 'skipped' && 'true' || 'false' }}
+          POOL_ENABLED: ${{ inputs.generate_all_proxies == true && inputs.use_without_proxy != true && 'true' || 'false' }}
           TASK_INDEX: ${{ matrix.task_index }}
           TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
           POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
           INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
           CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
-          POOL_WAIT_MINUTES: '12'
+          POOL_MODE: gate
+          GATE_WAIT_MINUTES: '20'
         run: |
           import os, sys, json, time, io, zipfile, subprocess
           import urllib.request, urllib.error
@@ -1894,8 +2584,10 @@ jobs:
               sys.exit(0)
 
 
+          MODE = os.environ.get("POOL_MODE", "fetch")
+          GATE_WAIT_MIN = geti("GATE_WAIT_MINUTES", 20)
           say("=" * 72)
-          say(f" DEVICE #{TASK}: ACQUIRE PROXY FROM POOL")
+          say(f" DEVICE #{TASK}: " + ("GATE - WAIT FOR THE INITIAL 5% PROXY POOL" if MODE == "gate" else "ACQUIRE PROXY FROM POOL"))
           say("=" * 72)
           say(f"[Pool] Needs proxy number      : #{TASK}  (pool = tasks {TASKS_TOTAL} + spares {max(0, POOL_TOTAL - TASKS_TOTAL)} = {POOL_TOTAL})")
 
@@ -1952,18 +2644,39 @@ jobs:
                   raise
 
 
-          def chunk_job_state(c):
-              """Returns 'finished', 'running' or 'unknown' for the generator job of chunk c."""
-              prefix = f"Proxy Pool Chunk {c} "
+          _job_cache = {"id": None}
+
+
+          def find_pool_job():
+              if _job_cache["id"]:
+                  try:
+                      return gh_json(f"{API}/repos/{REPO}/actions/jobs/{_job_cache['id']}")
+                  except Exception:
+                      _job_cache["id"] = None
               for page in range(1, 11):
                   data = gh_json(f"{API}/repos/{REPO}/actions/runs/{RUN_ID}/jobs?per_page=100&page={page}&filter=latest")
                   jobs = data.get("jobs", [])
                   for j in jobs:
-                      if (j.get("name") or "").startswith(prefix):
-                          return "finished" if j.get("status") == "completed" else "running"
+                      if (j.get("name") or "").startswith("Proxy Pool"):
+                          _job_cache["id"] = j["id"]
+                          return j
                   if len(jobs) < 100:
                       break
-              return "unknown"
+              return None
+
+
+          def chunk_job_state(c):
+              """'finished' when the pool job (or that chunk's upload step) is done, 'running', or 'unknown'."""
+              job = find_pool_job()
+              if not job:
+                  return "unknown"
+              if job.get("status") == "completed":
+                  return "finished"
+              prefix = f"Chunk {c:03d} - Upload"
+              for st in job.get("steps", []):
+                  if (st.get("name") or "").startswith(prefix):
+                      return "finished" if st.get("status") == "completed" else "running"
+              return "running"
 
 
           def chunk_for(seq):
@@ -2051,6 +2764,47 @@ jobs:
               return None
 
 
+          def run_gate():
+              wait_s = GATE_WAIT_MIN * 60
+              t0 = time.time()
+              last_log = 0.0
+              say("[Gate] Runner is up. Holding here until the initial 5% proxy pool (chunk 0) has been uploaded...")
+              while True:
+                  try:
+                      if list_artifacts("proxy-chunk-000"):
+                          say(f"[Gate] Initial pool is READY after {int(time.time() - t0)}s -> device may proceed.")
+                          return
+                  except Exception as e:
+                      say(f"[Gate] artifact check error: {type(e).__name__}")
+                  try:
+                      st = chunk_job_state(0)
+                  except Exception:
+                      st = "unknown"
+                  if st == "finished":
+                      time.sleep(5)
+                      try:
+                          if list_artifacts("proxy-chunk-000"):
+                              say("[Gate] Initial pool is READY -> device may proceed.")
+                              return
+                      except Exception:
+                          pass
+                      say("[Gate] Pool job finished WITHOUT an initial chunk -> continuing; this device will use the API-key fallback.")
+                      return
+                  now = time.time()
+                  if now - t0 >= wait_s:
+                      say(f"::warning title=Gate::Initial pool not ready after {GATE_WAIT_MIN} min -> continuing (API-key fallback).")
+                      return
+                  if now - last_log >= 30:
+                      last_log = now
+                      say(f"[Gate] ...still generating the initial 5% (pool job state: {st}) - waited {int(now - t0)}s of max {GATE_WAIT_MIN * 60}s")
+                  time.sleep(10)
+
+
+          if MODE == "gate":
+              run_gate()
+              sys.exit(0)
+
+
           try:
               visible = sorted(a["name"] for a in list_artifacts() if a["name"].startswith("proxy-chunk-"))
               say(f"[Pool] Chunks visible right now : {len(visible)} -> {', '.join(visible) if visible else 'none'}")
@@ -2109,6 +2863,375 @@ jobs:
               say(f"::warning title=Pool fetch::{type(e).__name__}: {e}")
               finish_none(f"pool lookup error {type(e).__name__}")
 
+      - name: Device Spawn Delay (Batch Intermission)
+        shell: python
+        env:
+          DELAY_SECONDS: ${{ matrix.delay_seconds }}
+          BATCH_IDX: ${{ matrix.batch_idx }}
+          ABSOLUTE_IDX: ${{ matrix.absolute_idx }}
+        run: |
+          import os, time
+
+          try:
+              delay = int(os.environ.get("DELAY_SECONDS", "0"))
+          except Exception:
+              delay = 0
+
+          batch = os.environ.get("BATCH_IDX", "0")
+          idx = os.environ.get("ABSOLUTE_IDX", "1")
+
+          if delay > 0:
+              print(f"--- BATCH {batch} INTERMISSION ACTIVE ---")
+              print(f"Device {idx} belongs to Batch {batch}.")
+              print(f"Applying uniform batch spawn delay: Sleeping for {delay} seconds to stagger execution...")
+              time.sleep(delay)
+              print("Intermission delay complete. Proceeding with payload tasks.")
+          else:
+              print(f"Device {idx} (Batch {batch}) requires no spawn delay. Executing immediately.")
+
+      - name: Acquire Proxy From Pool (wait for batch, API key only as last resort)
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          POOL_ENABLED: ${{ inputs.generate_all_proxies == true && inputs.use_without_proxy != true && 'true' || 'false' }}
+          TASK_INDEX: ${{ matrix.task_index }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
+          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
+          POOL_MODE: fetch
+          POOL_WAIT_MINUTES: '12'
+        run: |
+          import os, sys, json, time, io, zipfile, subprocess
+          import urllib.request, urllib.error
+
+
+          def say(m=""):
+              print(m, flush=True)
+
+
+          def geti(k, d=0):
+              try:
+                  return int(os.environ.get(k, str(d)))
+              except Exception:
+                  return d
+
+
+          TASK = geti("TASK_INDEX", 1)
+          TASKS_TOTAL = geti("TASKS_TOTAL")
+          POOL_TOTAL = geti("POOL_TOTAL")
+          INITIAL = max(1, geti("INITIAL_TARGET", 1))
+          CHUNK_SIZE = max(1, geti("CHUNK_SIZE", 10))
+          WAIT_MIN = geti("POOL_WAIT_MINUTES", 12)
+          POOL_ENABLED = os.environ.get("POOL_ENABLED", "false").lower() == "true"
+          TEMP = os.environ.get("RUNNER_TEMP", ".")
+          OUT = os.path.join(TEMP, "pool_proxy.json")
+          GH_ENV = os.environ.get("GITHUB_ENV")
+          TOKEN = os.environ.get("GH_TOKEN", "")
+          REPO = os.environ.get("REPO", "")
+          RUN_ID = os.environ.get("RUN_ID", "")
+          API = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+          HDR = {
+              "Authorization": f"Bearer {TOKEN}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "proxy-pool-client",
+          }
+
+
+          def set_env(k, v):
+              if GH_ENV:
+                  with open(GH_ENV, "a", encoding="utf-8") as f:
+                      f.write(f"{k}={v}\n")
+
+
+          def finish_none(reason):
+              say(f"[Pool] RESULT: no pool proxy for device #{TASK} ({reason})")
+              say("[Pool] -> Device will FALL BACK to API-key proxy generation (last resort).")
+              set_env("POOL_PROXY_SOURCE", "none")
+              sys.exit(0)
+
+
+          MODE = os.environ.get("POOL_MODE", "fetch")
+          GATE_WAIT_MIN = geti("GATE_WAIT_MINUTES", 20)
+          say("=" * 72)
+          say(f" DEVICE #{TASK}: " + ("GATE - WAIT FOR THE INITIAL 5% PROXY POOL" if MODE == "gate" else "ACQUIRE PROXY FROM POOL"))
+          say("=" * 72)
+          say(f"[Pool] Needs proxy number      : #{TASK}  (pool = tasks {TASKS_TOTAL} + spares {max(0, POOL_TOTAL - TASKS_TOTAL)} = {POOL_TOTAL})")
+
+          if not POOL_ENABLED:
+              say("[Pool] Pool is disabled or was skipped (use_without_proxy / generate_all_proxies off).")
+              set_env("POOL_PROXY_SOURCE", "none")
+              sys.exit(0)
+
+          if os.path.isfile(OUT):
+              os.remove(OUT)
+
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *a, **k):
+                  return None
+
+
+          def gh_json(url):
+              last = None
+              for i in range(3):
+                  try:
+                      with urllib.request.urlopen(urllib.request.Request(url, headers=HDR), timeout=30) as r:
+                          return json.loads(r.read())
+                  except urllib.error.HTTPError as e:
+                      last = e
+                      if e.code in (500, 502, 503, 504) and i < 2:
+                          time.sleep(2)
+                          continue
+                      raise
+                  except Exception as e:
+                      last = e
+                      time.sleep(2)
+              raise last
+
+
+          def list_artifacts(name=None):
+              url = f"{API}/repos/{REPO}/actions/runs/{RUN_ID}/artifacts?per_page=100"
+              if name:
+                  url += f"&name={name}"
+              return [a for a in gh_json(url).get("artifacts", []) if not a.get("expired")]
+
+
+          def download_zip(art_id):
+              url = f"{API}/repos/{REPO}/actions/artifacts/{art_id}/zip"
+              opener = urllib.request.build_opener(NoRedirect)
+              try:
+                  with opener.open(urllib.request.Request(url, headers=HDR), timeout=30) as r:
+                      return r.read()
+              except urllib.error.HTTPError as e:
+                  if e.code in (301, 302, 303, 307, 308):
+                      loc = e.headers.get("Location")
+                      with urllib.request.urlopen(urllib.request.Request(loc, headers={"User-Agent": "proxy-pool-client"}), timeout=60) as r2:
+                          return r2.read()
+                  raise
+
+
+          _job_cache = {"id": None}
+
+
+          def find_pool_job():
+              if _job_cache["id"]:
+                  try:
+                      return gh_json(f"{API}/repos/{REPO}/actions/jobs/{_job_cache['id']}")
+                  except Exception:
+                      _job_cache["id"] = None
+              for page in range(1, 11):
+                  data = gh_json(f"{API}/repos/{REPO}/actions/runs/{RUN_ID}/jobs?per_page=100&page={page}&filter=latest")
+                  jobs = data.get("jobs", [])
+                  for j in jobs:
+                      if (j.get("name") or "").startswith("Proxy Pool"):
+                          _job_cache["id"] = j["id"]
+                          return j
+                  if len(jobs) < 100:
+                      break
+              return None
+
+
+          def chunk_job_state(c):
+              """'finished' when the pool job (or that chunk's upload step) is done, 'running', or 'unknown'."""
+              job = find_pool_job()
+              if not job:
+                  return "unknown"
+              if job.get("status") == "completed":
+                  return "finished"
+              prefix = f"Chunk {c:03d} - Upload"
+              for st in job.get("steps", []):
+                  if (st.get("name") or "").startswith(prefix):
+                      return "finished" if st.get("status") == "completed" else "running"
+              return "running"
+
+
+          def chunk_for(seq):
+              if seq <= INITIAL:
+                  return 0
+              return 1 + (seq - INITIAL - 1) // CHUNK_SIZE
+
+
+          _cache = {}
+
+
+          def get_chunk(c, deadline):
+              if c in _cache:
+                  return _cache[c]
+              name = f"proxy-chunk-{c:03d}"
+              last_status = 0.0
+              last_job = 0.0
+              finished_seen = False
+              waited_from = time.time()
+              while True:
+                  arts = list_artifacts(name)
+                  if arts:
+                      blob = download_zip(arts[0]["id"])
+                      with zipfile.ZipFile(io.BytesIO(blob)) as z:
+                          fn = [n for n in z.namelist() if n.endswith(".json")][0]
+                          data = json.loads(z.read(fn))
+                      _cache[c] = data
+                      say(f"[Pool] Chunk {c} loaded ({data.get('generated')}/{data.get('requested')} proxies, range #{data.get('start_seq')}-#{data.get('end_seq')})")
+                      return data
+                  if c == 0:
+                      say("[Pool] Chunk 0 artifact missing although the initial pool job already finished.")
+                      return None
+                  if finished_seen:
+                      say(f"[Pool] Chunk {c} generator job finished but produced no artifact.")
+                      return None
+                  now = time.time()
+                  if now - last_job >= 45:
+                      last_job = now
+                      try:
+                          st = chunk_job_state(c)
+                      except Exception as e:
+                          st = "unknown"
+                          say(f"[Pool] (job state check failed: {type(e).__name__})")
+                      if st == "finished":
+                          finished_seen = True
+                          time.sleep(5)
+                          continue
+                  if now >= deadline:
+                      say(f"[Pool] Gave up waiting for chunk {c} after {int(now - waited_from)}s.")
+                      return None
+                  if now - last_status >= 60 or last_status == 0:
+                      last_status = now
+                      say(f"[Pool] Waiting for chunk {c} (proxy batch still generating)... {int(now - waited_from)}s elapsed, limit {WAIT_MIN} min")
+                  time.sleep(15)
+
+
+          def quick_check(p):
+              try:
+                  import requests, urllib3
+              except ImportError:
+                  subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "urllib3", "--quiet"])
+                  import requests, urllib3
+              urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+              auth = f"{p['username']}:{p['password']}@" if p.get("username") else ""
+              url = f"http://{auth}{p['host']}:{p['port']}"
+              cfg = {"http": url, "https": url}
+              for attempt in range(2):
+                  for ep in ("http://ip-api.com/json/", "https://ipinfo.io/json"):
+                      try:
+                          r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
+                          if r.status_code == 200 and ("ip" in r.json() or "query" in r.json()):
+                              return True
+                      except Exception:
+                          pass
+                  time.sleep(2)
+              return False
+
+
+          def find_seq(data, seq):
+              if not data:
+                  return None
+              for p in data.get("proxies", []):
+                  if p.get("seq") == seq:
+                      return p
+              return None
+
+
+          def run_gate():
+              wait_s = GATE_WAIT_MIN * 60
+              t0 = time.time()
+              last_log = 0.0
+              say("[Gate] Runner is up. Holding here until the initial 5% proxy pool (chunk 0) has been uploaded...")
+              while True:
+                  try:
+                      if list_artifacts("proxy-chunk-000"):
+                          say(f"[Gate] Initial pool is READY after {int(time.time() - t0)}s -> device may proceed.")
+                          return
+                  except Exception as e:
+                      say(f"[Gate] artifact check error: {type(e).__name__}")
+                  try:
+                      st = chunk_job_state(0)
+                  except Exception:
+                      st = "unknown"
+                  if st == "finished":
+                      time.sleep(5)
+                      try:
+                          if list_artifacts("proxy-chunk-000"):
+                              say("[Gate] Initial pool is READY -> device may proceed.")
+                              return
+                      except Exception:
+                          pass
+                      say("[Gate] Pool job finished WITHOUT an initial chunk -> continuing; this device will use the API-key fallback.")
+                      return
+                  now = time.time()
+                  if now - t0 >= wait_s:
+                      say(f"::warning title=Gate::Initial pool not ready after {GATE_WAIT_MIN} min -> continuing (API-key fallback).")
+                      return
+                  if now - last_log >= 30:
+                      last_log = now
+                      say(f"[Gate] ...still generating the initial 5% (pool job state: {st}) - waited {int(now - t0)}s of max {GATE_WAIT_MIN * 60}s")
+                  time.sleep(10)
+
+
+          if MODE == "gate":
+              run_gate()
+              sys.exit(0)
+
+
+          try:
+              visible = sorted(a["name"] for a in list_artifacts() if a["name"].startswith("proxy-chunk-"))
+              say(f"[Pool] Chunks visible right now : {len(visible)} -> {', '.join(visible) if visible else 'none'}")
+
+              deadline = time.time() + WAIT_MIN * 60
+              c = chunk_for(TASK)
+              say(f"[Pool] Proxy #{TASK} lives in chunk {c} (artifact proxy-chunk-{c:03d})")
+              chosen, origin = None, ""
+
+              p = find_seq(get_chunk(c, deadline), TASK)
+              if p:
+                  say(f"[Pool] Found proxy #{TASK} '{p['name']}' -> IP {p['ip']} ({p['country_code']}). Health-checking...")
+                  if quick_check(p):
+                      chosen, origin = p, "primary"
+                  else:
+                      say(f"[Pool] Proxy #{TASK} failed the device-side health check.")
+              else:
+                  say(f"[Pool] Proxy #{TASK} is not present in chunk {c}.")
+
+              if not chosen:
+                  extra = POOL_TOTAL - TASKS_TOTAL
+                  if extra > 0:
+                      say(f"[Pool] Trying spare proxies (#{TASKS_TOTAL + 1}-#{POOL_TOTAL}) before touching the API key...")
+                      for attempt in range(3):
+                          sp = TASKS_TOTAL + 1 + ((TASK * 7 + attempt * 13) % extra)
+                          sc = chunk_for(sp)
+                          try:
+                              cand = find_seq(get_chunk(sc, time.time()), sp)
+                          except Exception as e:
+                              cand = None
+                              say(f"[Pool] spare lookup error: {type(e).__name__}")
+                          if cand and quick_check(cand):
+                              chosen, origin = cand, f"spare #{sp}"
+                              break
+                          say(f"[Pool] Spare #{sp} unavailable.")
+
+              if not chosen:
+                  finish_none("proxy missing/unhealthy and no spare available")
+
+              if len(chosen.get("password", "")) >= 8:
+                  print(f"::add-mask::{chosen['password']}", flush=True)
+              chosen["assigned_origin"] = origin
+              with open(OUT, "w", encoding="utf-8") as f:
+                  json.dump(chosen, f)
+              set_env("POOL_PROXY_SOURCE", "pool")
+              set_env("POOL_PROXY_NAME", chosen["name"])
+              say("")
+              say(f"[Pool] RESULT: device #{TASK} uses POOL proxy #{chosen['seq']} ({origin})")
+              say(f"[Pool]   dashboard name : {chosen['name']}   (app.gologin.com/proxy)")
+              say(f"[Pool]   exit IP        : {chosen['ip']} | {chosen['country_code']} {chosen.get('city', '')}")
+              say(f"[Pool]   provider       : {chosen['source']}")
+              say("[Pool] API-key generation will NOT be used for this device.")
+          except SystemExit:
+              raise
+          except Exception as e:
+              say(f"::warning title=Pool fetch::{type(e).__name__}: {e}")
+              finish_none(f"pool lookup error {type(e).__name__}")
 
       - name: Runner Proxy & Identity Provisioning
         shell: python
@@ -3102,6 +4225,7 @@ jobs:
           EXE_FILTER: ${{ matrix.exe_filter }}
           ACTION_MODE: ${{ matrix.action_mode }}
           PROFILE_TAG: ${{ matrix.profile_tag }}
+          POST_BEHAVIOR: ${{ matrix.post_behavior }}
           APPLY_MASKING: ${{ inputs.apply_masking }}
         run: |
           $edgePolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"
@@ -3172,6 +4296,7 @@ jobs:
               apply_masking = ($env:APPLY_MASKING -eq 'true')
               tz_iana       = $env:TIMEZONE_IANA
               profile_tag   = $env:PROFILE_TAG
+              post_behavior = $env:POST_BEHAVIOR
           }
           $credJson = $credObj | ConvertTo-Json -Depth 2
           [System.IO.File]::WriteAllText($credFile, $credJson, [System.Text.UTF8Encoding]::new($false))
@@ -3214,6 +4339,7 @@ jobs:
           APPLY_MASKING = _CREDS.get("apply_masking", True)
           TZ_IANA       = _CREDS.get("tz_iana", "UTC")
           PROFILE_TAG_PARAM = _CREDS.get("profile_tag", "P1")
+          POST_BEHAVIOR = _CREDS.get("post_behavior", "none")   # none | scroll | surf
 
           DOWNLOAD_DONE_TITLES = [
               "Thanks for downloading Opera", "Thanks for downloadin",
@@ -4388,7 +5514,7 @@ jobs:
                   return False
 
           # =========================================================================
-          # 100 VISITOR PROFILES ENGINE (P1 - P100) & ADVANCED SURF SIMULATOR  (v2)
+          # 100 VISITOR PROFILES ENGINE (P1 - P100) & ADVANCED SURF SIMULATOR  (v3: site lock + per-scroll variation)
           #  - HARD CAP: whole surf engine (page load + browsing) never exceeds 180s
           #  - Randomised runtime per session (triangular + bounce / sticky outliers)
           #  - 100 deterministic personas (8 archetypes) + per-session mood variation
@@ -4432,7 +5558,8 @@ jobs:
           _SURF_CLOCK = None
           _CLICKED_LABELS = set()
           SURF_STATS = {"scroll": 0, "keyscroll": 0, "read": 0, "select": 0, "link": 0,
-                        "rove": 0, "idle": 0, "scroll_back": 0, "back_nav": 0, "footer_dive": 0}
+                        "rove": 0, "idle": 0, "scroll_back": 0, "back_nav": 0, "footer_dive": 0,
+                        "escapes_recovered": 0, "links_rejected_offsite": 0, "links_rejected_bad": 0, "errors": 0}
 
 
           def surf_remaining():
@@ -4714,47 +5841,94 @@ jobs:
 
 
           # ---------------------------------------------------------------------------
-          # Scrolling: eased wheel scroll, momentary hesitation, overshoot correction,
-          # plus keyboard paging (PageDown / arrows) as an alternative style
+          # Scrolling: EVERY scroll draws its own fresh parameter set (tick count, step
+          # size, per-tick jitter, easing strength, momentum, tick delay range,
+          # hesitation, overshoot, settle pause, pointer drift...). No two scrolls are
+          # ever executed with the same numbers.
           # ---------------------------------------------------------------------------
-          def human_natural_scroll(direction="down", intensity="medium", overshoot_prob=0.10, speed=1.0):
+          def sample_scroll_params(direction="down", intensity="medium", speed=1.0, overshoot_prob=0.10):
+              base = {"short": (2, 5, 60, 130), "medium": (3, 9, 80, 190), "long": (7, 15, 110, 260)}.get(intensity, (3, 9, 80, 190))
+              return {
+                  "direction": direction,
+                  "intensity": intensity,
+                  "ticks": random.randint(base[0], base[1]),
+                  "step": random.randint(base[2], base[3]),
+                  "step_jitter": random.uniform(0.05, 0.30),
+                  "ease": random.uniform(0.25, 1.0),
+                  "momentum": random.uniform(-0.25, 0.25),
+                  "tick_delay": (random.uniform(0.025, 0.07), random.uniform(0.09, 0.24)),
+                  "speed": speed * random.uniform(0.85, 1.20),
+                  "hesitate_prob": random.uniform(0.0, 0.10),
+                  "hesitate_len": (random.uniform(0.15, 0.35), random.uniform(0.45, 1.0)),
+                  "overshoot_prob": min(0.5, overshoot_prob * random.uniform(0.5, 1.6)),
+                  "overshoot_ticks": random.randint(1, 3),
+                  "settle_pause": (random.uniform(0.15, 0.40), random.uniform(0.50, 1.30)),
+                  "pointer_drift": random.random() < 0.35,
+              }
+
+
+          def describe_scroll_params(p):
+              return (f"{p['direction'].upper()} {p['intensity']} | ticks={p['ticks']} step={p['step']}±{p['step_jitter']:.0%} "
+                      f"ease={p['ease']:.2f} mom={p['momentum']:+.2f} delay={p['tick_delay'][0]:.2f}-{p['tick_delay'][1]:.2f}s "
+                      f"hes={p['hesitate_prob']:.0%} ovs={p['overshoot_prob']:.0%}")
+
+
+          def human_natural_scroll(direction="down", intensity="medium", overshoot_prob=0.10, speed=1.0, params=None):
+              """Eased wheel scroll. Pass params=None (default) to draw a brand-new parameter set for this scroll."""
+              p = params or sample_scroll_params(direction, intensity, speed, overshoot_prob)
               try:
-                  ensure_pointer_on_content(speed)
-                  cfg = {"short": (2, 4, 70, 120), "medium": (3, 7, 90, 160), "long": (6, 12, 120, 220)}[intensity]
-                  ticks_count = random.randint(cfg[0], cfg[1])
-                  step_size = random.randint(cfg[2], cfg[3])
+                  ensure_pointer_on_content(p["speed"])
                   sign = -1 if direction == "down" else 1
-
-                  for i in range(ticks_count):
+                  n = max(1, p["ticks"])
+                  for i in range(n):
                       if surf_remaining() <= 1:
-                          return
-                      pos = (i + 0.5) / ticks_count
-                      ease = 0.55 + 0.9 * math.sin(math.pi * pos)   # gentle start, quick middle, gentle stop
-                      pyautogui.scroll(int(sign * step_size * ease * random.uniform(0.9, 1.1)), _pause=False)
-                      time.sleep(random.uniform(0.04, 0.16) / max(0.6, speed))
-                      if random.random() < 0.06:
-                          surf_sleep(random.uniform(0.25, 0.7))      # momentary hesitation
+                          return p
+                      pos = (i + 0.5) / n
+                      ease_factor = (1.0 - p["ease"]) + p["ease"] * (0.35 + 1.10 * math.sin(math.pi * pos))
+                      momentum_factor = 1.0 + p["momentum"] * (pos - 0.5) * 2.0
+                      jitter = random.uniform(1.0 - p["step_jitter"], 1.0 + p["step_jitter"])
+                      amount = int(sign * p["step"] * ease_factor * momentum_factor * jitter)
+                      if amount == 0:
+                          amount = sign * 30
+                      pyautogui.scroll(amount, _pause=False)
+                      lo, hi = p["tick_delay"]
+                      time.sleep(random.uniform(lo, hi) / max(0.6, p["speed"]))
+                      if p["pointer_drift"] and random.random() < 0.25:
+                          pyautogui.moveRel(random.randint(-6, 6), random.randint(-4, 4), duration=0.05, _pause=False)
+                      if random.random() < p["hesitate_prob"]:
+                          surf_sleep(random.uniform(*p["hesitate_len"]))
 
-                  if random.random() < overshoot_prob:
+                  if random.random() < p["overshoot_prob"]:
                       surf_sleep(random.uniform(0.2, 0.5))
-                      pyautogui.scroll(int(-sign * random.randint(40, 110)), _pause=False)  # scrolled too far, nudge back
-                  surf_sleep(random.uniform(0.3, 0.8))
+                      for _ in range(p["overshoot_ticks"]):
+                          pyautogui.scroll(int(-sign * random.randint(30, 90)), _pause=False)
+                          time.sleep(random.uniform(0.04, 0.12))
+                  surf_sleep(random.uniform(*p["settle_pause"]))
               except Exception:
                   pass
+              return p
 
 
           def human_key_scroll(direction="down"):
+              """Keyboard scrolling with a randomly chosen style each time."""
               try:
                   ensure_pointer_on_content()
-                  if random.random() < 0.5:
+                  style = random.choice(["page", "page", "arrow", "arrow", "burst"])
+                  if style == "page":
                       key = "pagedown" if direction == "down" else "pageup"
-                      pyautogui.press(key, presses=random.randint(1, 2), interval=random.uniform(0.35, 0.8), _pause=False)
+                      pyautogui.press(key, presses=random.randint(1, 3), interval=random.uniform(0.30, 1.0), _pause=False)
+                  elif style == "arrow":
+                      key = "down" if direction == "down" else "up"
+                      pyautogui.press(key, presses=random.randint(2, 12), interval=random.uniform(0.03, 0.14), _pause=False)
                   else:
                       key = "down" if direction == "down" else "up"
-                      pyautogui.press(key, presses=random.randint(3, 8), interval=random.uniform(0.05, 0.12), _pause=False)
+                      for _ in range(random.randint(2, 3)):
+                          pyautogui.press(key, presses=random.randint(3, 7), interval=random.uniform(0.04, 0.10), _pause=False)
+                          surf_sleep(random.uniform(0.25, 0.9))
                   surf_sleep(random.uniform(0.3, 0.9))
+                  return style
               except Exception:
-                  pass
+                  return "error"
 
 
           # ---------------------------------------------------------------------------
@@ -4805,80 +5979,368 @@ jobs:
 
 
           # ---------------------------------------------------------------------------
-          # Link finder: middle / lower part of the page only, safe-keyword preference,
-          # never the same label twice, hover dwell before clicking
+          # SITE LOCK
+          # Once the (short) URL has redirected and the real page is loaded and stable,
+          # the exact host (domain + sub-domain) is locked. During surfing:
+          #   * links whose destination host differs are NEVER clicked
+          #     (techxstudio.exblog.jp/30552337/ = OK, www.exblog.jp = rejected)
+          #   * if a click / redirect / popup still lands elsewhere, the engine returns
+          #     immediately (Alt+Left -> close stray tab -> navigate straight home)
+          #   * a sentinel re-checks the address bar every few seconds
+          # If the address bar cannot be read at all, link clicking is DISABLED
+          # (fail closed) - the session only scrolls/reads.
           # ---------------------------------------------------------------------------
-          def find_and_interact_middle_or_downside(edge_window, speed=1.0, overshoot_prob=0.1):
-              sw, sh = pyautogui.size()
-              candidate_links = []
-              scan_t0 = time.time()
-              log_msg("LinkFinder", "Searching for interactive elements strictly in MIDDLE or DOWNSIDE...")
+          _ADDR_CTRL = None
+          _SITE = {"host": None, "home_url": None, "short_host": None, "locked": False, "readable": False}
+          _INTERNAL_SCHEMES = ("chrome-error", "edge-error", "about", "edge", "chrome", "data", "blob", "file",
+                               "view-source", "devtools", "chrome-extension", "extension")
+          FILE_EXT_RE = re.compile(r"\.(pdf|zip|rar|7z|exe|msi|apk|dmg|iso|torrent|mp4|mkv|avi|mp3|docx?|xlsx?|pptx?|csv)(\?|#|$)", re.I)
+
+
+          def _norm_host(h):
+              h = (h or "").strip().lower()
+              h = h.split("@")[-1]
+              if h.startswith("["):          # ipv6 literal
+                  return h
+              h = h.split(":")[0]
+              if h.startswith("www."):
+                  h = h[4:]
+              return h
+
+
+          def parse_url_host(raw):
+              """Returns (normalised_host | '__internal__' | None, full_url_with_scheme | None)."""
+              if not raw:
+                  return None, None
+              s = str(raw).strip().strip("\"'")
+              if not s or " " in s:
+                  return None, None
+              m = re.match(r"^([a-zA-Z][a-zA-Z0-9+.\-]*)://(.*)$", s)
+              scheme, rest = (m.group(1).lower(), m.group(2)) if m else (None, s)
+              if scheme in _INTERNAL_SCHEMES or (scheme is None and re.match(r"^(about|edge|chrome):", s.lower())):
+                  return "__internal__", None
+              host = _norm_host(re.split(r"[/?#]", rest, 1)[0])
+              if not host or not re.match(r"^[\w\-\.\[\]:]+$", host, re.UNICODE):
+                  return None, None
+              if "." not in host and host != "localhost" and not host.startswith("["):
+                  return None, None
+              return host, f"{scheme or 'https'}://{rest}"
+
+
+          def _find_addr_ctrl(edge_window):
+              try:
+                  for ed in edge_window.descendants(control_type="Edit"):
+                      try:
+                          aid = (ed.element_info.automation_id or "").lower()
+                      except Exception:
+                          aid = ""
+                      if "addresseditbox" in aid or "addressfield" in aid or "locationbar" in aid:
+                          return ed
+                  for ed in edge_window.descendants(control_type="Edit"):
+                      fn = globals().get("_is_address_bar_control")
+                      if fn and fn(ed):
+                          return ed
+              except Exception:
+                  pass
+              return None
+
+
+          def get_current_url(edge_window):
+              """Reads the address bar value (cached control, 3 different getters)."""
+              global _ADDR_CTRL
+              for _ in range(2):
+                  try:
+                      if _ADDR_CTRL is None:
+                          _ADDR_CTRL = _find_addr_ctrl(edge_window)
+                      if _ADDR_CTRL is None:
+                          return None
+                      val = None
+                      for getter in (lambda c: c.get_value(), lambda c: c.iface_value.CurrentValue, lambda c: c.window_text()):
+                          try:
+                              val = getter(_ADDR_CTRL)
+                              if val:
+                                  break
+                          except Exception:
+                              continue
+                      if val:
+                          return str(val).strip()
+                      _ADDR_CTRL = None
+                  except Exception:
+                      _ADDR_CTRL = None
+              return None
+
+
+          def lock_site(edge_window, initial_url, max_wait=20):
+              """Waits until the short URL has redirected and the real page is stable, then locks the host."""
+              _SITE.update({"host": None, "home_url": None, "locked": False, "readable": False})
+              short_host, _ = parse_url_host(initial_url)
+              _SITE["short_host"] = short_host
+              t0 = time.time()
+              last, last_full, stable = None, None, 0
+              while (time.time() - t0) < max_wait and surf_remaining() > 8:
+                  host, full = parse_url_host(get_current_url(edge_window))
+                  if host and host != "__internal__":
+                      _SITE["readable"] = True
+                      if host == last:
+                          stable += 1
+                      else:
+                          last, last_full, stable = host, full, 1
+                      moved = (short_host is None) or (host != short_host)
+                      if stable >= 3 and (moved or (time.time() - t0) > 10):
+                          break
+                  else:
+                      stable = 0
+                  time.sleep(1.0)
+
+              if last:
+                  _SITE.update({"host": last, "home_url": last_full, "locked": True})
+                  moved_txt = "redirect resolved" if (short_host and last != short_host) else "no redirect observed"
+                  log_msg("SiteLock", f"LOCKED to host '{last}' ({moved_txt}; short-link host: {short_host or 'n/a'}; waited {time.time() - t0:.1f}s)")
+                  log_msg("SiteLock", f"Home URL: {last_full}")
+                  log_msg("SiteLock", f"Rule: only links on '{last}' are clickable. Everything else (other domains / other sub-domains) is rejected.")
+              else:
+                  log_msg("SiteLock", "WARNING: could not read the address bar / URL never stabilised. Link clicking DISABLED (fail-closed); scrolling/reading only.")
+              return _SITE["locked"]
+
+
+          def _site_host_now(edge_window):
+              return parse_url_host(get_current_url(edge_window))
+
+
+          def _set_clipboard_and_paste(edge_window, url):
+              try:
+                  import tkinter
+                  r = tkinter.Tk()
+                  r.withdraw()
+                  r.clipboard_clear()
+                  r.clipboard_append(url)
+                  r.update()
+                  send_keys('^l')
+                  time.sleep(0.4)
+                  send_keys('^v')
+                  time.sleep(0.3)
+                  send_keys('{ENTER}')
+                  try:
+                      r.destroy()
+                  except Exception:
+                      pass
+                  return True
+              except Exception:
+                  return False
+
+
+          def _escape_for_send_keys(s):
+              out = []
+              for ch in s:
+                  if ch in "+^%~(){}[]":
+                      out.append("{" + ch + "}")
+                  elif ch == " ":
+                      out.append("{SPACE}")
+                  else:
+                      out.append(ch)
+              return "".join(out)
+
+
+          def navigate_to_url(edge_window, url):
+              try:
+                  edge_window.set_focus()
+              except Exception:
+                  pass
+              time.sleep(0.3)
+              if _set_clipboard_and_paste(edge_window, url):
+                  return
+              send_keys('^l')
+              time.sleep(0.4)
+              send_keys(_escape_for_send_keys(url), pause=0.01)
+              time.sleep(0.2)
+              send_keys('{ENTER}')
+
+
+          def recover_to_site(edge_window, label="Recover"):
+              """Back to the locked host: history back -> close stray tab -> navigate home."""
+              if not _SITE["locked"]:
+                  return True
+
+              def on_site():
+                  host, _ = _site_host_now(edge_window)
+                  return host == _SITE["host"], host
+
+              for i in range(2):
+                  try:
+                      edge_window.set_focus()
+                      send_keys('%{LEFT}')
+                  except Exception:
+                      pass
+                  surf_sleep(random.uniform(1.6, 2.6))
+                  wait_for_page_to_fully_load(edge_window, 10)
+                  ok, host = on_site()
+                  log_msg("SiteLock", f"[{label}] history-back #{i + 1}: now on '{host}' ({'OK' if ok else 'still off-site'})")
+                  if ok:
+                      return True
 
               try:
-                  for el in edge_window.descendants():
+                  tabs = len(edge_window.descendants(control_type="TabItem"))
+              except Exception:
+                  tabs = 1
+              if tabs >= 2:
+                  try:
+                      send_keys('^w')
+                  except Exception:
+                      pass
+                  surf_sleep(1.6)
+                  ok, host = on_site()
+                  log_msg("SiteLock", f"[{label}] closed stray tab ({tabs} tabs were open): now on '{host}' ({'OK' if ok else 'still off-site'})")
+                  if ok:
+                      return True
+
+              log_msg("SiteLock", f"[{label}] navigating straight to home URL {_SITE['home_url']}")
+              navigate_to_url(edge_window, _SITE["home_url"])
+              surf_sleep(random.uniform(2.2, 3.2))
+              wait_for_page_to_fully_load(edge_window, 15)
+              ok, host = on_site()
+              log_msg("SiteLock", f"[{label}] after direct navigation: on '{host}' ({'OK' if ok else 'FAILED'})")
+              return ok
+
+
+          def site_sentinel(edge_window, label="Sentinel"):
+              """True when still on the locked host (or when it cannot be checked). Recovers when off-site."""
+              if not _SITE["locked"] or not _SITE["readable"]:
+                  return True
+              host, _ = _site_host_now(edge_window)
+              if host is None or host == _SITE["host"]:
+                  return True
+              log_msg("SiteLock", f"[{label}] LEFT THE SITE: now on '{host}' (locked: '{_SITE['host']}'). Recovering...")
+              SURF_STATS["escapes_recovered"] += 1
+              return recover_to_site(edge_window, label)
+
+
+          # ---------------------------------------------------------------------------
+          # Link finder (site-lock aware): every candidate's destination is classified
+          # BEFORE clicking. Off-site, file, mailto/javascript links are never clicked.
+          # ---------------------------------------------------------------------------
+          def get_link_href(el):
+              for getter in (lambda e: e.iface_value.CurrentValue, lambda e: e.legacy_properties().get("Value")):
+                  try:
+                      v = getter(el)
+                      if v and isinstance(v, str) and len(v.strip()) > 1:
+                          return v.strip()
+                  except Exception:
+                      continue
+              return None
+
+
+          def classify_href(href):
+              """'same' | 'off' | 'bad' | 'unknown' (destination cannot be read)."""
+              if not href:
+                  return "unknown"
+              h = href.strip()
+              low = h.lower()
+              if low.startswith(("javascript:", "mailto:", "tel:", "sms:", "blob:", "data:", "file:", "ftp:")):
+                  return "bad"
+              if low.startswith("#"):
+                  return "same"
+              if FILE_EXT_RE.search(low.split("#")[0]):
+                  return "bad"
+              if "://" not in h and (h.startswith("/") or h.startswith("?") or "." not in h.split("/")[0]):
+                  return "same"       # relative link -> same host by definition
+              host, _ = parse_url_host(h)
+              if host is None or host == "__internal__":
+                  return "unknown"
+              return "same" if host == _SITE["host"] else "off"
+
+
+          def _collect_link_candidates(edge_window, control_types, sw, sh):
+              found = []
+              for ct in control_types:
+                  try:
+                      els = edge_window.descendants(control_type=ct)
+                  except Exception:
+                      continue
+                  for el in els[:500]:
                       try:
-                          ctrl_type = el.element_info.control_type
-                          if ctrl_type not in ["Hyperlink", "Button", "MenuItem", "TabItem", "Text", "Custom"]:
-                              continue
                           txt = (el.window_text() or "").strip()
                           nm = (el.element_info.name or "").strip()
                           combined = f"{txt} {nm}".lower().strip()
-                          if not combined or len(combined) > 70:
-                              continue
-                          if combined in _CLICKED_LABELS:
-                              continue
-
-                          rect = el.rectangle()
-                          cx = rect.mid_point().x
-                          cy = rect.mid_point().y
-                          if cy < (sh * 0.25):
+                          if not combined or len(combined) > 70 or combined in _CLICKED_LABELS:
                               continue
                           if any(bad in combined for bad in DANGEROUS_CLICK_KEYWORDS):
                               continue
-                          if (sw * 0.08) < cx < (sw * 0.92) and (sh * 0.28) < cy < (sh * 0.90):
-                              is_safe_kw = any(good in combined for good in SAFE_SURF_KEYWORDS)
-                              candidate_links.append((is_safe_kw, el, cx, cy, combined))
+                          rect = el.rectangle()
+                          cx, cy = rect.mid_point().x, rect.mid_point().y
+                          if not ((sw * 0.08) < cx < (sw * 0.92) and (sh * 0.28) < cy < (sh * 0.90)):
+                              continue
+                          href = get_link_href(el)
+                          found.append({"el": el, "cx": cx, "cy": cy, "label": combined, "href": href,
+                                        "status": classify_href(href), "type": ct,
+                                        "safe_kw": any(good in combined for good in SAFE_SURF_KEYWORDS)})
                       except Exception:
                           continue
+              return found
 
-                  log_msg("LinkFinder", f"Scan finished in {time.time() - scan_t0:.1f}s: {len(candidate_links)} candidate(s).")
-                  if surf_remaining() < 12:
-                      log_msg("LinkFinder", "Not enough session time left to follow a link. Skipping.")
-                      return False
 
-                  if candidate_links:
-                      safe_first = [c for c in candidate_links if c[0]]
-                      pool = safe_first if (safe_first and random.random() < 0.75) else candidate_links
-                      pool.sort(key=lambda x: x[3], reverse=True)
-                      chosen = random.choice(pool[:min(10, len(pool))])
-                      _, target_el, cx, cy, label = chosen
-                      _CLICKED_LABELS.add(label)
-                      log_msg("LinkFinder", f"Chosen link: '{label[:40]}' at ({cx}, {cy}). Moving mouse...")
+          def find_and_interact_middle_or_downside(edge_window, speed=1.0, overshoot_prob=0.1):
+              """Clicks ONE same-site link. Returns a dict describing the click, or None."""
+              if not _SITE["locked"] or not _SITE["readable"]:
+                  log_msg("LinkFinder", "Site lock inactive (address bar unreadable) -> link clicking disabled for safety.")
+                  return None
 
-                      human_smooth_move(cx, cy, speed=speed, overshoot_prob=overshoot_prob)
-                      surf_sleep(random.uniform(0.25, 0.9))     # hover dwell before committing
+              sw, sh = pyautogui.size()
+              t0 = time.time()
+              log_msg("LinkFinder", f"Scanning for links on '{_SITE['host']}' (middle/lower page area)...")
 
-                      clicked = False
-                      if random.random() < 0.85:
-                          try:
-                              target_el.click_input()
-                              clicked = True
-                              log_msg("LinkFinder", "Clicked target link successfully.")
-                          except Exception:
-                              pass
-                      if not clicked:
-                          pyautogui.click(cx, cy)
-                          log_msg("LinkFinder", "Clicked target link via PyAutoGUI coordinates.")
-                      return True
-              except Exception as e:
-                  log_msg("LinkFinder", f"Middle/downside search failed: {e}")
-              return False
+              cands = _collect_link_candidates(edge_window, ["Hyperlink"], sw, sh)
+              same = [c for c in cands if c["status"] == "same"]
+              unknown = [c for c in cands if c["status"] == "unknown"]
+              if not same:
+                  cands += _collect_link_candidates(edge_window, ["Button", "MenuItem", "TabItem"], sw, sh)
+                  same = [c for c in cands if c["status"] == "same"]
+                  unknown = [c for c in cands if c["status"] == "unknown"]
+
+              off = [c for c in cands if c["status"] == "off"]
+              bad = [c for c in cands if c["status"] == "bad"]
+              SURF_STATS["links_rejected_offsite"] += len(off)
+              SURF_STATS["links_rejected_bad"] += len(bad)
+              log_msg("LinkFinder", f"Scan done in {time.time() - t0:.1f}s: same-site={len(same)} unknown-dest={len(unknown)} "
+                                    f"REJECTED off-site={len(off)} file/mailto/js={len(bad)}")
+              for c in off[:3]:
+                  log_msg("LinkFinder", f"  rejected off-site: '{c['label'][:35]}' -> {(c['href'] or '')[:80]}")
+
+              pool, mode = [], ""
+              if same:
+                  safe = [c for c in same if c["safe_kw"]]
+                  pool = safe if (safe and random.random() < 0.75) else same
+                  mode = "same-site (destination verified before click)"
+              elif unknown:
+                  pool = [c for c in unknown if c["type"] in ("Hyperlink", "Button", "MenuItem", "TabItem")]
+                  mode = "destination unreadable -> will verify after click and return if it leaves the site"
+              if not pool:
+                  log_msg("LinkFinder", "No safe same-site link available right now.")
+                  return None
+
+              pool.sort(key=lambda x: x["cy"], reverse=True)
+              chosen = random.choice(pool[:min(10, len(pool))])
+              _CLICKED_LABELS.add(chosen["label"])
+              log_msg("LinkFinder", f"Chosen: '{chosen['label'][:40]}' ({chosen['type']}) -> {(chosen['href'] or 'dest unknown')[:80]} [{mode}]")
+
+              human_smooth_move(chosen["cx"], chosen["cy"], speed=speed, overshoot_prob=overshoot_prob)
+              surf_sleep(random.uniform(0.25, 0.9))
+              clicked = False
+              if random.random() < 0.85:
+                  try:
+                      chosen["el"].click_input()
+                      clicked = True
+                  except Exception:
+                      pass
+              if not clicked:
+                  pyautogui.click(chosen["cx"], chosen["cy"])
+              log_msg("LinkFinder", "Clicked.")
+              return {"label": chosen["label"], "href": chosen["href"], "status": chosen["status"]}
 
 
           # ---------------------------------------------------------------------------
           # Action picker: weighted by persona, shaped by session phase, anti-repetition
           # ---------------------------------------------------------------------------
-          def pick_action(profile, phase, history, clicks_executed, depth, remaining):
+          def pick_action(profile, phase, history, clicks_executed, depth, remaining, link_allowed=True, safe_mode=False):
               w = dict(profile["weights"])
               w["idle"] = w.get("idle", 0.0) + profile["idle_prob"] * 0.5
               w["select"] = w.get("select", 0.0) * (0.5 + profile["text_select_prob"])
@@ -4888,8 +6350,12 @@ jobs:
               elif phase == "late":
                   w["link"] *= 0.5
                   w["scroll"] *= 1.15
-              if clicks_executed >= profile["link_click_target"] or remaining <= 40 or depth >= profile["max_depth"]:
+              if (not link_allowed or safe_mode or clicks_executed >= profile["link_click_target"]
+                      or remaining <= 40 or depth >= profile["max_depth"]):
                   w["link"] = 0.0
+              if safe_mode:
+                  w["select"] = 0.0
+                  w["idle"] = 0.0
               if remaining < 14:
                   w["idle"] = 0.0
                   w["select"] = 0.0
@@ -4909,39 +6375,54 @@ jobs:
                   pass
 
 
-          def run_human_surfing_simulation(desktop, edge_window, profile_tag="P1"):
-              global _SURF_CLOCK
-              profile = get_visitor_profile(profile_tag)
-              session_duration, duration_kind = sample_session_duration(profile)
-              _SURF_CLOCK = SurfClock(session_duration)
-              clock = _SURF_CLOCK
+          def refresh_edge_window(desktop, old_window):
+              """Re-acquire the Edge window if the handle went stale."""
+              global _ADDR_CTRL
+              try:
+                  old_window.window_text()
+                  return old_window
+              except Exception:
+                  pass
+              try:
+                  for w in desktop.windows(visible_only=True):
+                      try:
+                          if "edge" in (w.window_text() or "").lower() and "Chrome_WidgetWin" in (w.class_name() or ""):
+                              _ADDR_CTRL = None
+                              log_msg("HumanSurf", "Edge window handle was stale - re-acquired.")
+                              return w
+                      except Exception:
+                          continue
+              except Exception:
+                  pass
+              return old_window
 
-              # Tell the PowerShell watcher immediately (its budget starts from this moment)
-              write_surf_flag("surf_duration.txt", str(clock.total))
-              write_surf_flag("surf_start.txt", str(int(time.time())))
 
-              log_msg("HumanSurf", "============================================================")
-              log_msg("HumanSurf", f" VISITOR PROFILE LOADED: [{profile['profile_id']}] {profile['archetype'].upper()}")
-              log_msg("HumanSurf", "============================================================")
-              log_msg("HumanSurf", f"Persona traits : speed={profile['speed']:.2f} ({profile['scroll_speed']}) | pause={profile['pause_min']:.1f}-{profile['pause_max']:.1f}s | down-scroll={profile['down_scroll_prob']:.0%} | mood={profile['mood']:.2f}")
-              log_msg("HumanSurf", f"Behaviour      : link target={profile['link_click_target']} | subpage stay~{profile['subpage_stay']:.0f}s | select={profile['text_select_prob']:.0%} | idle={profile['idle_prob']:.0%} | keyboard-scroll={profile['key_scroll_prob']:.0%} | footer-dive={profile['footer_prob']:.0%}")
-              log_msg("HumanSurf", f"Runtime window : {profile['duration_min']}-{profile['duration_max']}s (hard cap {SURF_HARD_CAP_SEC}s)")
-              log_msg("HumanSurf", f"SESSION RUNTIME ASSIGNED: {clock.total}s [{duration_kind}] (includes page load)")
+          def _reset_surf_state():
+              global _ADDR_CTRL
+              _ADDR_CTRL = None
+              _CLICKED_LABELS.clear()
+              for k in SURF_STATS:
+                  SURF_STATS[k] = 0
+              _SITE.update({"host": None, "home_url": None, "short_host": None, "locked": False, "readable": False})
 
-              wait_for_page_to_fully_load(edge_window, timeout=25)
 
+          def _surf_body(desktop, edge_window, profile, clock, duration_kind):
               sw, sh = pyautogui.size()
               speed = profile["speed"]
               ovs = profile["overshoot_prob"]
 
-              # Landing glance
+              # ---- page load + site lock (counts against the 180s cap) ----
+              wait_for_page_to_fully_load(edge_window, timeout=18)
+              lock_site(edge_window, globals().get("TARGET_URL", ""), max_wait=18)
+              link_allowed = _SITE["locked"] and _SITE["readable"]
+
               log_msg("HumanSurf", "Initial landing glance. User observing top content...")
               human_reading_pause(min_s=profile["glance"] * 0.8, max_s=profile["glance"] * 1.4, parked_prob=0.3)
 
-              # First deliberate scroll
               if surf_remaining() > 5:
                   log_msg("HumanSurf", "Beginning first natural scroll down into middle content...")
-                  human_natural_scroll("down", random.choice(["short", "medium"]), ovs, speed)
+                  p = human_natural_scroll("down", random.choice(["short", "medium"]), ovs, speed)
+                  log_msg("Scroll", describe_scroll_params(p))
                   SURF_STATS["scroll"] += 1
                   human_reading_pause(profile["pause_min"], profile["pause_max"])
 
@@ -4951,6 +6432,9 @@ jobs:
               current_stay = profile["subpage_stay"]
               footer_done = False
               history = []
+              err_streak = 0
+              safe_mode = False
+              next_sentinel = time.time() + random.uniform(6, 10)
 
               while surf_remaining() > 1.0:
                   remaining = surf_remaining()
@@ -4960,116 +6444,249 @@ jobs:
                   try:
                       edge_window.set_focus()
                   except Exception:
-                      pass
+                      edge_window = refresh_edge_window(desktop, edge_window)
 
-                  # One-off footer dive for "researcher" personas in the second half
-                  if (not footer_done and frac > 0.45 and remaining > 20 and random.random() < profile["footer_prob"] * 0.25):
-                      footer_done = True
-                      SURF_STATS["footer_dive"] += 1
-                      log_msg("HumanSurf", f"[t={clock.elapsed():.0f}/{clock.total}s] Heading to the footer area (long scroll down)...")
-                      for _ in range(random.randint(2, 3)):
-                          human_natural_scroll("down", "long", ovs, speed)
-                      human_reading_pause(profile["pause_min"], profile["pause_max"])
-                      history.append("scroll")
-                      continue
+                  # ---- periodic site sentinel (catches JS redirects / popups / ad hops) ----
+                  if time.time() >= next_sentinel and remaining > 6:
+                      next_sentinel = time.time() + random.uniform(7, 13)
+                      try:
+                          if not site_sentinel(edge_window, "Sentinel"):
+                              subpage_depth = 0
+                      except Exception as e:
+                          log_msg("SiteLock", f"Sentinel error: {e}")
 
-                  action = pick_action(profile, phase, history, clicks_executed, subpage_depth, remaining)
-                  history.append(action)
                   tag = f"[t={clock.elapsed():.0f}/{clock.total}s|{phase}]"
 
-                  if action == "scroll":
-                      direction = "down" if random.random() < profile["down_scroll_prob"] else "up"
-                      if profile["scroll_speed"] == "fast":
-                          intensity = random.choice(["medium", "long", "long"])
-                      elif profile["scroll_speed"] == "slow":
-                          intensity = random.choice(["short", "short", "medium"])
-                      else:
-                          intensity = random.choice(["short", "medium", "medium", "long"])
-                      if random.random() < profile["key_scroll_prob"]:
-                          log_msg("HumanSurf", f"{tag} Keyboard scroll {direction.upper()}...")
-                          human_key_scroll(direction)
+                  try:
+                      if (not footer_done and frac > 0.45 and remaining > 20 and random.random() < profile["footer_prob"] * 0.25):
+                          footer_done = True
+                          SURF_STATS["footer_dive"] += 1
+                          log_msg("HumanSurf", f"{tag} Heading to the footer area (long scroll down)...")
+                          for _ in range(random.randint(2, 3)):
+                              p = human_natural_scroll("down", "long", ovs, speed)
+                              log_msg("Scroll", describe_scroll_params(p))
+                          human_reading_pause(profile["pause_min"], profile["pause_max"])
+                          history.append("scroll")
+                          err_streak = 0
+                          continue
+
+                      action = pick_action(profile, phase, history, clicks_executed, subpage_depth, remaining,
+                                           link_allowed=link_allowed, safe_mode=safe_mode)
+                      history.append(action)
+
+                      if action == "scroll":
+                          direction = "down" if random.random() < profile["down_scroll_prob"] else "up"
+                          if profile["scroll_speed"] == "fast":
+                              intensity = random.choice(["medium", "long", "long"])
+                          elif profile["scroll_speed"] == "slow":
+                              intensity = random.choice(["short", "short", "medium"])
+                          else:
+                              intensity = random.choice(["short", "medium", "medium", "long"])
+                          if random.random() < profile["key_scroll_prob"]:
+                              style = human_key_scroll(direction)
+                              log_msg("HumanSurf", f"{tag} Keyboard scroll {direction.upper()} ({style})")
+                              SURF_STATS["keyscroll"] += 1
+                          else:
+                              p = human_natural_scroll(direction, intensity, ovs, speed)
+                              log_msg("HumanSurf", f"{tag} Scroll -> {describe_scroll_params(p)}")
+                              SURF_STATS["scroll"] += 1
+
+                      elif action == "scroll_back":
+                          p = human_natural_scroll("up", random.choice(["short", "medium"]), ovs, speed)
+                          log_msg("HumanSurf", f"{tag} Re-reading: scroll back -> {describe_scroll_params(p)}")
+                          human_reading_pause(profile["pause_min"], profile["pause_max"])
+                          SURF_STATS["scroll_back"] += 1
+
+                      elif action == "read":
+                          human_reading_pause(profile["pause_min"], profile["pause_max"])
+                          SURF_STATS["read"] += 1
+
+                      elif action == "keyscroll":
+                          direction = "down" if random.random() < profile["down_scroll_prob"] else "up"
+                          style = human_key_scroll(direction)
+                          log_msg("HumanSurf", f"{tag} Keyboard scroll {direction.upper()} ({style})")
                           SURF_STATS["keyscroll"] += 1
-                      else:
-                          log_msg("HumanSurf", f"{tag} Scrolling {direction.upper()} ({intensity})...")
-                          human_natural_scroll(direction, intensity, ovs, speed)
-                          SURF_STATS["scroll"] += 1
 
-                  elif action == "scroll_back":
-                      log_msg("HumanSurf", f"{tag} Scrolling back UP to re-read something...")
-                      human_natural_scroll("up", random.choice(["short", "medium"]), ovs, speed)
-                      human_reading_pause(profile["pause_min"], profile["pause_max"])
-                      SURF_STATS["scroll_back"] += 1
+                      elif action == "select":
+                          human_text_selection_simulation()
+                          SURF_STATS["select"] += 1
 
-                  elif action == "read":
-                      human_reading_pause(profile["pause_min"], profile["pause_max"])
-                      SURF_STATS["read"] += 1
+                      elif action == "idle":
+                          if human_idle_away(profile):
+                              SURF_STATS["idle"] += 1
 
-                  elif action == "keyscroll":
-                      direction = "down" if random.random() < profile["down_scroll_prob"] else "up"
-                      log_msg("HumanSurf", f"{tag} Keyboard scroll {direction.upper()}...")
-                      human_key_scroll(direction)
-                      SURF_STATS["keyscroll"] += 1
+                      elif action == "link":
+                          log_msg("HumanSurf", f"{tag} Link interaction ({clicks_executed + 1}/{profile['link_click_target']})...")
+                          pre_raw = get_current_url(edge_window)
+                          res = find_and_interact_middle_or_downside(edge_window, speed, ovs)
+                          if res:
+                              clicks_executed += 1
+                              SURF_STATS["link"] += 1
+                              surf_sleep(random.uniform(2.0, 3.5))
+                              wait_for_page_to_fully_load(edge_window, 12)
+                              post_raw = get_current_url(edge_window)
+                              host, _ = parse_url_host(post_raw)
+                              if host and host != _SITE["host"]:
+                                  log_msg("SiteLock", f"{tag} Click led OFF-SITE ('{host}'). Returning immediately.")
+                                  SURF_STATS["escapes_recovered"] += 1
+                                  recover_to_site(edge_window, "post-click")
+                                  subpage_depth = 0
+                              elif post_raw and post_raw != pre_raw:
+                                  subpage_depth += 1
+                                  subpage_entered_time = time.time()
+                                  current_stay = profile["subpage_stay"] * random.uniform(0.8, 1.25)
+                                  log_msg("SiteLock", f"{tag} Navigated within '{_SITE['host']}' -> {str(post_raw)[:80]} (depth {subpage_depth})")
+                                  p = human_natural_scroll("down", "short", ovs, speed)
+                                  log_msg("Scroll", describe_scroll_params(p))
+                                  human_reading_pause(max(2.5, profile["pause_min"]), max(5.0, profile["pause_max"]))
+                              else:
+                                  log_msg("HumanSurf", f"{tag} Click did not change the page (in-page element).")
 
-                  elif action == "select":
-                      human_text_selection_simulation()
-                      SURF_STATS["select"] += 1
+                      else:  # rove
+                          rx = random.randint(int(sw * 0.15), int(sw * 0.85))
+                          ry = random.randint(int(sh * 0.30), int(sh * 0.80))
+                          log_msg("HumanSurf", f"{tag} Eye-tracking mouse move to ({rx}, {ry})...")
+                          human_smooth_move(rx, ry, speed=speed, overshoot_prob=ovs)
+                          surf_sleep(random.uniform(0.5, 1.4))
+                          SURF_STATS["rove"] += 1
 
-                  elif action == "idle":
-                      if human_idle_away(profile):
-                          SURF_STATS["idle"] += 1
-
-                  elif action == "link":
-                      log_msg("HumanSurf", f"{tag} Link interaction ({clicks_executed + 1}/{profile['link_click_target']})...")
-                      if find_and_interact_middle_or_downside(edge_window, speed, ovs):
-                          clicks_executed += 1
-                          subpage_depth += 1
-                          subpage_entered_time = time.time()
-                          current_stay = profile["subpage_stay"] * random.uniform(0.8, 1.25)
-                          SURF_STATS["link"] += 1
-                          log_msg("HumanSurf", "Waiting for subpage to load...")
-                          surf_sleep(random.uniform(2.0, 3.5))
-                          wait_for_page_to_fully_load(edge_window, timeout=15)
-                          human_natural_scroll("down", "short", ovs, speed)
-                          human_reading_pause(max(2.5, profile["pause_min"]), max(5.0, profile["pause_max"]))
-
-                  else:  # rove
-                      rx = random.randint(int(sw * 0.15), int(sw * 0.85))
-                      ry = random.randint(int(sh * 0.30), int(sh * 0.80))
-                      log_msg("HumanSurf", f"{tag} Eye-tracking mouse move to ({rx}, {ry})...")
-                      human_smooth_move(rx, ry, speed=speed, overshoot_prob=ovs)
-                      surf_sleep(random.uniform(0.5, 1.4))
-                      SURF_STATS["rove"] += 1
-
-                  # Back navigation once the subpage has been inspected long enough
-                  if subpage_depth > 0 and (time.time() - subpage_entered_time) > current_stay and surf_remaining() > 10:
-                      if random.random() < 0.75:
-                          log_msg("HumanSurf", f"[t={clock.elapsed():.0f}/{clock.total}s] Subpage inspected. Navigating Back (Alt + Left Arrow)...")
-                          try:
+                      # ---- back navigation once the subpage has been inspected long enough ----
+                      if subpage_depth > 0 and (time.time() - subpage_entered_time) > current_stay and surf_remaining() > 10:
+                          if random.random() < 0.75:
+                              log_msg("HumanSurf", f"[t={clock.elapsed():.0f}/{clock.total}s] Subpage inspected. Navigating Back (Alt + Left Arrow)...")
                               edge_window.set_focus()
                               send_keys('%{LEFT}')
                               surf_sleep(random.uniform(2.0, 3.2))
-                              wait_for_page_to_fully_load(edge_window, timeout=12)
+                              wait_for_page_to_fully_load(edge_window, 12)
                               subpage_depth = max(0, subpage_depth - 1)
                               SURF_STATS["back_nav"] += 1
-                          except Exception:
-                              pass
+                              site_sentinel(edge_window, "after-back")
+
+                      err_streak = 0
+                  except Exception as e:
+                      err_streak += 1
+                      SURF_STATS["errors"] += 1
+                      log_msg("HumanSurf", f"{tag} Action error ({err_streak} in a row): {type(e).__name__}: {e}")
+                      if err_streak >= 5 and not safe_mode:
+                          safe_mode = True
+                          log_msg("HumanSurf", "Too many consecutive errors -> SAFE MODE (scroll/read only, no link clicks).")
+                      surf_sleep(1.0)
 
                   surf_sleep(random.uniform(0.5, 1.4))
 
-              actual = clock.elapsed()
-              write_surf_flag("surf_stats.json", json.dumps({
-                  "profile": profile["profile_id"], "archetype": profile["archetype"],
-                  "assigned_sec": clock.total, "actual_sec": round(actual, 1), "kind": duration_kind,
-                  "links_followed": clicks_executed, "actions": SURF_STATS,
-              }))
-              write_surf_flag("surf_done.flag", "done")
+              # final guard: make sure the session ends on the locked site
+              try:
+                  site_sentinel(edge_window, "final")
+              except Exception:
+                  pass
+              return clicks_executed
+
+
+          def run_human_surfing_simulation(desktop, edge_window, profile_tag="P1"):
+              global _SURF_CLOCK
+              _reset_surf_state()
+              profile = get_visitor_profile(profile_tag)
+              session_duration, duration_kind = sample_session_duration(profile)
+              _SURF_CLOCK = SurfClock(session_duration)
+              clock = _SURF_CLOCK
+
+              write_surf_flag("surf_duration.txt", str(clock.total))
+              write_surf_flag("surf_start.txt", str(int(time.time())))
 
               log_msg("HumanSurf", "============================================================")
-              log_msg("HumanSurf", f" SURF SESSION COMPLETE [{profile['profile_id']}] {profile['archetype']}")
-              log_msg("HumanSurf", f" Runtime  : {actual:.1f}s of {clock.total}s assigned (hard cap {SURF_HARD_CAP_SEC}s)")
-              log_msg("HumanSurf", f" Links    : {clicks_executed} followed (target {profile['link_click_target']}) | Back-navs: {SURF_STATS['back_nav']}")
-              log_msg("HumanSurf", f" Actions  : {SURF_STATS}")
+              log_msg("HumanSurf", f" VISITOR PROFILE LOADED: [{profile['profile_id']}] {profile['archetype'].upper()}")
               log_msg("HumanSurf", "============================================================")
+              log_msg("HumanSurf", f"Persona traits : speed={profile['speed']:.2f} ({profile['scroll_speed']}) | pause={profile['pause_min']:.1f}-{profile['pause_max']:.1f}s | down-scroll={profile['down_scroll_prob']:.0%} | mood={profile['mood']:.2f}")
+              log_msg("HumanSurf", f"Behaviour      : link target={profile['link_click_target']} | subpage stay~{profile['subpage_stay']:.0f}s | select={profile['text_select_prob']:.0%} | idle={profile['idle_prob']:.0%} | keyboard-scroll={profile['key_scroll_prob']:.0%} | footer-dive={profile['footer_prob']:.0%}")
+              log_msg("HumanSurf", f"Runtime window : {profile['duration_min']}-{profile['duration_max']}s (hard cap {SURF_HARD_CAP_SEC}s)")
+              log_msg("HumanSurf", f"SESSION RUNTIME ASSIGNED: {clock.total}s [{duration_kind}] (includes page load + site lock)")
+
+              clicks_executed = 0
+              try:
+                  clicks_executed = _surf_body(desktop, edge_window, profile, clock, duration_kind)
+              except Exception as e:
+                  log_msg("HumanSurf", f"Surf session aborted by unexpected error: {type(e).__name__}: {e}")
+              finally:
+                  actual = clock.elapsed()
+                  write_surf_flag("surf_stats.json", json.dumps({
+                      "mode": "surf", "profile": profile["profile_id"], "archetype": profile["archetype"],
+                      "assigned_sec": clock.total, "actual_sec": round(actual, 1), "kind": duration_kind,
+                      "site_locked_host": _SITE["host"], "links_followed": clicks_executed, "actions": SURF_STATS,
+                  }))
+                  write_surf_flag("surf_done.flag", "done")
+                  log_msg("HumanSurf", "============================================================")
+                  log_msg("HumanSurf", f" SURF SESSION COMPLETE [{profile['profile_id']}] {profile['archetype']}")
+                  log_msg("HumanSurf", f" Runtime  : {actual:.1f}s of {clock.total}s assigned (hard cap {SURF_HARD_CAP_SEC}s)")
+                  log_msg("HumanSurf", f" Site lock: {_SITE['host'] or 'NOT LOCKED'} | off-site links rejected: {SURF_STATS['links_rejected_offsite']} | escapes recovered: {SURF_STATS['escapes_recovered']}")
+                  log_msg("HumanSurf", f" Links    : {clicks_executed} followed (target {profile['link_click_target']}) | Back-navs: {SURF_STATS['back_nav']}")
+                  log_msg("HumanSurf", f" Actions  : {SURF_STATS}")
+                  log_msg("HumanSurf", "============================================================")
+
+
+          # ---------------------------------------------------------------------------
+          # SCROLL-ONLY SESSION (click path with the Scroll checkmark, or surf path when
+          # only Scroll is ticked): scrolls up and down on the page that was opened.
+          # Every single scroll uses freshly randomised parameters.
+          # ---------------------------------------------------------------------------
+          SCROLL_SESSION_RANGE = (45, 95)   # total runtime incl. page load, seconds (never above the 180s hard cap)
+
+
+          def run_scroll_session(desktop, edge_window):
+              global _SURF_CLOCK
+              _reset_surf_state()
+              total = random.randint(*SCROLL_SESSION_RANGE)
+              _SURF_CLOCK = SurfClock(total)
+              clock = _SURF_CLOCK
+              write_surf_flag("surf_duration.txt", str(clock.total))
+              write_surf_flag("surf_start.txt", str(int(time.time())))
+              log_msg("Scroll", "============================================================")
+              log_msg("Scroll", f" SCROLL SESSION: runtime assigned {clock.total}s (range {SCROLL_SESSION_RANGE[0]}-{SCROLL_SESSION_RANGE[1]}s, cap {SURF_HARD_CAP_SEC}s)")
+              log_msg("Scroll", "============================================================")
+              downs = ups = pauses = keys = errors = 0
+              try:
+                  wait_for_page_to_fully_load(edge_window, timeout=20)
+                  human_reading_pause(min_s=random.uniform(1.0, 2.0), max_s=random.uniform(2.5, 4.5), parked_prob=0.3)
+                  while surf_remaining() > 1.0:
+                      frac = clock.elapsed() / clock.total
+                      try:
+                          try:
+                              edge_window.set_focus()
+                          except Exception:
+                              edge_window = refresh_edge_window(desktop, edge_window)
+                          roll = random.random()
+                          p_down = max(0.2, 0.75 - 0.55 * frac)         # mostly down early, mostly up late
+                          if roll < 0.68:
+                              direction = "down" if random.random() < p_down else "up"
+                              intensity = random.choices(["short", "medium", "long"], weights=[3, 4, 2])[0]
+                              p = human_natural_scroll(direction, intensity, 0.10, random.uniform(0.8, 1.3))
+                              log_msg("Scroll", f"[t={clock.elapsed():.0f}/{clock.total}s] {describe_scroll_params(p)}")
+                              if direction == "down":
+                                  downs += 1
+                              else:
+                                  ups += 1
+                          elif roll < 0.90:
+                              human_reading_pause(random.uniform(0.8, 1.6), random.uniform(2.0, 5.0), parked_prob=random.uniform(0.1, 0.5))
+                              pauses += 1
+                          else:
+                              direction = "down" if random.random() < p_down else "up"
+                              style = human_key_scroll(direction)
+                              log_msg("Scroll", f"[t={clock.elapsed():.0f}/{clock.total}s] keyboard {direction.upper()} ({style})")
+                              keys += 1
+                      except Exception as e:
+                          errors += 1
+                          log_msg("Scroll", f"scroll action error: {type(e).__name__}: {e}")
+                          surf_sleep(1.0)
+                      surf_sleep(random.uniform(0.3, 1.1))
+              except Exception as e:
+                  log_msg("Scroll", f"Scroll session aborted by unexpected error: {type(e).__name__}: {e}")
+              finally:
+                  actual = clock.elapsed()
+                  write_surf_flag("surf_stats.json", json.dumps({
+                      "mode": "scroll", "assigned_sec": clock.total, "actual_sec": round(actual, 1),
+                      "scroll_down": downs, "scroll_up": ups, "pauses": pauses, "keyboard": keys, "errors": errors,
+                  }))
+                  write_surf_flag("surf_done.flag", "done")
+                  log_msg("Scroll", f"SCROLL SESSION COMPLETE: {actual:.1f}s of {clock.total}s | down={downs} up={ups} pauses={pauses} keyboard={keys} errors={errors}")
 
           def handle_automation(software_type, action_mode, profile_tag="P1", timeout=450):
               desktop = Desktop(backend="uia")
@@ -5274,34 +6891,30 @@ jobs:
                               proxy_auth_time = time.time()
 
                       # =======================================================
-                      # SURF PATHWAY HANDLING
+                      # POST-LOAD BEHAVIOUR (click + surf pathways): surf / scroll / none
                       # =======================================================
-                      if action_mode == "surf":
-                          if software_type == "opera_smart_link" and not smart_link_interstitial_done:
-                              time.sleep(1)
-                              continue
-
-                          elapsed_surf = time.time() - proxy_auth_time
-                          if not surf_simulation_executed and elapsed_surf > 6 and edge_window:
-                              surf_simulation_executed = True
-                              run_human_surfing_simulation(desktop, edge_window, profile_tag=profile_tag)
-                              log_msg("UI-Engine", "Surf pathway complete. Terminating python loop cleanly.")
-                              sys.exit(0)
-
-                          time.sleep(1)
-                          continue
-
-                      # =======================================================
-                      # CLICK-ONLY PATHWAY HANDLING
-                      # =======================================================
-                      if action_mode == "click":
+                      if action_mode in ("surf", "click"):
                           if software_type == "opera_smart_link":
                               if not smart_link_interstitial_done:
                                   time.sleep(1)
                                   continue
-                              elif time.time() - smart_link_interstitial_time < 15:
+                              elif action_mode == "click" and time.time() - smart_link_interstitial_time < 15:
                                   time.sleep(1)
                                   continue
+
+                          if POST_BEHAVIOR in ("surf", "scroll"):
+                              elapsed_surf = time.time() - proxy_auth_time
+                              if not surf_simulation_executed and elapsed_surf > 6 and edge_window:
+                                  surf_simulation_executed = True
+                                  if POST_BEHAVIOR == "surf":
+                                      log_msg("UI-Engine", f"Post-load behaviour: SURF ({action_mode} pathway) - domain-locked surfing.")
+                                      run_human_surfing_simulation(desktop, edge_window, profile_tag=profile_tag)
+                                  else:
+                                      log_msg("UI-Engine", f"Post-load behaviour: SCROLL ({action_mode} pathway) - scrolling up/down on the opened page.")
+                                      run_scroll_session(desktop, edge_window)
+                                  log_msg("UI-Engine", "Post-load behaviour complete. Terminating python loop cleanly.")
+                                  sys.exit(0)
+
                           time.sleep(1)
                           continue
 
@@ -5509,11 +7122,15 @@ jobs:
                   Write-Host "[Runtime] Software NOT downloaded. Skipping Keep-Alive." -ForegroundColor Yellow
               }
 
-          } elseif ($env:ACTION_MODE -eq "surf") {
+          } elseif ($env:POST_BEHAVIOR -in @("surf", "scroll")) {
               Write-Host "============================================================" -ForegroundColor Cyan
-              Write-Host " Operating in SURF pathway. Visitor Simulation Engine v2 Active." -ForegroundColor Cyan
-              Write-Host " Visitor Profile: $env:PROFILE_TAG" -ForegroundColor Yellow
-              Write-Host " Surf runtime  : randomised per session, HARD CAP 180s" -ForegroundColor Yellow
+              Write-Host " $($env:ACTION_MODE.ToUpper()) pathway | post-load behaviour: $($env:POST_BEHAVIOR.ToUpper())" -ForegroundColor Cyan
+              if ($env:POST_BEHAVIOR -eq "surf") {
+                  Write-Host " Visitor Profile: $env:PROFILE_TAG (domain-locked surfing)" -ForegroundColor Yellow
+              } else {
+                  Write-Host " Scroll session: up/down scrolling with per-scroll randomised parameters" -ForegroundColor Yellow
+              }
+              Write-Host " Runtime       : randomised per session, HARD CAP 180s" -ForegroundColor Yellow
               Write-Host "============================================================" -ForegroundColor Cyan
 
               $surfDurationFile = "$env:TEMP\surf_duration.txt"
