@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '3'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -62,17 +62,17 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '0'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '200'
+        default: '10'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '50'
+        default: '0'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjJmN2I5ZTU4MjYwZGUxNWVmZjk2MiIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmMmY3YjllNTgyNjBkZTE1ZWZmOTU2In0.TS3Ma4aVt1_gwtvTsGjG1wQlkzdgTyvbR2LfX8aCH_Y'
+        default: 'geolocation://jgxaM4I0Ui5raZb4:ReNKnl3rexQJYOAt@geo.floppydata.com:10080:1-ES-dtshmj geolocation://e8T52uhC9rLkqsFw:e3tcuXZAYRcfMnVE@geo.floppydata.com:10080:2-ES-lglthr geolocation://98Pjj1XLBeDiVTFB:Xv0e4XJ7gV17xoVk@geo.floppydata.com:10080:3-ES-kvyoar geolocation://RTeTPNreoC8gFSHO:VEhRsbCdoFWCT20s@geo.floppydata.com:10080:4-ES-eabrdd geolocation://ByHpRsN5RDLFR4v5:QTAw5SShdrzw5sFU@geo.floppydata.com:10080:5-ES-fqdtue geolocation://TnLLuLJuFXnzpU31:bBEXHq4z4YBTFBGP@geo.floppydata.com:10080:6-ES-keludm geolocation://1ZDwQ3pzVu2UiyRO:AkTSn2Of9uFBRkJ8@geo.floppydata.com:10080:7-ES-bsrztb geolocation://ADPj9b80vyo3u3Ur:1BfYxAJ8l4DtwoAr@geo.floppydata.com:10080:8-ES-uafwim geolocation://e2PCdaLqlY2HgolP:0qUA68EM81G1K5gv@geo.floppydata.com:10080:9-ES-gphdxn geolocation://mPmzm2w2xBuHThKn:3tAqJefSr5fCaytM@geo.floppydata.com:10080:10-ES-lgtaox geolocation://iDPhfKvnPzDfKJxs:hO0fXzUfYFiZDpOp@geo.floppydata.com:10080:11-ES-wposrd geolocation://ovEKRqcH3mJv6p7H:QHRukHXyjsaRoNsI@geo.floppydata.com:10080:12-ES-maapli geolocation://W1P8lGaoiqUCDUaf:Fri4jzahtvqeEnE6@geo.floppydata.com:10080:13-ES-jtjkis geolocation://u3ZrSGVGkdYbmsBk:LXOmporI3C4Meccb@geo.floppydata.com:10080:14-ES-athetq geolocation://qIYApF3dnIEeaQrd:gH23U63FjVBITSwg@geo.floppydata.com:10080:15-ES-wopogq geolocation://VrfphnsFIK2GY6qy:XHW0cLbG5mwcfu07@geo.floppydata.com:10080:16-ES-ledycx geolocation://QhXOuPIK2608ab6h:aaZiIninDZltoPx7@geo.floppydata.com:10080:17-ES-lzumsw geolocation://CF6Cg9VxvMj7wERs:3u8uot1wYq1w5sH2@geo.floppydata.com:10080:18-ES-tarpbz geolocation://YAcr7KjlmEK8TbkF:GASFHDWvgRYgebdH@geo.floppydata.com:10080:19-ES-mieecp geolocation://qgZ5vbYQfZKfwBqF:078536rk4tLJHg3u@geo.floppydata.com:10080:20-ES-fpsgdu geolocation://jbbNV0eHJQ2ebzs7:l40aYvAZsQncOMDW@geo.floppydata.com:10080:21-ES-ewfupm geolocation://nP5PysMcaHDdg92u:CQAExZ7Akd7LN6cy@geo.floppydata.com:10080:22-ES-vgefhr geolocation://u4o12czQZmvyaNlz:uQTGF1douJp8URbA@geo.floppydata.com:10080:23-ES-ittreq'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -146,7 +146,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'Spain'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -168,7 +168,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'No Fallback'
+        default: 'Spain'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
@@ -602,9 +602,9 @@ jobs:
               initial_target = max(initial_target, num_devices)
           initial_target = max(1, min(initial_target, pool_total))
           remaining = pool_total - initial_target
-          chunk_size = max(10, num_devices)
-          if remaining > 0:
-              chunk_size = max(chunk_size, math.ceil(remaining / 200.0))
+          # Fixed batch size of 10 so each continuous job generates + uploads a small
+          # batch. If generation fails mid-way, earlier batches are already in the pool.
+          chunk_size = 10
           chunk_count = math.ceil(remaining / chunk_size) if remaining > 0 else 0
 
           chunk_includes = []
@@ -1132,13 +1132,22 @@ jobs:
                       seq_fail += 1
                       failures.append({"seq": seq, "name": name, "reason": err})
                       say(f"[Pool] FAIL #{seq:<4} '{name}' | {err} | consecutive failures: {consec}/{MAX_CONSEC}")
+                      err_l = (err or "").lower()
+                      hard_quota = any(x in err_l for x in (
+                          "maximum number of proxies", "free api requests limit",
+                          "please subscribe", "quota exceeded", "rate limit",
+                          "too many requests", "402", "payment required",
+                      ))
+                      if hard_quota:
+                          say(f"::warning title=Proxy Pool {TAG}::Hard quota/rate-limit detected. Stopping this batch early with {len(collected)}/{COUNT} proxies so they can be uploaded now.")
+                          break
                       if consec >= MAX_CONSEC:
                           if prov_idx + 1 < len(providers):
                               prov_idx += 1
                               consec = 0
                               say(f"[Pool] Switching provider -> {providers[prov_idx][0]}")
                           else:
-                              say(f"::warning title=Proxy Pool {TAG}::Stopping early after {consec} consecutive failures (quota/limit?). Generated {len(collected)}/{COUNT}.")
+                              say(f"::warning title=Proxy Pool {TAG}::Stopping early after {consec} consecutive failures (quota/limit?). Generated {len(collected)}/{COUNT} — uploading partial batch.")
                               break
                   time.sleep(0.7)
 
@@ -1213,11 +1222,15 @@ jobs:
           echo "============================================================"
 
   proxy_pool_continuous:
-    name: "Proxy Pool - Continuous Feed (all remaining chunks)"
+    name: "Proxy Pool Batch ${{ matrix.chunk_idx }} [#${{ matrix.start_seq }}-${{ matrix.end_seq }}]"
     needs: [prepare_matrix, proxy_pool_initial]
     if: ${{ !cancelled() && needs.proxy_pool_initial.result == 'success' && needs.prepare_matrix.outputs.chunk_count != '0' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.prepare_matrix.outputs.chunk_matrix) }}
     steps:
       - name: Load Earlier Chunks (for cumulative stats)
         continue-on-error: true
@@ -1227,12 +1240,15 @@ jobs:
           merge-multiple: true
           path: prior_chunks
 
-      - name: Generate All Remaining Chunks Sequentially (continuous feed)
+      - name: Generate Batch ${{ matrix.chunk_idx }} (up to 10 proxies)
         id: generate
         shell: python
         env:
-          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNK_IDX: ${{ matrix.chunk_idx }}
+          START_SEQ: ${{ matrix.start_seq }}
+          END_SEQ: ${{ matrix.end_seq }}
           CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          OUT_FILE: ${{ matrix.file_name }}
           TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
           POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
           NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
@@ -1241,9 +1257,6 @@ jobs:
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
           MOBILE: ${{ inputs.mobile_proxies }}
           STICKY: ${{ inputs.sticky_sessions }}
-          GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           import os, sys, json, re, time, random, string, glob, datetime, subprocess
 
@@ -1265,25 +1278,6 @@ jobs:
 
           def endgroup():
               print("::endgroup::", flush=True)
-          # ---- Combined continuous feed bootstrap ----
-          # When CHUNK_MATRIX_JSON is provided we generate EVERY remaining chunk
-          # sequentially inside this single job, writing one file per chunk and
-          # a combined continuous_feed.json for devices that look for later seqs.
-          _cm_raw = os.environ.get("CHUNK_MATRIX_JSON", "").strip()
-          if _cm_raw:
-              try:
-                  _cm = json.loads(_cm_raw)
-                  _includes = _cm.get("include") or []
-              except Exception:
-                  _includes = []
-              if _includes:
-                  # Process the full remaining range as one logical continuous feed
-                  # while still writing per-chunk files for compatibility.
-                  os.environ["CHUNK_IDX"] = "continuous"
-                  os.environ["START_SEQ"] = str(min(c["start_seq"] for c in _includes))
-                  os.environ["END_SEQ"] = str(max(c["end_seq"] for c in _includes))
-                  os.environ["OUT_FILE"] = "continuous_feed.json"
-                  print(f"[Continuous] Combined job covering seqs {os.environ['START_SEQ']}-{os.environ['END_SEQ']} ({len(_includes)} logical chunks)", flush=True)
 
 
 
@@ -1643,13 +1637,22 @@ jobs:
                       seq_fail += 1
                       failures.append({"seq": seq, "name": name, "reason": err})
                       say(f"[Pool] FAIL #{seq:<4} '{name}' | {err} | consecutive failures: {consec}/{MAX_CONSEC}")
+                      err_l = (err or "").lower()
+                      hard_quota = any(x in err_l for x in (
+                          "maximum number of proxies", "free api requests limit",
+                          "please subscribe", "quota exceeded", "rate limit",
+                          "too many requests", "402", "payment required",
+                      ))
+                      if hard_quota:
+                          say(f"::warning title=Proxy Pool {TAG}::Hard quota/rate-limit detected. Stopping this batch early with {len(collected)}/{COUNT} proxies so they can be uploaded now.")
+                          break
                       if consec >= MAX_CONSEC:
                           if prov_idx + 1 < len(providers):
                               prov_idx += 1
                               consec = 0
                               say(f"[Pool] Switching provider -> {providers[prov_idx][0]}")
                           else:
-                              say(f"::warning title=Proxy Pool {TAG}::Stopping early after {consec} consecutive failures (quota/limit?). Generated {len(collected)}/{COUNT}.")
+                              say(f"::warning title=Proxy Pool {TAG}::Stopping early after {consec} consecutive failures (quota/limit?). Generated {len(collected)}/{COUNT} — uploading partial batch.")
                               break
                   time.sleep(0.7)
 
@@ -1706,16 +1709,26 @@ jobs:
               say(f"::error title=Proxy Pool {TAG}::Zero proxies generated for this chunk.")
               sys.exit(1)
 
-      - name: Upload Continuous Feed Artifact
+      - name: Upload Batch Artifact (${{ matrix.artifact_name }})
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: proxy-chunk-continuous
-          path: |
-            proxy_chunk_*.json
-            continuous_feed.json
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.file_name }}
           retention-days: 1
           if-no-files-found: ignore
+
+      - name: Batch Summary
+        if: always()
+        run: |
+          echo "============================================================"
+          echo " BATCH ${{ matrix.chunk_idx }} DONE"
+          echo " Range   : #${{ matrix.start_seq }} - #${{ matrix.end_seq }}"
+          echo " Artifact: ${{ matrix.artifact_name }}  (file ${{ matrix.file_name }})"
+          echo " Generated this batch: ${{ steps.generate.outputs.generated }}"
+          echo " Pool now            : ${{ steps.generate.outputs.pool_now }}"
+          echo " Next batch (if any) will start after this upload."
+          echo "============================================================"
 
   proxy_pool_report:
     name: "Proxy Pool - Final Report"
@@ -2091,7 +2104,7 @@ jobs:
 
 
           try:
-              visible = sorted(a["name"] for a in list_artifacts() if a["name"].startswith("proxy-chunk-") or a["name"] == "proxy-chunk-continuous")
+              visible = sorted(a["name"] for a in list_artifacts() if a["name"].startswith("proxy-chunk-"))
               say(f"[Pool] Chunks visible right now : {len(visible)} -> {', '.join(visible) if visible else 'none'}")
 
               deadline = time.time() + WAIT_MIN * 60
