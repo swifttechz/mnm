@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '3'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -62,17 +62,17 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '0'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '200'
+        default: '10'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '50'
+        default: '0'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjMxMGFjNjZjMTA5Yzc5YWIyMGIyNCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmMzEwYWM2NmMxMDljNzlhYjIwYjFmIn0.j1SVLob95Z6rsb0bx4A8lJFezajE0GCmNLMDV1CalzI'
+        default: 'geolocation://jgxaM4I0Ui5raZb4:ReNKnl3rexQJYOAt@geo.floppydata.com:10080:1-ES-dtshmj geolocation://e8T52uhC9rLkqsFw:e3tcuXZAYRcfMnVE@geo.floppydata.com:10080:2-ES-lglthr geolocation://98Pjj1XLBeDiVTFB:Xv0e4XJ7gV17xoVk@geo.floppydata.com:10080:3-ES-kvyoar geolocation://RTeTPNreoC8gFSHO:VEhRsbCdoFWCT20s@geo.floppydata.com:10080:4-ES-eabrdd geolocation://ByHpRsN5RDLFR4v5:QTAw5SShdrzw5sFU@geo.floppydata.com:10080:5-ES-fqdtue geolocation://TnLLuLJuFXnzpU31:bBEXHq4z4YBTFBGP@geo.floppydata.com:10080:6-ES-keludm geolocation://1ZDwQ3pzVu2UiyRO:AkTSn2Of9uFBRkJ8@geo.floppydata.com:10080:7-ES-bsrztb geolocation://ADPj9b80vyo3u3Ur:1BfYxAJ8l4DtwoAr@geo.floppydata.com:10080:8-ES-uafwim geolocation://e2PCdaLqlY2HgolP:0qUA68EM81G1K5gv@geo.floppydata.com:10080:9-ES-gphdxn geolocation://mPmzm2w2xBuHThKn:3tAqJefSr5fCaytM@geo.floppydata.com:10080:10-ES-lgtaox geolocation://iDPhfKvnPzDfKJxs:hO0fXzUfYFiZDpOp@geo.floppydata.com:10080:11-ES-wposrd geolocation://ovEKRqcH3mJv6p7H:QHRukHXyjsaRoNsI@geo.floppydata.com:10080:12-ES-maapli geolocation://W1P8lGaoiqUCDUaf:Fri4jzahtvqeEnE6@geo.floppydata.com:10080:13-ES-jtjkis geolocation://u3ZrSGVGkdYbmsBk:LXOmporI3C4Meccb@geo.floppydata.com:10080:14-ES-athetq geolocation://qIYApF3dnIEeaQrd:gH23U63FjVBITSwg@geo.floppydata.com:10080:15-ES-wopogq geolocation://VrfphnsFIK2GY6qy:XHW0cLbG5mwcfu07@geo.floppydata.com:10080:16-ES-ledycx geolocation://QhXOuPIK2608ab6h:aaZiIninDZltoPx7@geo.floppydata.com:10080:17-ES-lzumsw geolocation://CF6Cg9VxvMj7wERs:3u8uot1wYq1w5sH2@geo.floppydata.com:10080:18-ES-tarpbz geolocation://YAcr7KjlmEK8TbkF:GASFHDWvgRYgebdH@geo.floppydata.com:10080:19-ES-mieecp geolocation://qgZ5vbYQfZKfwBqF:078536rk4tLJHg3u@geo.floppydata.com:10080:20-ES-fpsgdu geolocation://jbbNV0eHJQ2ebzs7:l40aYvAZsQncOMDW@geo.floppydata.com:10080:21-ES-ewfupm geolocation://nP5PysMcaHDdg92u:CQAExZ7Akd7LN6cy@geo.floppydata.com:10080:22-ES-vgefhr geolocation://u4o12czQZmvyaNlz:uQTGF1douJp8URbA@geo.floppydata.com:10080:23-ES-ittreq'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -146,7 +146,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'Spain'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -168,7 +168,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'No Fallback'
+        default: 'Spain'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
@@ -375,6 +375,9 @@ jobs:
       chunks_total: ${{ steps.set-matrix.outputs.chunks_total }}
       chunk_matrix: ${{ steps.set-matrix.outputs.chunk_matrix }}
       extra_pct: ${{ steps.set-matrix.outputs.extra_pct }}
+      device_timeout_minutes: ${{ steps.set-matrix.outputs.device_timeout_minutes }}
+      pool_wait_minutes: ${{ steps.set-matrix.outputs.pool_wait_minutes }}
+      session_budget_seconds: ${{ steps.set-matrix.outputs.session_budget_seconds }}
     steps:
       - name: Generate Dynamic Matrix Queue
         id: set-matrix
@@ -393,6 +396,7 @@ jobs:
           GENERATE_ALL_PROXIES: ${{ inputs.generate_all_proxies }}
           ENABLE_SCROLL: ${{ inputs.enable_scroll }}
           ENABLE_SURF: ${{ inputs.enable_surf }}
+          KEEP_ALIVE_DURATION: ${{ inputs.keep_alive_duration }}
           # true = initial chunk is max(5% of pool, num_devices) so the very first wave of devices is fully covered
           INITIAL_FLOOR_TO_DEVICES: 'true'
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
@@ -696,6 +700,25 @@ jobs:
               f.write(f"chunks_total={chunk_count + 1}\n")
               f.write(f"extra_pct={extra_pct}\n")
               f.write(f"chunk_matrix={json.dumps({'include': chunk_includes})}\n")
+
+          # --- Session budget from keep_alive_duration (e.g. "8 minutes") ---
+          ka_raw = os.environ.get("KEEP_ALIVE_DURATION", "8 minutes")
+          try:
+              ka_mins = int("".join(ch for ch in ka_raw if ch.isdigit()) or "8")
+          except Exception:
+              ka_mins = 8
+          ka_mins = max(6, min(ka_mins, 30))
+          # Device job hard cap: keep-alive + 4 min for setup/proxy acquire overhead
+          device_timeout = ka_mins + 4
+          # Pool wait: at most 2 minutes (never 12) so click jobs cannot stall for ages
+          pool_wait = min(2, max(1, ka_mins // 4))
+          # Active session budget for UI automation (seconds), leave ~90s for setup/proxy
+          session_budget = max(90, ka_mins * 60 - 90)
+          f.write(f"device_timeout_minutes={device_timeout}\n")
+          f.write(f"pool_wait_minutes={pool_wait}\n")
+          f.write(f"session_budget_seconds={session_budget}\n")
+          print(f"[Timeouts] keep_alive={ka_mins}m | device_job_timeout={device_timeout}m | pool_wait={pool_wait}m | session_budget={session_budget}s")
+
           print("========== MATRIX STRUCTURE COMPLETE ==========")
           print(f"[Matrix] {len(includes)} tasks queued. Proxy Pool Initial job generates the first {initial_target} proxies, then devices start.")
 
@@ -2125,7 +2148,7 @@ jobs:
     needs: [prepare_matrix]
     if: ${{ !cancelled() && needs.prepare_matrix.result == 'success' && needs.prepare_matrix.outputs.has_tasks == 'true' }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: ${{ fromJSON(needs.prepare_matrix.outputs.device_timeout_minutes || '12') }}
 
     strategy:
       fail-fast: false
@@ -2171,7 +2194,7 @@ jobs:
           POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
           INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
           CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
-          POOL_WAIT_MINUTES: '12'
+          POOL_WAIT_MINUTES: ${{ needs.prepare_matrix.outputs.pool_wait_minutes || '2' }}
         run: |
           import os, sys, json, time, io, zipfile, subprocess
           import urllib.request, urllib.error
@@ -2193,7 +2216,7 @@ jobs:
           POOL_TOTAL = geti("POOL_TOTAL")
           INITIAL = max(1, geti("INITIAL_TARGET", 1))
           CHUNK_SIZE = max(1, geti("CHUNK_SIZE", 10))
-          WAIT_MIN = geti("POOL_WAIT_MINUTES", 12)
+          WAIT_MIN = geti("POOL_WAIT_MINUTES", 2)
           POOL_ENABLED = os.environ.get("POOL_ENABLED", "false").lower() == "true"
           TEMP = os.environ.get("RUNNER_TEMP", ".")
           OUT = os.path.join(TEMP, "pool_proxy.json")
@@ -3432,6 +3455,8 @@ jobs:
           ACTION_MODE: ${{ matrix.action_mode }}
           ENABLE_SCROLL: ${{ matrix.enable_scroll }}
           ENABLE_SURF: ${{ matrix.enable_surf }}
+          SESSION_BUDGET_SECONDS: ${{ needs.prepare_matrix.outputs.session_budget_seconds }}
+          KEEP_ALIVE_DURATION: ${{ inputs.keep_alive_duration }}
           PROFILE_TAG: ${{ matrix.profile_tag }}
           APPLY_MASKING: ${{ inputs.apply_masking }}
         run: |
@@ -3473,6 +3498,16 @@ jobs:
               Write-Host " Mode      : Direct (Proxy Completely Bypassed)" -ForegroundColor Yellow
           }
           Write-Host "============================================================" -ForegroundColor Cyan
+
+          # Hard wall-clock deadline for this entire Setup step (cannot exceed keep_alive budget)
+          $globalDeadline = $null
+          try {
+              if ($env:SESSION_BUDGET_SECONDS -and [int]$env:SESSION_BUDGET_SECONDS -gt 0) {
+                  # budget is active session time; allow a bit extra for dependency install
+                  $globalDeadline = (Get-Date).AddSeconds([int]$env:SESSION_BUDGET_SECONDS + 120)
+                  Write-Host "[Timeout] Setup step hard deadline: $globalDeadline (budget $($env:SESSION_BUDGET_SECONDS)s + 120s setup slack)" -ForegroundColor DarkCyan
+              }
+          } catch {}
 
           $edgeExe = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
           if (-Not (Test-Path $edgeExe)) {
@@ -5577,6 +5612,18 @@ jobs:
               return True
 
           def handle_automation(software_type, action_mode, profile_tag="P1", timeout=450):
+              # Honour session budget from keep_alive_duration (injected via env)
+              try:
+                  budget = int(os.environ.get("SESSION_BUDGET_SECONDS", "0") or "0")
+              except Exception:
+                  budget = 0
+              if budget > 0:
+                  timeout = min(timeout, budget)
+              # Click path should never hold the runner for a long UI timeout
+              if action_mode == "click":
+                  timeout = min(timeout, 120)
+              elif action_mode == "surf":
+                  timeout = min(timeout, 240)
               desktop = Desktop(backend="uia")
               start_time = time.time()
               proxy_auth_time = start_time
@@ -5921,16 +5968,20 @@ jobs:
                           enable_surf = os.environ.get("ENABLE_SURF", "true").lower() in ("true", "1", "yes")
                           if not getattr(handle_automation, "_click_scroll_done", False):
                               handle_automation._click_scroll_done = True
-                              if enable_scroll or (enable_surf and not enable_scroll):
-                                  # only-scroll or only-surf both map to some activity on click tasks
-                                  if enable_surf and not enable_scroll:
-                                      log_msg("UI-Engine", "Click task + only SURF enabled -> running full surf simulation.")
-                                      run_human_surfing_simulation(desktop, edge_window, profile_tag=profile_tag or "P1")
-                                  else:
-                                      log_msg("UI-Engine", "Click task + SCROLL enabled -> running varied scroll session.")
-                                      run_click_path_scrolling(edge_window, duration_sec=random.randint(18, 40))
-                          time.sleep(1)
-                          continue
+                              if enable_surf and not enable_scroll:
+                                  log_msg("UI-Engine", "Click task + only SURF enabled -> running full surf simulation.")
+                                  run_human_surfing_simulation(desktop, edge_window, profile_tag=profile_tag or "P1")
+                              elif enable_scroll:
+                                  log_msg("UI-Engine", "Click task + SCROLL enabled -> running varied scroll session.")
+                                  run_click_path_scrolling(edge_window, duration_sec=random.randint(18, 40))
+                              else:
+                                  log_msg("UI-Engine", "Click task, scroll/surf off -> short idle then exit.")
+                                  time.sleep(random.uniform(8, 15))
+                              log_msg("UI-Engine", "Click pathway complete. Exiting python loop.")
+                              sys.exit(0)
+                          # Already done once – exit (do not spin until outer timeout)
+                          log_msg("UI-Engine", "Click pathway already finished. Exiting.")
+                          sys.exit(0)
 
                       # =======================================================
                       # INSTALL PATHWAY HANDLING
@@ -6010,7 +6061,14 @@ jobs:
               -WindowStyle Hidden
 
           $dlFolder    = "$env:USERPROFILE\Downloads"
+          # Cap watcher / install wait by session budget (from keep_alive_duration)
           $timeoutSecs = 450
+          try {
+              if ($env:SESSION_BUDGET_SECONDS -and [int]$env:SESSION_BUDGET_SECONDS -gt 0) {
+                  $timeoutSecs = [Math]::Min(450, [int]$env:SESSION_BUDGET_SECONDS)
+              }
+          } catch {}
+          Write-Host "[Timeout] Session budget for this device: $timeoutSecs seconds (from keep_alive_duration)" -ForegroundColor DarkCyan
           $softwareType = $env:SOFTWARE_TYPE
           $exeFilter   = $env:EXE_FILTER
           $sentinelPath = "$env:TEMP\download_done.flag"
@@ -6125,6 +6183,10 @@ jobs:
                   $output = Receive-Job -Job $installJob -ErrorAction SilentlyContinue
                   if ($output) { foreach ($line in $output) { Write-Host $line } }
                   if ($installJob.State -eq 'Completed' -or $installJob.State -eq 'Failed' -or (Get-Date) -gt $deadline) { break }
+                  if ($globalDeadline -and (Get-Date) -gt $globalDeadline) {
+                      Write-Host "[Timeout] Global session deadline reached during install watch. Stopping." -ForegroundColor Yellow
+                      break
+                  }
                   Start-Sleep -Seconds 5
               }
               Write-Host "[Runtime] Install job concluded. Task complete." -ForegroundColor Green
@@ -6147,7 +6209,14 @@ jobs:
               $surfDoneFlag     = "$env:TEMP\surf_done.flag"
               $surfStatsFile    = "$env:TEMP\surf_stats.json"
               $surfHardCap      = 180   # max seconds of surfing (engine clock, starts when surfing begins)
-              $startupCeiling   = 240   # max seconds to wait for the engine to begin (Edge launch, proxy auth, interstitial)
+              $startupCeiling   = 90    # max seconds to wait for the engine to begin (Edge launch, proxy auth, interstitial)
+              try {
+                  if ($env:SESSION_BUDGET_SECONDS -and [int]$env:SESSION_BUDGET_SECONDS -gt 0) {
+                      $budget = [int]$env:SESSION_BUDGET_SECONDS
+                      $surfHardCap = [Math]::Min($surfHardCap, [Math]::Max(60, $budget - 60))
+                      $startupCeiling = [Math]::Min($startupCeiling, [Math]::Max(45, $budget / 3))
+                  }
+              } catch {}
               $graceAfter       = 20    # slack after the assigned runtime before the watcher forces the end
               $step             = 5
               $elapsed          = 0
@@ -6223,7 +6292,12 @@ jobs:
               }
 
               # Longer window when scroll or surf activity is expected
-              $clickTotal = if ($doScroll -or $doSurf) { 110 } else { 75 }
+              $clickTotal = if ($doScroll -or $doSurf) { 90 } else { 60 }
+              try {
+                  if ($env:SESSION_BUDGET_SECONDS -and [int]$env:SESSION_BUDGET_SECONDS -gt 0) {
+                      $clickTotal = [Math]::Min($clickTotal, [Math]::Max(45, [int]$env:SESSION_BUDGET_SECONDS - 60))
+                  }
+              } catch {}
               $clickStart      = Get-Date
               $step            = 15
               $reloadFired     = $false
@@ -6232,6 +6306,10 @@ jobs:
               Write-Host "[$env:SOFTWARE_TYPE] Click session started (budget ${clickTotal}s). Reload threshold: ${reloadThreshold}s" -ForegroundColor DarkGray
 
               for ($w = 0; $w -lt $clickTotal; $w += $step) {
+                  if ($globalDeadline -and (Get-Date) -gt $globalDeadline) {
+                      Write-Host "[Timeout] Global session deadline reached during click path. Stopping." -ForegroundColor Yellow
+                      break
+                  }
                   Write-Host "[$env:SOFTWARE_TYPE] Click tracker: $w / $clickTotal seconds elapsed..." -ForegroundColor Yellow
 
                   $unexpectedDownloads = Get-ChildItem -Path $dlFolder -File -ErrorAction SilentlyContinue
@@ -6271,8 +6349,10 @@ jobs:
         run: |
           Write-Host "Session lifecycle fully executed." -ForegroundColor Green
 
-          $durationMins = [int]($env:KEEP_ALIVE_INPUT -replace '[^\d]', '')
+          $durationMins = [int](($env:KEEP_ALIVE_INPUT -replace '[^0-9]', ''))
+          if (-not $durationMins -or $durationMins -lt 1) { $durationMins = 6 }
+          if ($durationMins -gt 30) { $durationMins = 30 }
           $durationSecs = $durationMins * 60
 
-          Write-Host "Leaving runner online for $durationMins minutes ($durationSecs seconds)..." -ForegroundColor Cyan
+          Write-Host "Leaving runner online for $durationMins minutes ($durationSecs seconds) [keep_alive_duration hard cap]..." -ForegroundColor Cyan
           Start-Sleep -Seconds $durationSecs
