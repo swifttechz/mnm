@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '3'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -62,17 +62,17 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '0'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '200'
+        default: '10'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '50'
+        default: '0'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjMwYzYzZTYzOWZiZmRmMzJhOGYzYSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmMzBjNjNlNjM5ZmJmZGYzMmE4ZjMxIn0.bnfQoxGyBtNyNhsPFHOh5gjqjXkU3s12qKnzqBJw0ew'
+        default: 'geolocation://jgxaM4I0Ui5raZb4:ReNKnl3rexQJYOAt@geo.floppydata.com:10080:1-ES-dtshmj geolocation://e8T52uhC9rLkqsFw:e3tcuXZAYRcfMnVE@geo.floppydata.com:10080:2-ES-lglthr geolocation://98Pjj1XLBeDiVTFB:Xv0e4XJ7gV17xoVk@geo.floppydata.com:10080:3-ES-kvyoar geolocation://RTeTPNreoC8gFSHO:VEhRsbCdoFWCT20s@geo.floppydata.com:10080:4-ES-eabrdd geolocation://ByHpRsN5RDLFR4v5:QTAw5SShdrzw5sFU@geo.floppydata.com:10080:5-ES-fqdtue geolocation://TnLLuLJuFXnzpU31:bBEXHq4z4YBTFBGP@geo.floppydata.com:10080:6-ES-keludm geolocation://1ZDwQ3pzVu2UiyRO:AkTSn2Of9uFBRkJ8@geo.floppydata.com:10080:7-ES-bsrztb geolocation://ADPj9b80vyo3u3Ur:1BfYxAJ8l4DtwoAr@geo.floppydata.com:10080:8-ES-uafwim geolocation://e2PCdaLqlY2HgolP:0qUA68EM81G1K5gv@geo.floppydata.com:10080:9-ES-gphdxn geolocation://mPmzm2w2xBuHThKn:3tAqJefSr5fCaytM@geo.floppydata.com:10080:10-ES-lgtaox geolocation://iDPhfKvnPzDfKJxs:hO0fXzUfYFiZDpOp@geo.floppydata.com:10080:11-ES-wposrd geolocation://ovEKRqcH3mJv6p7H:QHRukHXyjsaRoNsI@geo.floppydata.com:10080:12-ES-maapli geolocation://W1P8lGaoiqUCDUaf:Fri4jzahtvqeEnE6@geo.floppydata.com:10080:13-ES-jtjkis geolocation://u3ZrSGVGkdYbmsBk:LXOmporI3C4Meccb@geo.floppydata.com:10080:14-ES-athetq geolocation://qIYApF3dnIEeaQrd:gH23U63FjVBITSwg@geo.floppydata.com:10080:15-ES-wopogq geolocation://VrfphnsFIK2GY6qy:XHW0cLbG5mwcfu07@geo.floppydata.com:10080:16-ES-ledycx geolocation://QhXOuPIK2608ab6h:aaZiIninDZltoPx7@geo.floppydata.com:10080:17-ES-lzumsw geolocation://CF6Cg9VxvMj7wERs:3u8uot1wYq1w5sH2@geo.floppydata.com:10080:18-ES-tarpbz geolocation://YAcr7KjlmEK8TbkF:GASFHDWvgRYgebdH@geo.floppydata.com:10080:19-ES-mieecp geolocation://qgZ5vbYQfZKfwBqF:078536rk4tLJHg3u@geo.floppydata.com:10080:20-ES-fpsgdu geolocation://jbbNV0eHJQ2ebzs7:l40aYvAZsQncOMDW@geo.floppydata.com:10080:21-ES-ewfupm geolocation://nP5PysMcaHDdg92u:CQAExZ7Akd7LN6cy@geo.floppydata.com:10080:22-ES-vgefhr geolocation://u4o12czQZmvyaNlz:uQTGF1douJp8URbA@geo.floppydata.com:10080:23-ES-ittreq'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -146,7 +146,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'Spain'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -168,7 +168,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'No Fallback'
+        default: 'Spain'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
@@ -701,16 +701,24 @@ jobs:
 
 
 
-  proxy_pool_initial:
-    name: "Proxy Pool - Initial 5% (Chunk 0) - devices wait for this"
+  proxy_pool:
+    name: "Proxy Pool (5% first, then continuous feed)"
     needs: prepare_matrix
     if: ${{ needs.prepare_matrix.outputs.has_tasks == 'true' && inputs.generate_all_proxies == true && inputs.use_without_proxy != true }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 120
     outputs:
-      generated: ${{ steps.generate.outputs.generated }}
-      pool_now: ${{ steps.generate.outputs.pool_now }}
+      generated: ${{ steps.gen000.outputs.generated }}
+      pool_now: ${{ steps.gen000.outputs.pool_now }}
+      initial_ready: ${{ steps.initial_ready.outputs.ready }}
     steps:
+      - name: Set up job
+        run: |
+          echo "Proxy Pool combined job starting"
+          echo "Initial target : ${{ needs.prepare_matrix.outputs.initial_target }}"
+          echo "Chunk count    : ${{ needs.prepare_matrix.outputs.chunk_count }}"
+          echo "Pool total     : ${{ needs.prepare_matrix.outputs.pool_total }}"
+
       - name: Pool Plan Overview
         env:
           TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
@@ -726,18 +734,29 @@ jobs:
           echo "Tasks (devices total)      : $TASKS_TOTAL"
           echo "Extra buffer               : ${EXTRA_PCT}%"
           echo "Total proxies planned      : $POOL_TOTAL"
-          echo "Step 1 (this job)          : generate initial $INITIAL_TARGET proxies (chunk 0)"
-          echo "Step 2 (device jobs)       : start only after step 1 and take pool proxy #N"
-          echo "Step 3 (continuous feed)   : $CHUNK_COUNT chunk(s) of up to $CHUNK_SIZE, generated while devices run"
+          echo "Step 1 (this job)          : generate initial $INITIAL_TARGET proxies (chunk 0) + upload"
+          echo "Step 2                     : signal devices may start"
+          echo "Step 3                     : continuous batches of $CHUNK_SIZE ($CHUNK_COUNT batches), upload after each"
           {
             echo "## Proxy Pool Plan"
             echo "- Tasks: **$TASKS_TOTAL** | Extra buffer: **${EXTRA_PCT}%** | Planned pool: **$POOL_TOTAL**"
             echo "- Initial chunk (before devices): **$INITIAL_TARGET**"
-            echo "- Continuous feed: **$CHUNK_COUNT** chunk(s) of up to **$CHUNK_SIZE**"
+            echo "- Continuous feed: **$CHUNK_COUNT** batch(es) of up to **$CHUNK_SIZE**"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Generate Initial 5% Proxy Pool (Chunk 0)
-        id: generate
+      - name: Install Pool Generator Scripts
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64
+          data = base64.b64decode("aW1wb3J0IG9zLCBzeXMsIGpzb24sIHJlLCB0aW1lLCByYW5kb20sIHN0cmluZywgZ2xvYiwgZGF0ZXRpbWUsIHN1YnByb2Nlc3MsIHVuaWNvZGVkYXRhCgp0cnk6CiAgICBpbXBvcnQgcmVxdWVzdHMsIHVybGxpYjMKZXhjZXB0IEltcG9ydEVycm9yOgogICAgc3VicHJvY2Vzcy5jaGVja19jYWxsKFtzeXMuZXhlY3V0YWJsZSwgIi1tIiwgInBpcCIsICJpbnN0YWxsIiwgInJlcXVlc3RzW3NvY2tzXSIsICJ1cmxsaWIzIiwgIi0tcXVpZXQiXSkKICAgIGltcG9ydCByZXF1ZXN0cywgdXJsbGliMwp1cmxsaWIzLmRpc2FibGVfd2FybmluZ3ModXJsbGliMy5leGNlcHRpb25zLkluc2VjdXJlUmVxdWVzdFdhcm5pbmcpCiMgT3B0aW9uYWw6IFNFTEVDVF9DSFVOS19JRFggKyBDSFVOS19NQVRSSVhfSlNPTiB0byBwaWNrIGEgY29udGludW91cyBiYXRjaApfc2VsID0gb3MuZW52aXJvbi5nZXQoIlNFTEVDVF9DSFVOS19JRFgiLCAiIikuc3RyaXAoKQpfY21fcmF3ID0gb3MuZW52aXJvbi5nZXQoIkNIVU5LX01BVFJJWF9KU09OIiwgIiIpLnN0cmlwKCkKaWYgX3NlbCBhbmQgX2NtX3JhdzoKICAgIHRyeToKICAgICAgICBfY20gPSBqc29uLmxvYWRzKF9jbV9yYXcpCiAgICAgICAgX2luYyA9IF9jbS5nZXQoImluY2x1ZGUiKSBvciBbXQogICAgICAgIF9oaXQgPSBOb25lCiAgICAgICAgZm9yIF9jIGluIF9pbmM6CiAgICAgICAgICAgIGlmIHN0cihfYy5nZXQoImNodW5rX2lkeCIpKSA9PSBzdHIoX3NlbCk6CiAgICAgICAgICAgICAgICBfaGl0ID0gX2MKICAgICAgICAgICAgICAgIGJyZWFrCiAgICAgICAgaWYgX2hpdDoKICAgICAgICAgICAgb3MuZW52aXJvblsiQ0hVTktfSURYIl0gPSBzdHIoX2hpdFsiY2h1bmtfaWR4Il0pCiAgICAgICAgICAgIG9zLmVudmlyb25bIlNUQVJUX1NFUSJdID0gc3RyKF9oaXRbInN0YXJ0X3NlcSJdKQogICAgICAgICAgICBvcy5lbnZpcm9uWyJFTkRfU0VRIl0gPSBzdHIoX2hpdFsiZW5kX3NlcSJdKQogICAgICAgICAgICBvcy5lbnZpcm9uWyJPVVRfRklMRSJdID0gX2hpdC5nZXQoImZpbGVfbmFtZSIpIG9yIGYicHJveHlfY2h1bmtfe2ludChfaGl0WydjaHVua19pZHgnXSk6MDNkfS5qc29uIgogICAgICAgICAgICBwcmludChmIltQb29sXSBTZWxlY3RlZCBjb250aW51b3VzIGNodW5rIHtfc2VsfTogc2VxcyAje29zLmVudmlyb25bJ1NUQVJUX1NFUSddfS0je29zLmVudmlyb25bJ0VORF9TRVEnXX0gLT4ge29zLmVudmlyb25bJ09VVF9GSUxFJ119IiwgZmx1c2g9VHJ1ZSkKICAgICAgICBlbHNlOgogICAgICAgICAgICBwcmludChmIltQb29sXSBTRUxFQ1RfQ0hVTktfSURYPXtfc2VsfSBub3QgaW4gY2h1bmtfbWF0cml4IOKAlCBub3RoaW5nIHRvIGRvLiIpCiAgICAgICAgICAgICMgV3JpdGUgZW1wdHkgbWFya2VyIHNvIHVwbG9hZCBzdGVwIGNhbiBuby1vcCBjbGVhbmx5CiAgICAgICAgICAgIG9wZW4ob3MuZW52aXJvbi5nZXQoIk9VVF9GSUxFIiwgZiJwcm94eV9jaHVua197aW50KF9zZWwpOjAzZH0uanNvbiIpLCAidyIpLndyaXRlKCJ7fSIpCiAgICAgICAgICAgIHdpdGggb3Blbihvcy5lbnZpcm9uWyJHSVRIVUJfT1VUUFVUIl0sICJhIikgYXMgZmg6CiAgICAgICAgICAgICAgICBmaC53cml0ZSgiZ2VuZXJhdGVkPTBcbiIpCiAgICAgICAgICAgICAgICBmaC53cml0ZSgicG9vbF9ub3c9MFxuIikKICAgICAgICAgICAgcmFpc2UgU3lzdGVtRXhpdCgwKQogICAgZXhjZXB0IFN5c3RlbUV4aXQ6CiAgICAgICAgcmFpc2UKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgX2U6CiAgICAgICAgcHJpbnQoZiJbUG9vbF0gY2h1bmsgc2VsZWN0IGVycm9yOiB7X2V9IiwgZmx1c2g9VHJ1ZSkKCgoKZGVmIHNheShtPSIiKToKICAgIHByaW50KG0sIGZsdXNoPVRydWUpCgoKZGVmIGdyb3VwKHQpOgogICAgcHJpbnQoIjo6Z3JvdXA6OiIgKyB0LCBmbHVzaD1UcnVlKQoKCmRlZiBlbmRncm91cCgpOgogICAgcHJpbnQoIjo6ZW5kZ3JvdXA6OiIsIGZsdXNoPVRydWUpCgoKZGVmIGdldGkoaywgZD0wKToKICAgIHRyeToKICAgICAgICByZXR1cm4gaW50KG9zLmVudmlyb24uZ2V0KGssIHN0cihkKSkpCiAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgIHJldHVybiBkCgoKZGVmIGJhcihkb25lLCB0b3RhbCwgd2lkdGg9MzApOgogICAgcGN0ID0gKGRvbmUgLyB0b3RhbCAqIDEwMC4wKSBpZiB0b3RhbCBlbHNlIDAuMAogICAgZmlsbGVkID0gaW50KHdpZHRoICogbWluKGRvbmUsIHRvdGFsKSAvIHRvdGFsKSBpZiB0b3RhbCBlbHNlIDAKICAgIHJldHVybiAiWyIgKyAiIyIgKiBmaWxsZWQgKyAiLSIgKiAod2lkdGggLSBmaWxsZWQpICsgZiJdIHtwY3Q6NS4xZn0lIgoKCmRlZiByYW5kX2xldHRlcnMobj02KToKICAgIHJldHVybiAiIi5qb2luKHJhbmRvbS5jaG9pY2VzKHN0cmluZy5hc2NpaV9sb3dlcmNhc2UsIGs9bikpCgoKZGVmIG5vd19pc28oKToKICAgIHJldHVybiBkYXRldGltZS5kYXRldGltZS5ub3coZGF0ZXRpbWUudGltZXpvbmUudXRjKS5zdHJmdGltZSgiJVktJW0tJWRUJUg6JU06JVNaIikKCgojIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0KIyBDb25maWcKIyAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tCkNIVU5LX0lEWCA9IGdldGkoIkNIVU5LX0lEWCIpClNUQVJUX1NFUSA9IGdldGkoIlNUQVJUX1NFUSIsIDEpCkVORF9TRVEgPSBnZXRpKCJFTkRfU0VRIiwgMSkKVEFTS1NfVE9UQUwgPSBnZXRpKCJUQVNLU19UT1RBTCIpClBPT0xfVE9UQUwgPSBnZXRpKCJQT09MX1RPVEFMIikKQ0hVTktTX1RPVEFMID0gZ2V0aSgiQ0hVTktTX1RPVEFMIiwgMSkKTlVNX0RFVklDRVMgPSBnZXRpKCJOVU1fREVWSUNFUyIsIDEpCkNPVU5UID0gbWF4KDAsIEVORF9TRVEgLSBTVEFSVF9TRVEgKyAxKQpPVVRfRklMRSA9IG9zLmVudmlyb24uZ2V0KCJPVVRfRklMRSIsIGYicHJveHlfY2h1bmtfe0NIVU5LX0lEWDowM2R9Lmpzb24iKQpQUklPUl9ESVIgPSBvcy5lbnZpcm9uLmdldCgiUFJJT1JfRElSIiwgInByaW9yX2NodW5rcyIpCklTX0lOSVRJQUwgPSBDSFVOS19JRFggPT0gMApUQUcgPSAiSU5JVElBTCA1JSIgaWYgSVNfSU5JVElBTCBlbHNlIGYiQ0hVTksge0NIVU5LX0lEWH0ve0NIVU5LU19UT1RBTCAtIDF9IgoKcHJveHlfaW5wdXQgPSBvcy5lbnZpcm9uLmdldCgiQVBJX0tFWV9JTlBVVCIsICIiKS5zdHJpcCgpCmNvdW50cnlfaW5wdXQgPSBvcy5lbnZpcm9uLmdldCgiQ09VTlRSWSIsICJVU0EiKQpmYWxsYmFja19pbnB1dCA9IG9zLmVudmlyb24uZ2V0KCJGQUxMQkFDS19DT1VOVFJZIiwgIk5vIEZhbGxiYWNrIikKbW9iaWxlID0gb3MuZW52aXJvbi5nZXQoIk1PQklMRSIsICJmYWxzZSIpLmxvd2VyKCkgPT0gInRydWUiCnN0aWNreSA9IG9zLmVudmlyb24uZ2V0KCJTVElDS1kiLCAiZmFsc2UiKS5sb3dlcigpID09ICJ0cnVlIgoKY291bnRyeV9tYXAgPSB7CiAgICAiVVNBIjogInVzIiwgIlVLIjogImdiIiwgIkNhbmFkYSI6ICJjYSIsICJBdXN0cmFsaWEiOiAiYXUiLCAiR2VybWFueSI6ICJkZSIsICJGcmFuY2UiOiAiZnIiLAogICAgIkJyYXppbCI6ICJiciIsICJNZXhpY28iOiAibXgiLCAiU3BhaW4iOiAiZXMiLCAiVmlldG5hbSI6ICJ2biIsICJTd2l0emVybGFuZCI6ICJjaCIsCiAgICAiSW5kb25lc2lhIjogImlkIiwgIkl0YWx5IjogIml0IiwgIk5ldGhlcmxhbmRzIjogIm5sIiwgIlBvbGFuZCI6ICJwbCIsCn0KY2NfcHJpbWFyeSA9IGNvdW50cnlfbWFwLmdldChjb3VudHJ5X2lucHV0LCAidXMiKS51cHBlcigpCmNjX2ZhbGxiYWNrID0gTm9uZSBpZiBmYWxsYmFja19pbnB1dCA9PSAiTm8gRmFsbGJhY2siIGVsc2UgY291bnRyeV9tYXAuZ2V0KGZhbGxiYWNrX2lucHV0LCAidXMiKS51cHBlcigpCgoKZGVmIGNvdW50cnlfY29kZV90b19sb2NhbGUoY2MpOgogICAgX20gPSB7IlVTIjogImVuLVVTIiwgIkdCIjogImVuLUdCIiwgIkNBIjogImVuLUNBIiwgIkFVIjogImVuLUFVIiwgIkRFIjogImRlLURFIiwKICAgICAgICAgICJGUiI6ICJmci1GUiIsICJCUiI6ICJwdC1CUiIsICJNWCI6ICJlcy1NWCIsICJFUyI6ICJlcy1FUyIsICJWTiI6ICJ2aS1WTiIsCiAgICAgICAgICAiQ0giOiAiZGUtQ0giLCAiSUQiOiAiaWQtSUQiLCAiSVQiOiAiaXQtSVQiLCAiTkwiOiAibmwtTkwiLCAiUEwiOiAicGwtUEwifQogICAgcmV0dXJuIF9tLmdldChjYy51cHBlcigpLCAiZW4tVVMiKQoKCmRlZiBjb3VudHJ5X2NvZGVfdG9fa2V5Ym9hcmQoY2MpOgogICAgX20gPSB7IlVTIjogIjA0MDk6MDAwMDA0MDkiLCAiR0IiOiAiMDgwOTowMDAwMDgwOSIsICJDQSI6ICIxMDA5OjAwMDAwNDA5IiwKICAgICAgICAgICJBVSI6ICIwQzA5OjAwMDAwNDA5IiwgIkRFIjogIjA0MDc6MDAwMDA0MDciLCAiRlIiOiAiMDQwQzowMDAwMDQwQyIsCiAgICAgICAgICAiQlIiOiAiMDQxNjowMDAwMDQxNiIsICJNWCI6ICIwODBBOjAwMDAwODBBIiwgIkVTIjogIjBDMEE6MDAwMDA4MEEiLAogICAgICAgICAgIlZOIjogIjA0MkE6MDAwMDA0MkEiLCAiQ0giOiAiMDgwNzowMDAwMDgwNyIsICJJRCI6ICIwNDIxOjAwMDAwNDA5IiwKICAgICAgICAgICJJVCI6ICIwNDEwOjAwMDAwNDEwIiwgIk5MIjogIjA0MTM6MDAwMjA0MDkiLCAiUEwiOiAiMDQxNTowMDAwMDQxNSJ9CiAgICByZXR1cm4gX20uZ2V0KGNjLnVwcGVyKCksICIwNDA5OjAwMDAwNDA5IikKCgpkZWYgdHpfdG9fd2luZG93c190eihpYW5hX3R6KToKICAgIF9tID0geyJBbWVyaWNhL05ld19Zb3JrIjogIkVhc3Rlcm4gU3RhbmRhcmQgVGltZSIsICJBbWVyaWNhL0NoaWNhZ28iOiAiQ2VudHJhbCBTdGFuZGFyZCBUaW1lIiwKICAgICAgICAgICJBbWVyaWNhL0RlbnZlciI6ICJNb3VudGFpbiBTdGFuZGFyZCBUaW1lIiwgIkFtZXJpY2EvUGhvZW5peCI6ICJVUyBNb3VudGFpbiBTdGFuZGFyZCBUaW1lIiwKICAgICAgICAgICJBbWVyaWNhL0xvc19BbmdlbGVzIjogIlBhY2lmaWMgU3RhbmRhcmQgVGltZSIsICJBbWVyaWNhL1Rvcm9udG8iOiAiRWFzdGVybiBTdGFuZGFyZCBUaW1lIiwKICAgICAgICAgICJBbWVyaWNhL1Nhb19QYXVsbyI6ICJFLiBTb3V0aCBBbWVyaWNhIFN0YW5kYXJkIFRpbWUiLAogICAgICAgICAgIkFtZXJpY2EvTWV4aWNvX0NpdHkiOiAiQ2VudHJhbCBTdGFuZGFyZCBUaW1lIChNZXhpY28pIiwKICAgICAgICAgICJFdXJvcGUvTG9uZG9uIjogIkdNVCBTdGFuZGFyZCBUaW1lIiwgIkV1cm9wZS9QYXJpcyI6ICJSb21hbmNlIFN0YW5kYXJkIFRpbWUiLAogICAgICAgICAgIkV1cm9wZS9CZXJsaW4iOiAiVy4gRXVyb3BlIFN0YW5kYXJkIFRpbWUiLCAiRXVyb3BlL01hZHJpZCI6ICJSb21hbmNlIFN0YW5kYXJkIFRpbWUiLAogICAgICAgICAgIkV1cm9wZS9Sb21lIjogIlcuIEV1cm9wZSBTdGFuZGFyZCBUaW1lIiwgIkV1cm9wZS9BbXN0ZXJkYW0iOiAiVy4gRXVyb3BlIFN0YW5kYXJkIFRpbWUiLAogICAgICAgICAgIkV1cm9wZS9XYXJzYXciOiAiQ2VudHJhbCBFdXJvcGVhbiBTdGFuZGFyZCBUaW1lIiwKICAgICAgICAgICJBc2lhL0hvX0NoaV9NaW5oIjogIlNFIEFzaWEgU3RhbmRhcmQgVGltZSIsICJFdXJvcGUvWnVyaWNoIjogIlcuIEV1cm9wZSBTdGFuZGFyZCBUaW1lIiwKICAgICAgICAgICJBc2lhL0pha2FydGEiOiAiU0UgQXNpYSBTdGFuZGFyZCBUaW1lIiwgIkF1c3RyYWxpYS9TeWRuZXkiOiAiQVVTIEVhc3Rlcm4gU3RhbmRhcmQgVGltZSJ9CiAgICByZXR1cm4gX20uZ2V0KGlhbmFfdHosICJVVEMiKQoKCiMgLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQojIEJhbm5lciArIHBsYW4KIyAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tCnByaW9yX2NvdW50LCBwcmlvcl9jaHVua3MgPSAwLCAwCmZvciBmcCBpbiBnbG9iLmdsb2Iob3MucGF0aC5qb2luKFBSSU9SX0RJUiwgIioqIiwgInByb3h5X2NodW5rXyouanNvbiIpLCByZWN1cnNpdmU9VHJ1ZSk6CiAgICB0cnk6CiAgICAgICAgd2l0aCBvcGVuKGZwLCAiciIsIGVuY29kaW5nPSJ1dGYtOCIpIGFzIGZoOgogICAgICAgICAgICBkID0ganNvbi5sb2FkKGZoKQogICAgICAgIGlmIGQuZ2V0KCJjaHVua19pZHgiKSA9PSBDSFVOS19JRFg6CiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgcHJpb3JfY291bnQgKz0gbGVuKGQuZ2V0KCJwcm94aWVzIiwgW10pKQogICAgICAgIHByaW9yX2NodW5rcyArPSAxCiAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAgIHBhc3MKCnNheSgiPSIgKiA3MikKc2F5KGYiIFBST1hZIFBPT0wgR0VORVJBVElPTiAgfCAge1RBR30iKQpzYXkoIj0iICogNzIpCnNheShmIltQb29sXSBUYXNrcyB0b3RhbCAgICAgICAgICAgIDoge1RBU0tTX1RPVEFMfSIpCnNheShmIltQb29sXSBQb29sIHRvdGFsICh0YXNrcytleHRyYSk6IHtQT09MX1RPVEFMfSAgKGV4dHJhIGJ1ZmZlciA9IHtQT09MX1RPVEFMIC0gVEFTS1NfVE9UQUx9KSIpCnNheShmIltQb29sXSBUaGlzIGNodW5rIHJhbmdlICAgICAgIDogI3tTVEFSVF9TRVF9IC0+ICN7RU5EX1NFUX0gICh7Q09VTlR9IHByb3hpZXMpIikKc2F5KGYiW1Bvb2xdIEFscmVhZHkgaW4gcG9vbCAgICAgICAgOiB7cHJpb3JfY291bnR9IHByb3hpZXMgYWNyb3NzIHtwcmlvcl9jaHVua3N9IGVhcmxpZXIgY2h1bmsocykiKQpzYXkoZiJbUG9vbF0gUG9vbCBwcm9ncmVzcyAoYmVmb3JlKSA6IHtiYXIocHJpb3JfY291bnQsIFBPT0xfVE9UQUwpfSAge3ByaW9yX2NvdW50fS97UE9PTF9UT1RBTH0iKQpzYXkoZiJbUG9vbF0gQ291bnRyeSAgICAgICAgICAgICAgICA6IHtjY19wcmltYXJ5fSB8IEZhbGxiYWNrOiB7Y2NfZmFsbGJhY2sgb3IgJ25vbmUnfSB8IE1vYmlsZToge21vYmlsZX0gfCBTdGlja3k6IHtzdGlja3l9IikKc2F5KGYiW1Bvb2xdIE5hbWluZyBmb3JtYXQgICAgICAgICAgOiA8bnVtYmVyPi08Q09VTlRSWT4tPDYgcmFuZG9tIGxldHRlcnM+ICAgZS5nLiB7U1RBUlRfU0VRfS17Y2NfcHJpbWFyeX0te3JhbmRfbGV0dGVycygpfSIpCnNheSgiIikKCiMgLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQojIEtleSAvIHByb3h5IHBhcnNpbmcKIyAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tClNDUkFQRU9QU19SRSA9IHJlLmNvbXBpbGUociJeWzAtOWEtZl17OH0tWzAtOWEtZl17NH0tWzAtOWEtZl17NH0tWzAtOWEtZl17NH0tWzAtOWEtZl17MTJ9JCIsIHJlLklHTk9SRUNBU0UpClJFRFNDUkFQRV9SRSA9IHJlLmNvbXBpbGUociJeWzAtOWEtZl17MzJ9JCIsIHJlLklHTk9SRUNBU0UpCkdPTE9HSU5fUkUgPSByZS5jb21waWxlKHIiXmV5W0EtWmEtejAtOV8tXStcLltBLVphLXowLTlfLV0rXC5bQS1aYS16MC05Xy1dKyQiKQpGTE9QUFlfUkUgPSByZS5jb21waWxlKHIiXltBLVphLXowLTlfXXszMCw4MH0kIikKCmdvbG9naW5fa2V5cywgYnl0ZXNmbG93X3Byb3hpZXMsIHNjcmFwZW9wc19rZXlzLCBtYW51YWxfcHJveGllcyA9IFtdLCBbXSwgW10sIFtdCm90aGVyX2tleXMgPSAwCmZvciBpdGVtIGluIHByb3h5X2lucHV0LnNwbGl0KCk6CiAgICBpdGVtID0gaXRlbS5zdHJpcCgpCiAgICBpZiBub3QgaXRlbToKICAgICAgICBjb250aW51ZQogICAgaWYgR09MT0dJTl9SRS5tYXRjaChpdGVtKToKICAgICAgICBnb2xvZ2luX2tleXMuYXBwZW5kKGl0ZW0pCiAgICBlbGlmICJieXRlc2Zsb3dzLmNvbSIgaW4gaXRlbS5sb3dlcigpOgogICAgICAgIGJ5dGVzZmxvd19wcm94aWVzLmFwcGVuZChpdGVtKQogICAgZWxpZiBSRURTQ1JBUEVfUkUubWF0Y2goaXRlbSk6CiAgICAgICAgb3RoZXJfa2V5cyArPSAxCiAgICBlbGlmIFNDUkFQRU9QU19SRS5tYXRjaChpdGVtKToKICAgICAgICBzY3JhcGVvcHNfa2V5cy5hcHBlbmQoaXRlbSkKICAgIGVsaWYgRkxPUFBZX1JFLm1hdGNoKGl0ZW0pIGFuZCBsZW4oaXRlbSkgPj0gMzA6CiAgICAgICAgb3RoZXJfa2V5cyArPSAxCiAgICBlbGlmICgiOiIgaW4gaXRlbSBvciAiQCIgaW4gaXRlbSBvciAiOi8vIiBpbiBpdGVtIG9yICIuIiBpbiBpdGVtKSBhbmQgbGVuKGl0ZW0pID4gNToKICAgICAgICBtYW51YWxfcHJveGllcy5hcHBlbmQoaXRlbSkKCgpkZWYgcGFyc2VfZ2VuZXJpY19wcm94eShwcm94eV9zdHIpOgogICAgb3JpZ2luYWwgPSBwcm94eV9zdHIuc3RyaXAoKQogICAgaWYgbm90IG9yaWdpbmFsOgogICAgICAgIHJldHVybiBOb25lCiAgICBwcm90b2NvbCwgcmVzdCA9ICJodHRwIiwgb3JpZ2luYWwKICAgIGlmICI6Ly8iIGluIHJlc3Q6CiAgICAgICAgcHJvdG9jb2wsIHJlc3QgPSByZXN0LnNwbGl0KCI6Ly8iLCAxKQogICAgICAgIGlmIHByb3RvY29sLmxvd2VyKCkgPT0gImdlb2xvY2F0aW9uIjoKICAgICAgICAgICAgcHJvdG9jb2wgPSAiaHR0cCIKICAgIHJlc3QgPSByZS5zdWIociI6KFxkKyk6W0EtWmEtel0uKiQiLCByIjpcMSIsIHJlc3QpCiAgICBtID0gcmUuc2VhcmNoKHIiKFteOkBcc10rKTooW146QFxzXSspQChbXjpAXHNdKyk6KFxkKykiLCByZXN0KQogICAgaWYgbToKICAgICAgICB1LCBwLCBoLCBwdCA9IG0uZ3JvdXBzKCkKICAgICAgICByZXR1cm4geyJ1c2VybmFtZSI6IHUsICJwYXNzd29yZCI6IHAsICJob3N0IjogaCwgInBvcnQiOiBpbnQocHQpfQogICAgbSA9IHJlLnNlYXJjaChyIl4oW146QFxzXSspOihcZCspOihbXjpAXHNdKyk6KFteOkBcc10rKSIsIHJlc3QpCiAgICBpZiBtOgogICAgICAgIGgsIHB0LCB1LCBwID0gbS5ncm91cHMoKQogICAgICAgIHJldHVybiB7InVzZXJuYW1lIjogdSwgInBhc3N3b3JkIjogcCwgImhvc3QiOiBoLCAicG9ydCI6IGludChwdCl9CiAgICBtID0gcmUuc2VhcmNoKHIiXihbXjpAXHNdKyk6KFteOkBcc10rKTooW146QFxzXSspOihcZCspIiwgcmVzdCkKICAgIGlmIG06CiAgICAgICAgdSwgcCwgaCwgcHQgPSBtLmdyb3VwcygpCiAgICAgICAgcmV0dXJuIHsidXNlcm5hbWUiOiB1LCAicGFzc3dvcmQiOiBwLCAiaG9zdCI6IGgsICJwb3J0IjogaW50KHB0KX0KICAgIG0gPSByZS5zZWFyY2gociJeKFteOkBcc10rKTooXGQrKSIsIHJlc3QpCiAgICBpZiBtOgogICAgICAgIGgsIHB0ID0gbS5ncm91cHMoKQogICAgICAgIHJldHVybiB7InVzZXJuYW1lIjogIiIsICJwYXNzd29yZCI6ICIiLCAiaG9zdCI6IGgsICJwb3J0IjogaW50KHB0KX0KICAgIHJldHVybiBOb25lCgoKIyAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tCiMgVmFsaWRhdGlvbiAoSFRUUCBvbmx5IC0gdGhlIGRldmljZSBFZGdlIGxhdW5jaGVyIGNvbnN1bWVzIGh0dHA6Ly9ob3N0OnBvcnQpCiMgLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQpkZWYgdmFsaWRhdGVfcHJveHkocGluZm8pOgogICAgYXV0aCA9IGYie3BpbmZvWyd1c2VybmFtZSddfTp7cGluZm9bJ3Bhc3N3b3JkJ119QCIgaWYgcGluZm8uZ2V0KCJ1c2VybmFtZSIpIGVsc2UgIiIKICAgIHVybCA9IGYiaHR0cDovL3thdXRofXtwaW5mb1snaG9zdCddfTp7cGluZm9bJ3BvcnQnXX0iCiAgICBjZmcgPSB7Imh0dHAiOiB1cmwsICJodHRwcyI6IHVybH0KICAgIGVuZHBvaW50cyA9IFsKICAgICAgICAoImh0dHA6Ly9pcC1hcGkuY29tL2pzb24vIiwgImlwLWFwaS5jb20iKSwKICAgICAgICAoImh0dHBzOi8vaXBpbmZvLmlvL2pzb24iLCAiaXBpbmZvLmlvIiksCiAgICAgICAgKCJodHRwOi8vaXB3aG8uaXMvIiwgImlwd2hvLmlzIiksCiAgICAgICAgKCJodHRwczovL2FwaS5teWlwLmNvbSIsICJteWlwLmNvbSIpLAogICAgXQogICAgZm9yIGVwLCBuYW1lIGluIGVuZHBvaW50czoKICAgICAgICB0MCA9IHRpbWUudGltZSgpCiAgICAgICAgdHJ5OgogICAgICAgICAgICByID0gcmVxdWVzdHMuZ2V0KGVwLCBwcm94aWVzPWNmZywgdGltZW91dD0xNSwgdmVyaWZ5PUZhbHNlKQogICAgICAgICAgICBpZiByLnN0YXR1c19jb2RlICE9IDIwMDoKICAgICAgICAgICAgICAgIHNheShmIiAgICAgIC0ge25hbWV9OiBIVFRQIHtyLnN0YXR1c19jb2RlfSIpCiAgICAgICAgICAgICAgICBjb250aW51ZQogICAgICAgICAgICBkID0gci5qc29uKCkKICAgICAgICAgICAgY2MgPSB0eiA9IGNpdHkgPSByZWdpb24gPSAiIgogICAgICAgICAgICBpcCA9IE5vbmUKICAgICAgICAgICAgaWYgbmFtZSA9PSAiaXAtYXBpLmNvbSIgYW5kIGQuZ2V0KCJzdGF0dXMiKSA9PSAic3VjY2VzcyI6CiAgICAgICAgICAgICAgICBjYywgdHosIGlwLCBjaXR5LCByZWdpb24gPSBkLmdldCgiY291bnRyeUNvZGUiKSwgZC5nZXQoInRpbWV6b25lIiksIGQuZ2V0KCJxdWVyeSIpLCBkLmdldCgiY2l0eSIpLCBkLmdldCgicmVnaW9uTmFtZSIpCiAgICAgICAgICAgIGVsaWYgbmFtZSA9PSAiaXBpbmZvLmlvIiBhbmQgImlwIiBpbiBkOgogICAgICAgICAgICAgICAgY2MsIHR6LCBpcCwgY2l0eSwgcmVnaW9uID0gZC5nZXQoImNvdW50cnkiKSwgZC5nZXQoInRpbWV6b25lIiksIGQuZ2V0KCJpcCIpLCBkLmdldCgiY2l0eSIpLCBkLmdldCgicmVnaW9uIikKICAgICAgICAgICAgZWxpZiBuYW1lID09ICJpcHdoby5pcyIgYW5kIGQuZ2V0KCJzdWNjZXNzIik6CiAgICAgICAgICAgICAgICBjYywgdHosIGlwLCBjaXR5LCByZWdpb24gPSBkLmdldCgiY291bnRyeV9jb2RlIiksIChkLmdldCgidGltZXpvbmUiKSBvciB7fSkuZ2V0KCJpZCIpLCBkLmdldCgiaXAiKSwgZC5nZXQoImNpdHkiKSwgZC5nZXQoInJlZ2lvbiIpCiAgICAgICAgICAgIGVsaWYgbmFtZSA9PSAibXlpcC5jb20iIGFuZCAiaXAiIGluIGQ6CiAgICAgICAgICAgICAgICBjYywgaXAgPSBkLmdldCgiY2MiKSwgZC5nZXQoImlwIikKICAgICAgICAgICAgaWYgaXA6CiAgICAgICAgICAgICAgICBzYXkoZiIgICAgICAtIHZhbGlkYXRlZCB2aWEge25hbWV9IGluIHtpbnQoKHRpbWUudGltZSgpIC0gdDApICogMTAwMCl9IG1zIC0+IElQIHtpcH0gKHtjY30pIikKICAgICAgICAgICAgICAgIHJldHVybiB7ImlwIjogaXAsICJjYyI6IChjYyBvciAiVVMiKS51cHBlcigpLCAidHoiOiB0eiBvciAiVVRDIiwgImNpdHkiOiBjaXR5IG9yICIiLAogICAgICAgICAgICAgICAgICAgICAgICAicmVnaW9uIjogcmVnaW9uIG9yICIiLCAibGF0ZW5jeV9tcyI6IGludCgodGltZS50aW1lKCkgLSB0MCkgKiAxMDAwKX0KICAgICAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6CiAgICAgICAgICAgIHNheShmIiAgICAgIC0ge25hbWV9IGZhaWxlZDoge3R5cGUoZSkuX19uYW1lX199IikKICAgIHJldHVybiBOb25lCgoKIyAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tCiMgUHJvdmlkZXJzOiBlYWNoIHJldHVybnMgKHBpbmZvIHwgTm9uZSwgZXJyb3JfdGV4dCkKIyAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tCkdPTE9HSU5fQVBJID0gImh0dHBzOi8vYXBpLmdvbG9naW4uY29tIgpfbG9nZ2VkX2dvbG9naW5fc2hhcGUgPSB7ImRvbmUiOiBGYWxzZX0KCgpkZWYgbWFrZV9nb2xvZ2luKHNlcSwgY2MsIG5hbWUsIHRyaWVzKToKICAgIGtleSA9IGdvbG9naW5fa2V5c1soc2VxIC8vIDE1ICsgdHJpZXMpICUgbGVuKGdvbG9naW5fa2V5cyldCiAgICBzYXkoZiIgICAgICAtIEdvTG9naW4gQVBJIGtleSAuLi57a2V5Wy02Ol19IC0+IGNyZWF0aW5nIHByb3h5IG5hbWVkICd7bmFtZX0nIChjb3VudHJ5PXtjY30sIG1vYmlsZT17bW9iaWxlfSkiKQogICAgdHJ5OgogICAgICAgIHIgPSByZXF1ZXN0cy5wb3N0KAogICAgICAgICAgICBmIntHT0xPR0lOX0FQSX0vdXNlcnMtcHJveGllcy9tb2JpbGUtcHJveHkiLAogICAgICAgICAgICBoZWFkZXJzPXsiQXV0aG9yaXphdGlvbiI6IGYiQmVhcmVyIHtrZXl9IiwgIkNvbnRlbnQtVHlwZSI6ICJhcHBsaWNhdGlvbi9qc29uIn0sCiAgICAgICAgICAgIGpzb249eyJjb3VudHJ5Q29kZSI6IGNjLmxvd2VyKCksICJpc01vYmlsZSI6IG1vYmlsZSwgImlzREMiOiBGYWxzZSwgImN1c3RvbU5hbWUiOiBuYW1lfSwKICAgICAgICAgICAgdGltZW91dD0yNSwgdmVyaWZ5PUZhbHNlLAogICAgICAgICkKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICByZXR1cm4gTm9uZSwgZiJyZXF1ZXN0IGVycm9yIHt0eXBlKGUpLl9fbmFtZV9ffToge2V9IgogICAgaWYgci5zdGF0dXNfY29kZSA9PSA0Mjk6CiAgICAgICAgc2F5KCIgICAgICAtIEdvTG9naW4gcmF0ZSBsaW1pdCAoNDI5KSAtPiBiYWNraW5nIG9mZiAxMnMiKQogICAgICAgIHRpbWUuc2xlZXAoMTIpCiAgICAgICAgcmV0dXJuIE5vbmUsICJyYXRlIGxpbWl0ZWQgKDQyOSkiCiAgICBpZiByLnN0YXR1c19jb2RlIG5vdCBpbiAoMjAwLCAyMDEpOgogICAgICAgIHJldHVybiBOb25lLCBmIkhUVFAge3Iuc3RhdHVzX2NvZGV9OiB7ci50ZXh0WzoxNjBdfSIKICAgIHRyeToKICAgICAgICBkID0gci5qc29uKCkKICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgcmV0dXJuIE5vbmUsICJub24tSlNPTiByZXNwb25zZSIKICAgIGlmIG5vdCBfbG9nZ2VkX2dvbG9naW5fc2hhcGVbImRvbmUiXToKICAgICAgICBzYXkoZiIgICAgICAtIEdvTG9naW4gcmVzcG9uc2UgZmllbGRzOiB7c29ydGVkKGQua2V5cygpKSBpZiBpc2luc3RhbmNlKGQsIGRpY3QpIGVsc2UgdHlwZShkKS5fX25hbWVfX30iKQogICAgICAgIF9sb2dnZWRfZ29sb2dpbl9zaGFwZVsiZG9uZSJdID0gVHJ1ZQogICAgaG9zdCA9IGQuZ2V0KCJob3N0Iikgb3IgZC5nZXQoImlwIikgb3IgZC5nZXQoInNlcnZlciIpIG9yICJwcm94eS5nb2xvZ2luLmNvbSIKICAgIHBvcnQgPSBkLmdldCgicG9ydCIpIG9yIGQuZ2V0KCJodHRwUG9ydCIpIG9yIDgwODAKICAgIHVzZXIgPSBkLmdldCgidXNlcm5hbWUiKSBvciBkLmdldCgidXNlciIpIG9yIGQuZ2V0KCJsb2dpbiIpIG9yICIiCiAgICBwd2QgPSBkLmdldCgicGFzc3dvcmQiKSBvciBkLmdldCgicGFzcyIpIG9yICIiCiAgICBwaWQgPSBkLmdldCgiaWQiKSBvciBkLmdldCgiX2lkIikgb3IgZC5nZXQoInByb3h5SWQiKSBvciAiIgogICAgc2F5KGYiICAgICAgLSBDUkVBVEVEIGluIEdvTG9naW4gYWNjb3VudCBhcyAne25hbWV9JyAoaWQ9e3BpZCBvciAnbi9hJ30pIC0+IHZpc2libGUgYXQgYXBwLmdvbG9naW4uY29tL3Byb3h5IikKICAgIHJldHVybiB7InVzZXJuYW1lIjogdXNlciwgInBhc3N3b3JkIjogcHdkLCAiaG9zdCI6IGhvc3QsICJwb3J0IjogaW50KHBvcnQpLCAiZ29sb2dpbl9pZCI6IHBpZH0sICIiCgoKZGVmIG1ha2VfYnl0ZXNmbG93KHNlcSwgY2MsIG5hbWUsIHRyaWVzKToKICAgIGJhc2UgPSBwYXJzZV9nZW5lcmljX3Byb3h5KGJ5dGVzZmxvd19wcm94aWVzW3RyaWVzICUgbGVuKGJ5dGVzZmxvd19wcm94aWVzKV0pCiAgICBpZiBub3QgYmFzZSBvciBub3QgYmFzZS5nZXQoInVzZXJuYW1lIik6CiAgICAgICAgcmV0dXJuIE5vbmUsICJjb3VsZCBub3QgcGFyc2UgQnl0ZXNGbG93IHByb3h5IHN0cmluZyIKICAgIG0gPSByZS5zZWFyY2gociJeKD86dS0pPyhbQS1aYS16MC05XSspIiwgYmFzZVsidXNlcm5hbWUiXSkKICAgIGJhc2VfdXNlciA9IG0uZ3JvdXAoMSkgaWYgbSBlbHNlIGJhc2VbInVzZXJuYW1lIl0uc3BsaXQoIi0iKVswXQogICAgdXNlciA9ICItIi5qb2luKFtmInUte2Jhc2VfdXNlcn0iLCBmImxvYy17Y2N9IiwgInQtMTAiLCBmInMte3JhbmRfbGV0dGVycyg4KX0iXSkKICAgIHJldHVybiB7InVzZXJuYW1lIjogdXNlciwgInBhc3N3b3JkIjogYmFzZVsicGFzc3dvcmQiXSwgImhvc3QiOiBiYXNlWyJob3N0Il0sICJwb3J0IjogYmFzZVsicG9ydCJdfSwgIiIKCgpkZWYgbWFrZV9zY3JhcGVvcHMoc2VxLCBjYywgbmFtZSwgdHJpZXMpOgogICAga2V5ID0gc2NyYXBlb3BzX2tleXNbKHNlcSAvLyAxNSArIHRyaWVzKSAlIGxlbihzY3JhcGVvcHNfa2V5cyldCiAgICB1c2VyID0gZiJzY3JhcGVvcHMuY291bnRyeT17Y2MubG93ZXIoKX0iCiAgICBpZiBtb2JpbGU6CiAgICAgICAgdXNlciArPSAiLm1vYmlsZT10cnVlIgogICAgaWYgc3RpY2t5OgogICAgICAgIHVzZXIgKz0gZiIuc3RpY2t5X3Nlc3Npb249cHtzZXF9e3JhbmRfbGV0dGVycyg0KX0iCiAgICByZXR1cm4geyJ1c2VybmFtZSI6IHVzZXIsICJwYXNzd29yZCI6IGtleSwgImhvc3QiOiAicmVzaWRlbnRpYWwtcHJveHkuc2NyYXBlb3BzLmlvIiwgInBvcnQiOiA4MTgxfSwgIiIKCgpkZWYgbWFrZV9tYW51YWwoc2VxLCBjYywgbmFtZSwgdHJpZXMpOgogICAgcCA9IHBhcnNlX2dlbmVyaWNfcHJveHkobWFudWFsX3Byb3hpZXNbKHNlcSAtIDEgKyB0cmllcykgJSBsZW4obWFudWFsX3Byb3hpZXMpXSkKICAgIGlmIG5vdCBwOgogICAgICAgIHJldHVybiBOb25lLCAiY291bGQgbm90IHBhcnNlIG1hbnVhbCBwcm94eSBzdHJpbmciCiAgICByZXR1cm4gcCwgIiIKCgpwcm92aWRlcnMgPSBbXSAgIyAobGFiZWwsIGZuLCBsZW5pZW50X2NvdW50cnlfd2hlbl9ub19mYWxsYmFjaykKaWYgZ29sb2dpbl9rZXlzOgogICAgcHJvdmlkZXJzLmFwcGVuZCgoImdvbG9naW4iLCBtYWtlX2dvbG9naW4sIFRydWUpKQppZiBieXRlc2Zsb3dfcHJveGllczoKICAgIHByb3ZpZGVycy5hcHBlbmQoKCJieXRlc2Zsb3ciLCBtYWtlX2J5dGVzZmxvdywgRmFsc2UpKQppZiBzY3JhcGVvcHNfa2V5czoKICAgIHByb3ZpZGVycy5hcHBlbmQoKCJzY3JhcGVvcHMiLCBtYWtlX3NjcmFwZW9wcywgRmFsc2UpKQppZiBtYW51YWxfcHJveGllczoKICAgIHByb3ZpZGVycy5hcHBlbmQoKCJtYW51YWwiLCBtYWtlX21hbnVhbCwgVHJ1ZSkpCgpzYXkoZiJbUG9vbF0gUHJvdmlkZXJzIGRldGVjdGVkICAgICAgOiAiICsgKCIsICIuam9pbihwWzBdIGZvciBwIGluIHByb3ZpZGVycykgaWYgcHJvdmlkZXJzIGVsc2UgIk5PTkUiKSkKaWYgb3RoZXJfa2V5czoKICAgIHNheShmIltQb29sXSBOT1RFOiB7b3RoZXJfa2V5c30ga2V5KHMpIG9mIHR5cGVzIG5vdCBzdXBwb3J0ZWQgYnkgdGhlIHBvb2wgKFJlZHNjcmFwZS9GbG9wcHlEYXRhKSBhcmUgaWdub3JlZCBoZXJlOyBkZXZpY2VzIGhhbmRsZSB0aGVtIG9uLWRlbWFuZC4iKQoKY29sbGVjdGVkID0gW10KZmFpbHVyZXMgPSBbXQpzdGFydGVkID0gdGltZS50aW1lKCkKTUFYX0NPTlNFQyA9IDEwCk1BWF9BVFRFTVBUUyA9IENPVU5UICogNCArIDEwCmF0dGVtcHRzID0gMApjb25zZWMgPSAwCnNlcV9mYWlsID0gMApwcm92X2lkeCA9IDAKCmlmIG5vdCBwcm92aWRlcnM6CiAgICBzYXkoIjo6ZXJyb3IgdGl0bGU9UHJveHkgUG9vbDo6Tm8gc3VwcG9ydGVkIHByb3h5IHByb3ZpZGVyL0FQSSBrZXkgZm91bmQgaW4gdGhlIGlucHV0LiBEZXZpY2VzIHdpbGwgZmFsbCBiYWNrIHRvIG9uLWRlbWFuZCBnZW5lcmF0aW9uLiIpCmVsaWYgQ09VTlQgPD0gMDoKICAgIHNheSgiW1Bvb2xdIE5vdGhpbmcgdG8gZ2VuZXJhdGUgZm9yIHRoaXMgY2h1bmsuIikKZWxzZToKICAgIHdoaWxlIGxlbihjb2xsZWN0ZWQpIDwgQ09VTlQgYW5kIGF0dGVtcHRzIDwgTUFYX0FUVEVNUFRTOgogICAgICAgIGxhYmVsLCBmbiwgbGVuaWVudCA9IHByb3ZpZGVyc1twcm92X2lkeF0KICAgICAgICBzZXEgPSBTVEFSVF9TRVEgKyBsZW4oY29sbGVjdGVkKQogICAgICAgIGV4cGVjdGVkID0gY2NfcHJpbWFyeQogICAgICAgIGlmIGNjX2ZhbGxiYWNrIGFuZCBzZXFfZmFpbCA+PSA3IGFuZCBjY19mYWxsYmFjayAhPSBjY19wcmltYXJ5OgogICAgICAgICAgICBleHBlY3RlZCA9IGNjX2ZhbGxiYWNrCiAgICAgICAgbmFtZSA9IGYie3NlcX0te2V4cGVjdGVkfS17cmFuZF9sZXR0ZXJzKCl9IgogICAgICAgIGF0dGVtcHRzICs9IDEKICAgICAgICB0MCA9IHRpbWUudGltZSgpCiAgICAgICAgZ3JvdXAoZiJbe1RBR31dIFByb3h5ICN7c2VxfSAoe2xlbihjb2xsZWN0ZWQpICsgMX0ve0NPVU5UfSkgfCBhdHRlbXB0IHtzZXFfZmFpbCArIDF9IHwgcHJvdmlkZXI9e2xhYmVsfSIpCiAgICAgICAgcGluZm8sIGVyciA9IGZuKHNlcSwgZXhwZWN0ZWQsIG5hbWUsIHNlcV9mYWlsKQogICAgICAgIHJlcyA9IE5vbmUKICAgICAgICBpZiBwaW5mbzoKICAgICAgICAgICAgcmVzID0gdmFsaWRhdGVfcHJveHkocGluZm8pCiAgICAgICAgICAgIGlmIHJlcyBhbmQgbm90IChyZXNbImNjIl0gPT0gZXhwZWN0ZWQgb3IgKGxlbmllbnQgYW5kIGNjX2ZhbGxiYWNrIGlzIE5vbmUpKToKICAgICAgICAgICAgICAgIHNheShmIiAgICAgIC0gY291bnRyeSBtaXNtYXRjaDogZ290IHtyZXNbJ2NjJ119IGV4cGVjdGVkIHtleHBlY3RlZH0iKQogICAgICAgICAgICAgICAgZXJyID0gZiJjb3VudHJ5IG1pc21hdGNoIHtyZXNbJ2NjJ119ICE9IHtleHBlY3RlZH0iCiAgICAgICAgICAgICAgICByZXMgPSBOb25lCiAgICAgICAgICAgIGVsaWYgbm90IHJlczoKICAgICAgICAgICAgICAgIGVyciA9ICJ2YWxpZGF0aW9uIGZhaWxlZCAobm8gZWNobyBlbmRwb2ludCByZWFjaGFibGUgdGhyb3VnaCBwcm94eSkiCiAgICAgICAgICAgICAgICBpZiBsYWJlbCA9PSAiZ29sb2dpbiI6CiAgICAgICAgICAgICAgICAgICAgc2F5KGYiICAgICAgLSBOT1RFOiBwcm94eSAne25hbWV9JyBleGlzdHMgaW4gR29Mb2dpbiBkYXNoYm9hcmQgYnV0IGZhaWxlZCB2YWxpZGF0aW9uIChub3QgZGVsZXRlZCkuIikKICAgICAgICBlbmRncm91cCgpCgogICAgICAgIGlmIHBpbmZvIGFuZCByZXM6CiAgICAgICAgICAgIGlmIGxlbihwaW5mby5nZXQoInBhc3N3b3JkIiwgIiIpKSA+PSA4OgogICAgICAgICAgICAgICAgcHJpbnQoZiI6OmFkZC1tYXNrOjp7cGluZm9bJ3Bhc3N3b3JkJ119IiwgZmx1c2g9VHJ1ZSkKICAgICAgICAgICAgcmVjID0gewogICAgICAgICAgICAgICAgInNlcSI6IHNlcSwgIm5hbWUiOiBuYW1lLCAiZ29sb2dpbl9pZCI6IHBpbmZvLmdldCgiZ29sb2dpbl9pZCIsICIiKSwgInNvdXJjZSI6IGxhYmVsLAogICAgICAgICAgICAgICAgImhvc3QiOiBwaW5mb1siaG9zdCJdLCAicG9ydCI6IHBpbmZvWyJwb3J0Il0sCiAgICAgICAgICAgICAgICAidXNlcm5hbWUiOiBwaW5mby5nZXQoInVzZXJuYW1lIiwgIiIpLCAicGFzc3dvcmQiOiBwaW5mby5nZXQoInBhc3N3b3JkIiwgIiIpLAogICAgICAgICAgICAgICAgInNlcnZlciI6IGYie3BpbmZvWydob3N0J119OntwaW5mb1sncG9ydCddfSIsCiAgICAgICAgICAgICAgICAic2VydmVyX3dpdGhfcHJvdG8iOiBmImh0dHA6Ly97cGluZm9bJ2hvc3QnXX06e3BpbmZvWydwb3J0J119IiwKICAgICAgICAgICAgICAgICJwcm94eV90eXBlX2xhYmVsIjogbGFiZWwsICJ3b3JraW5nIjogVHJ1ZSwKICAgICAgICAgICAgICAgICJjb3VudHJ5X2NvZGUiOiByZXNbImNjIl0sICJjb3VudHJ5X25hbWUiOiByZXNbImNjIl0sICJpcCI6IHJlc1siaXAiXSwKICAgICAgICAgICAgICAgICJjaXR5IjogcmVzWyJjaXR5Il0sICJyZWdpb24iOiByZXNbInJlZ2lvbiJdLAogICAgICAgICAgICAgICAgInRpbWV6b25lX2lhbmEiOiByZXNbInR6Il0sICJ0aW1lem9uZV93aW5kb3dzIjogdHpfdG9fd2luZG93c190eihyZXNbInR6Il0pLAogICAgICAgICAgICAgICAgIndpbmRvd3NfbG9jYWxlIjogY291bnRyeV9jb2RlX3RvX2xvY2FsZShyZXNbImNjIl0pLAogICAgICAgICAgICAgICAgIndpbmRvd3Nfa2V5Ym9hcmQiOiBjb3VudHJ5X2NvZGVfdG9fa2V5Ym9hcmQocmVzWyJjYyJdKSwKICAgICAgICAgICAgICAgICJsYXRlbmN5X21zIjogcmVzWyJsYXRlbmN5X21zIl0sICJjaHVua19pZHgiOiBDSFVOS19JRFgsICJjcmVhdGVkX2F0Ijogbm93X2lzbygpLAogICAgICAgICAgICB9CiAgICAgICAgICAgIGNvbGxlY3RlZC5hcHBlbmQocmVjKQogICAgICAgICAgICBjb25zZWMgPSAwCiAgICAgICAgICAgIHNlcV9mYWlsID0gMAogICAgICAgICAgICB0b3RhbF9ub3cgPSBwcmlvcl9jb3VudCArIGxlbihjb2xsZWN0ZWQpCiAgICAgICAgICAgIHNheShmIltQb29sXSBPSyAgI3tzZXE6PDR9ICd7bmFtZX0nIHwgSVAge3Jlc1snaXAnXX0gfCB7cmVzWydjYyddfSB7cmVzWydjaXR5J119IHwge2ludCh0aW1lLnRpbWUoKSAtIHQwKX1zIikKICAgICAgICAgICAgc2F5KGYiW1Bvb2xdICAgICBjaHVuayB7bGVuKGNvbGxlY3RlZCl9L3tDT1VOVH0ge2JhcihsZW4oY29sbGVjdGVkKSwgQ09VTlQsIDIwKX0gfCBQT09MIHt0b3RhbF9ub3d9L3tQT09MX1RPVEFMfSB7YmFyKHRvdGFsX25vdywgUE9PTF9UT1RBTCl9IikKICAgICAgICBlbHNlOgogICAgICAgICAgICBjb25zZWMgKz0gMQogICAgICAgICAgICBzZXFfZmFpbCArPSAxCiAgICAgICAgICAgIGZhaWx1cmVzLmFwcGVuZCh7InNlcSI6IHNlcSwgIm5hbWUiOiBuYW1lLCAicmVhc29uIjogZXJyfSkKICAgICAgICAgICAgc2F5KGYiW1Bvb2xdIEZBSUwgI3tzZXE6PDR9ICd7bmFtZX0nIHwge2Vycn0gfCBjb25zZWN1dGl2ZSBmYWlsdXJlczoge2NvbnNlY30ve01BWF9DT05TRUN9IikKICAgICAgICAgICAgZXJyX2wgPSAoZXJyIG9yICIiKS5sb3dlcigpCiAgICAgICAgICAgIGhhcmRfcXVvdGEgPSBhbnkoeCBpbiBlcnJfbCBmb3IgeCBpbiAoCiAgICAgICAgICAgICAgICAibWF4aW11bSBudW1iZXIgb2YgcHJveGllcyIsICJmcmVlIGFwaSByZXF1ZXN0cyBsaW1pdCIsCiAgICAgICAgICAgICAgICAicGxlYXNlIHN1YnNjcmliZSIsICJxdW90YSBleGNlZWRlZCIsICJyYXRlIGxpbWl0IiwKICAgICAgICAgICAgICAgICJ0b28gbWFueSByZXF1ZXN0cyIsICI0MDIiLCAicGF5bWVudCByZXF1aXJlZCIsCiAgICAgICAgICAgICkpCiAgICAgICAgICAgIGlmIGhhcmRfcXVvdGE6CiAgICAgICAgICAgICAgICBzYXkoZiI6Ondhcm5pbmcgdGl0bGU9UHJveHkgUG9vbCB7VEFHfTo6SGFyZCBxdW90YS9yYXRlLWxpbWl0IGRldGVjdGVkLiBTdG9wcGluZyB0aGlzIGJhdGNoIGVhcmx5IHdpdGgge2xlbihjb2xsZWN0ZWQpfS97Q09VTlR9IHByb3hpZXMgc28gdGhleSBjYW4gYmUgdXBsb2FkZWQgbm93LiIpCiAgICAgICAgICAgICAgICBicmVhawogICAgICAgICAgICBpZiBjb25zZWMgPj0gTUFYX0NPTlNFQzoKICAgICAgICAgICAgICAgIGlmIHByb3ZfaWR4ICsgMSA8IGxlbihwcm92aWRlcnMpOgogICAgICAgICAgICAgICAgICAgIHByb3ZfaWR4ICs9IDEKICAgICAgICAgICAgICAgICAgICBjb25zZWMgPSAwCiAgICAgICAgICAgICAgICAgICAgc2F5KGYiW1Bvb2xdIFN3aXRjaGluZyBwcm92aWRlciAtPiB7cHJvdmlkZXJzW3Byb3ZfaWR4XVswXX0iKQogICAgICAgICAgICAgICAgZWxzZToKICAgICAgICAgICAgICAgICAgICBzYXkoZiI6Ondhcm5pbmcgdGl0bGU9UHJveHkgUG9vbCB7VEFHfTo6U3RvcHBpbmcgZWFybHkgYWZ0ZXIge2NvbnNlY30gY29uc2VjdXRpdmUgZmFpbHVyZXMgKHF1b3RhL2xpbWl0PykuIEdlbmVyYXRlZCB7bGVuKGNvbGxlY3RlZCl9L3tDT1VOVH0g4oCUIHVwbG9hZGluZyBwYXJ0aWFsIGJhdGNoLiIpCiAgICAgICAgICAgICAgICAgICAgYnJlYWsKICAgICAgICB0aW1lLnNsZWVwKDAuNykKCiMgLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQojIE91dHB1dAojIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0KZWxhcHNlZCA9IGludCh0aW1lLnRpbWUoKSAtIHN0YXJ0ZWQpCnRvdGFsX2FmdGVyID0gcHJpb3JfY291bnQgKyBsZW4oY29sbGVjdGVkKQpwYXlsb2FkID0gewogICAgImNodW5rX2lkeCI6IENIVU5LX0lEWCwgInN0YXJ0X3NlcSI6IFNUQVJUX1NFUSwgImVuZF9zZXEiOiBFTkRfU0VRLCAicmVxdWVzdGVkIjogQ09VTlQsCiAgICAiZ2VuZXJhdGVkIjogbGVuKGNvbGxlY3RlZCksICJmYWlsZWRfYXR0ZW1wdHMiOiBsZW4oZmFpbHVyZXMpLCAiY3JlYXRlZF9hdCI6IG5vd19pc28oKSwKICAgICJwcm94aWVzIjogY29sbGVjdGVkLAp9CndpdGggb3BlbihPVVRfRklMRSwgInciLCBlbmNvZGluZz0idXRmLTgiKSBhcyBmaDoKICAgIGpzb24uZHVtcChwYXlsb2FkLCBmaCwgaW5kZW50PTIpCgpzYXkoIiIpCnNheSgiPSIgKiA3MikKc2F5KGYiIHtUQUd9IENPTVBMRVRFIGluIHtlbGFwc2VkfXMiKQpzYXkoIj0iICogNzIpCnNheShmIltQb29sXSBHZW5lcmF0ZWQgdGhpcyBjaHVuayA6IHtsZW4oY29sbGVjdGVkKX0ve0NPVU5UfSAgKGZhaWxlZCBhdHRlbXB0czoge2xlbihmYWlsdXJlcyl9KSIpCnNheShmIltQb29sXSBQb29sIG5vdyBob2xkcyAgICAgICA6IHt0b3RhbF9hZnRlcn0ve1BPT0xfVE9UQUx9ICB7YmFyKHRvdGFsX2FmdGVyLCBQT09MX1RPVEFMKX0iKQpzYXkoZiJbUG9vbF0gQ292ZXJzIHRhc2tzICAgICAgICAgOiB7bWluKHRvdGFsX2FmdGVyLCBUQVNLU19UT1RBTCl9L3tUQVNLU19UT1RBTH0gKCt7bWF4KDAsIHRvdGFsX2FmdGVyIC0gVEFTS1NfVE9UQUwpfSBzcGFyZSkiKQpzYXkoZiJbUG9vbF0gQXJ0aWZhY3QgICAgICAgICAgICAgOiB7T1VUX0ZJTEV9IikKaWYgY29sbGVjdGVkOgogICAgc2F5KCJbUG9vbF0gTmFtZXMgY3JlYXRlZCBpbiBHb0xvZ2luIGRhc2hib2FyZCAoYXBwLmdvbG9naW4uY29tL3Byb3h5KToiIGlmIGdvbG9naW5fa2V5cyBlbHNlICJbUG9vbF0gUHJveHkgbmFtZXM6IikKICAgIHNheSgiICAgICAgICIgKyAiLCAiLmpvaW4ocFsibmFtZSJdIGZvciBwIGluIGNvbGxlY3RlZCkpCmlmIGxlbihjb2xsZWN0ZWQpIDwgQ09VTlQ6CiAgICBzYXkoZiI6Ondhcm5pbmcgdGl0bGU9UHJveHkgUG9vbCB7VEFHfTo6T25seSB7bGVuKGNvbGxlY3RlZCl9L3tDT1VOVH0gcHJveGllcyBnZW5lcmF0ZWQuIERldmljZXMgbmVlZGluZyB0aGUgbWlzc2luZyBudW1iZXJzIGZhbGwgYmFjayB0byBBUEkta2V5IGdlbmVyYXRpb24uIikKCnN1bW1hcnkgPSBvcy5lbnZpcm9uLmdldCgiR0lUSFVCX1NURVBfU1VNTUFSWSIpCmlmIHN1bW1hcnk6CiAgICB3aXRoIG9wZW4oc3VtbWFyeSwgImEiLCBlbmNvZGluZz0idXRmLTgiKSBhcyBmaDoKICAgICAgICBmaC53cml0ZShmIiMjIFByb3h5IFBvb2wgLSB7VEFHfVxuXG4iKQogICAgICAgIGZoLndyaXRlKGYiLSBSYW5nZTogKioje1NUQVJUX1NFUX0gLSAje0VORF9TRVF9KiogKHtDT1VOVH0gcmVxdWVzdGVkKVxuIikKICAgICAgICBmaC53cml0ZShmIi0gR2VuZXJhdGVkIHRoaXMgY2h1bms6ICoqe2xlbihjb2xsZWN0ZWQpfS97Q09VTlR9KiogfCBmYWlsZWQgYXR0ZW1wdHM6IHtsZW4oZmFpbHVyZXMpfSB8IHRpbWU6IHtlbGFwc2VkfXNcbiIpCiAgICAgICAgZmgud3JpdGUoZiItIFBvb2wgcHJvZ3Jlc3M6ICoqe3RvdGFsX2FmdGVyfS97UE9PTF9UT1RBTH0qKiAoeyh0b3RhbF9hZnRlciAvIFBPT0xfVE9UQUwgKiAxMDAuMCkgaWYgUE9PTF9UT1RBTCBlbHNlIDA6LjFmfSUpXG4iKQogICAgICAgIGZoLndyaXRlKGYiLSBUYXNrcyBjb3ZlcmVkOiB7bWluKHRvdGFsX2FmdGVyLCBUQVNLU19UT1RBTCl9L3tUQVNLU19UT1RBTH1cblxuIikKICAgICAgICBpZiBjb2xsZWN0ZWQ6CiAgICAgICAgICAgIGZoLndyaXRlKCJ8ICMgfCBEYXNoYm9hcmQgbmFtZSB8IElQIHwgQ291bnRyeSB8IENpdHkgfCBMYXRlbmN5IHxcbnwtLS18LS0tfC0tLXwtLS18LS0tfC0tLXxcbiIpCiAgICAgICAgICAgIGZvciBwIGluIGNvbGxlY3RlZDoKICAgICAgICAgICAgICAgIGZoLndyaXRlKGYifCB7cFsnc2VxJ119IHwgYHtwWyduYW1lJ119YCB8IHtwWydpcCddfSB8IHtwWydjb3VudHJ5X2NvZGUnXX0gfCB7cFsnY2l0eSddfSB8IHtwWydsYXRlbmN5X21zJ119IG1zIHxcbiIpCiAgICAgICAgaWYgZmFpbHVyZXM6CiAgICAgICAgICAgIGZoLndyaXRlKCJcbjxkZXRhaWxzPjxzdW1tYXJ5PkZhaWxlZCBhdHRlbXB0czwvc3VtbWFyeT5cblxuIikKICAgICAgICAgICAgZm9yIGZfIGluIGZhaWx1cmVzWzo1MF06CiAgICAgICAgICAgICAgICBmaC53cml0ZShmIi0gI3tmX1snc2VxJ119IGB7Zl9bJ25hbWUnXX1gOiB7Zl9bJ3JlYXNvbiddfVxuIikKICAgICAgICAgICAgZmgud3JpdGUoIlxuPC9kZXRhaWxzPlxuIikKCndpdGggb3Blbihvcy5lbnZpcm9uWyJHSVRIVUJfT1VUUFVUIl0sICJhIikgYXMgZmg6CiAgICBmaC53cml0ZShmImdlbmVyYXRlZD17bGVuKGNvbGxlY3RlZCl9XG4iKQogICAgZmgud3JpdGUoZiJwb29sX25vdz17dG90YWxfYWZ0ZXJ9XG4iKQoKaWYgbGVuKGNvbGxlY3RlZCkgPT0gMCBhbmQgQ09VTlQgPiAwOgogICAgc2F5KGYiOjplcnJvciB0aXRsZT1Qcm94eSBQb29sIHtUQUd9OjpaZXJvIHByb3hpZXMgZ2VuZXJhdGVkIGZvciB0aGlzIGNodW5rLiIpCiAgICBzeXMuZXhpdCgxKQoK").decode("utf-8")
+          with open("/tmp/pool_gen.py", "w", encoding="utf-8") as f:
+              f.write(data)
+          print("Wrote /tmp/pool_gen.py (", len(data), "bytes)")
+          PY
+
+      - name: Chunk 000 - Generate (initial 5%)
+        id: gen000
         shell: python
         env:
           CHUNK_IDX: '0'
@@ -754,457 +773,11 @@ jobs:
           MOBILE: ${{ inputs.mobile_proxies }}
           STICKY: ${{ inputs.sticky_sessions }}
         run: |
-          import os, sys, json, re, time, random, string, glob, datetime, subprocess, unicodedata
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
 
-          try:
-              import requests, urllib3
-          except ImportError:
-              subprocess.check_call([sys.executable, "-m", "pip", "install", "requests[socks]", "urllib3", "--quiet"])
-              import requests, urllib3
-          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-
-          def say(m=""):
-              print(m, flush=True)
-
-
-          def group(t):
-              print("::group::" + t, flush=True)
-
-
-          def endgroup():
-              print("::endgroup::", flush=True)
-
-
-          def geti(k, d=0):
-              try:
-                  return int(os.environ.get(k, str(d)))
-              except Exception:
-                  return d
-
-
-          def bar(done, total, width=30):
-              pct = (done / total * 100.0) if total else 0.0
-              filled = int(width * min(done, total) / total) if total else 0
-              return "[" + "#" * filled + "-" * (width - filled) + f"] {pct:5.1f}%"
-
-
-          def rand_letters(n=6):
-              return "".join(random.choices(string.ascii_lowercase, k=n))
-
-
-          def now_iso():
-              return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-          # ----------------------------------------------------------------------------
-          # Config
-          # ----------------------------------------------------------------------------
-          CHUNK_IDX = geti("CHUNK_IDX")
-          START_SEQ = geti("START_SEQ", 1)
-          END_SEQ = geti("END_SEQ", 1)
-          TASKS_TOTAL = geti("TASKS_TOTAL")
-          POOL_TOTAL = geti("POOL_TOTAL")
-          CHUNKS_TOTAL = geti("CHUNKS_TOTAL", 1)
-          NUM_DEVICES = geti("NUM_DEVICES", 1)
-          COUNT = max(0, END_SEQ - START_SEQ + 1)
-          OUT_FILE = os.environ.get("OUT_FILE", f"proxy_chunk_{CHUNK_IDX:03d}.json")
-          PRIOR_DIR = os.environ.get("PRIOR_DIR", "prior_chunks")
-          IS_INITIAL = CHUNK_IDX == 0
-          TAG = "INITIAL 5%" if IS_INITIAL else f"CHUNK {CHUNK_IDX}/{CHUNKS_TOTAL - 1}"
-
-          proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
-          country_input = os.environ.get("COUNTRY", "USA")
-          fallback_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
-          mobile = os.environ.get("MOBILE", "false").lower() == "true"
-          sticky = os.environ.get("STICKY", "false").lower() == "true"
-
-          country_map = {
-              "USA": "us", "UK": "gb", "Canada": "ca", "Australia": "au", "Germany": "de", "France": "fr",
-              "Brazil": "br", "Mexico": "mx", "Spain": "es", "Vietnam": "vn", "Switzerland": "ch",
-              "Indonesia": "id", "Italy": "it", "Netherlands": "nl", "Poland": "pl",
-          }
-          cc_primary = country_map.get(country_input, "us").upper()
-          cc_fallback = None if fallback_input == "No Fallback" else country_map.get(fallback_input, "us").upper()
-
-
-          def country_code_to_locale(cc):
-              _m = {"US": "en-US", "GB": "en-GB", "CA": "en-CA", "AU": "en-AU", "DE": "de-DE",
-                    "FR": "fr-FR", "BR": "pt-BR", "MX": "es-MX", "ES": "es-ES", "VN": "vi-VN",
-                    "CH": "de-CH", "ID": "id-ID", "IT": "it-IT", "NL": "nl-NL", "PL": "pl-PL"}
-              return _m.get(cc.upper(), "en-US")
-
-
-          def country_code_to_keyboard(cc):
-              _m = {"US": "0409:00000409", "GB": "0809:00000809", "CA": "1009:00000409",
-                    "AU": "0C09:00000409", "DE": "0407:00000407", "FR": "040C:0000040C",
-                    "BR": "0416:00000416", "MX": "080A:0000080A", "ES": "0C0A:0000080A",
-                    "VN": "042A:0000042A", "CH": "0807:00000807", "ID": "0421:00000409",
-                    "IT": "0410:00000410", "NL": "0413:00020409", "PL": "0415:00000415"}
-              return _m.get(cc.upper(), "0409:00000409")
-
-
-          def tz_to_windows_tz(iana_tz):
-              _m = {"America/New_York": "Eastern Standard Time", "America/Chicago": "Central Standard Time",
-                    "America/Denver": "Mountain Standard Time", "America/Phoenix": "US Mountain Standard Time",
-                    "America/Los_Angeles": "Pacific Standard Time", "America/Toronto": "Eastern Standard Time",
-                    "America/Sao_Paulo": "E. South America Standard Time",
-                    "America/Mexico_City": "Central Standard Time (Mexico)",
-                    "Europe/London": "GMT Standard Time", "Europe/Paris": "Romance Standard Time",
-                    "Europe/Berlin": "W. Europe Standard Time", "Europe/Madrid": "Romance Standard Time",
-                    "Europe/Rome": "W. Europe Standard Time", "Europe/Amsterdam": "W. Europe Standard Time",
-                    "Europe/Warsaw": "Central European Standard Time",
-                    "Asia/Ho_Chi_Minh": "SE Asia Standard Time", "Europe/Zurich": "W. Europe Standard Time",
-                    "Asia/Jakarta": "SE Asia Standard Time", "Australia/Sydney": "AUS Eastern Standard Time"}
-              return _m.get(iana_tz, "UTC")
-
-
-          # ----------------------------------------------------------------------------
-          # Banner + plan
-          # ----------------------------------------------------------------------------
-          prior_count, prior_chunks = 0, 0
-          for fp in glob.glob(os.path.join(PRIOR_DIR, "**", "proxy_chunk_*.json"), recursive=True):
-              try:
-                  with open(fp, "r", encoding="utf-8") as fh:
-                      d = json.load(fh)
-                  if d.get("chunk_idx") == CHUNK_IDX:
-                      continue
-                  prior_count += len(d.get("proxies", []))
-                  prior_chunks += 1
-              except Exception:
-                  pass
-
-          say("=" * 72)
-          say(f" PROXY POOL GENERATION  |  {TAG}")
-          say("=" * 72)
-          say(f"[Pool] Tasks total            : {TASKS_TOTAL}")
-          say(f"[Pool] Pool total (tasks+extra): {POOL_TOTAL}  (extra buffer = {POOL_TOTAL - TASKS_TOTAL})")
-          say(f"[Pool] This chunk range       : #{START_SEQ} -> #{END_SEQ}  ({COUNT} proxies)")
-          say(f"[Pool] Already in pool        : {prior_count} proxies across {prior_chunks} earlier chunk(s)")
-          say(f"[Pool] Pool progress (before) : {bar(prior_count, POOL_TOTAL)}  {prior_count}/{POOL_TOTAL}")
-          say(f"[Pool] Country                : {cc_primary} | Fallback: {cc_fallback or 'none'} | Mobile: {mobile} | Sticky: {sticky}")
-          say(f"[Pool] Naming format          : <number>-<COUNTRY>-<6 random letters>   e.g. {START_SEQ}-{cc_primary}-{rand_letters()}")
-          say("")
-
-          # ----------------------------------------------------------------------------
-          # Key / proxy parsing
-          # ----------------------------------------------------------------------------
-          SCRAPEOPS_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
-          REDSCRAPE_RE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)
-          GOLOGIN_RE = re.compile(r"^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
-          FLOPPY_RE = re.compile(r"^[A-Za-z0-9_]{30,80}$")
-
-          gologin_keys, bytesflow_proxies, scrapeops_keys, manual_proxies = [], [], [], []
-          other_keys = 0
-          for item in proxy_input.split():
-              item = item.strip()
-              if not item:
-                  continue
-              if GOLOGIN_RE.match(item):
-                  gologin_keys.append(item)
-              elif "bytesflows.com" in item.lower():
-                  bytesflow_proxies.append(item)
-              elif REDSCRAPE_RE.match(item):
-                  other_keys += 1
-              elif SCRAPEOPS_RE.match(item):
-                  scrapeops_keys.append(item)
-              elif FLOPPY_RE.match(item) and len(item) >= 30:
-                  other_keys += 1
-              elif (":" in item or "@" in item or "://" in item or "." in item) and len(item) > 5:
-                  manual_proxies.append(item)
-
-
-          def parse_generic_proxy(proxy_str):
-              original = proxy_str.strip()
-              if not original:
-                  return None
-              protocol, rest = "http", original
-              if "://" in rest:
-                  protocol, rest = rest.split("://", 1)
-                  if protocol.lower() == "geolocation":
-                      protocol = "http"
-              rest = re.sub(r":(\d+):[A-Za-z].*$", r":\1", rest)
-              m = re.search(r"([^:@\s]+):([^:@\s]+)@([^:@\s]+):(\d+)", rest)
-              if m:
-                  u, p, h, pt = m.groups()
-                  return {"username": u, "password": p, "host": h, "port": int(pt)}
-              m = re.search(r"^([^:@\s]+):(\d+):([^:@\s]+):([^:@\s]+)", rest)
-              if m:
-                  h, pt, u, p = m.groups()
-                  return {"username": u, "password": p, "host": h, "port": int(pt)}
-              m = re.search(r"^([^:@\s]+):([^:@\s]+):([^:@\s]+):(\d+)", rest)
-              if m:
-                  u, p, h, pt = m.groups()
-                  return {"username": u, "password": p, "host": h, "port": int(pt)}
-              m = re.search(r"^([^:@\s]+):(\d+)", rest)
-              if m:
-                  h, pt = m.groups()
-                  return {"username": "", "password": "", "host": h, "port": int(pt)}
-              return None
-
-
-          # ----------------------------------------------------------------------------
-          # Validation (HTTP only - the device Edge launcher consumes http://host:port)
-          # ----------------------------------------------------------------------------
-          def validate_proxy(pinfo):
-              auth = f"{pinfo['username']}:{pinfo['password']}@" if pinfo.get("username") else ""
-              url = f"http://{auth}{pinfo['host']}:{pinfo['port']}"
-              cfg = {"http": url, "https": url}
-              endpoints = [
-                  ("http://ip-api.com/json/", "ip-api.com"),
-                  ("https://ipinfo.io/json", "ipinfo.io"),
-                  ("http://ipwho.is/", "ipwho.is"),
-                  ("https://api.myip.com", "myip.com"),
-              ]
-              for ep, name in endpoints:
-                  t0 = time.time()
-                  try:
-                      r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
-                      if r.status_code != 200:
-                          say(f"      - {name}: HTTP {r.status_code}")
-                          continue
-                      d = r.json()
-                      cc = tz = city = region = ""
-                      ip = None
-                      if name == "ip-api.com" and d.get("status") == "success":
-                          cc, tz, ip, city, region = d.get("countryCode"), d.get("timezone"), d.get("query"), d.get("city"), d.get("regionName")
-                      elif name == "ipinfo.io" and "ip" in d:
-                          cc, tz, ip, city, region = d.get("country"), d.get("timezone"), d.get("ip"), d.get("city"), d.get("region")
-                      elif name == "ipwho.is" and d.get("success"):
-                          cc, tz, ip, city, region = d.get("country_code"), (d.get("timezone") or {}).get("id"), d.get("ip"), d.get("city"), d.get("region")
-                      elif name == "myip.com" and "ip" in d:
-                          cc, ip = d.get("cc"), d.get("ip")
-                      if ip:
-                          say(f"      - validated via {name} in {int((time.time() - t0) * 1000)} ms -> IP {ip} ({cc})")
-                          return {"ip": ip, "cc": (cc or "US").upper(), "tz": tz or "UTC", "city": city or "",
-                                  "region": region or "", "latency_ms": int((time.time() - t0) * 1000)}
-                  except Exception as e:
-                      say(f"      - {name} failed: {type(e).__name__}")
-              return None
-
-
-          # ----------------------------------------------------------------------------
-          # Providers: each returns (pinfo | None, error_text)
-          # ----------------------------------------------------------------------------
-          GOLOGIN_API = "https://api.gologin.com"
-          _logged_gologin_shape = {"done": False}
-
-
-          def make_gologin(seq, cc, name, tries):
-              key = gologin_keys[(seq // 15 + tries) % len(gologin_keys)]
-              say(f"      - GoLogin API key ...{key[-6:]} -> creating proxy named '{name}' (country={cc}, mobile={mobile})")
-              try:
-                  r = requests.post(
-                      f"{GOLOGIN_API}/users-proxies/mobile-proxy",
-                      headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                      json={"countryCode": cc.lower(), "isMobile": mobile, "isDC": False, "customName": name},
-                      timeout=25, verify=False,
-                  )
-              except Exception as e:
-                  return None, f"request error {type(e).__name__}: {e}"
-              if r.status_code == 429:
-                  say("      - GoLogin rate limit (429) -> backing off 12s")
-                  time.sleep(12)
-                  return None, "rate limited (429)"
-              if r.status_code not in (200, 201):
-                  return None, f"HTTP {r.status_code}: {r.text[:160]}"
-              try:
-                  d = r.json()
-              except Exception:
-                  return None, "non-JSON response"
-              if not _logged_gologin_shape["done"]:
-                  say(f"      - GoLogin response fields: {sorted(d.keys()) if isinstance(d, dict) else type(d).__name__}")
-                  _logged_gologin_shape["done"] = True
-              host = d.get("host") or d.get("ip") or d.get("server") or "proxy.gologin.com"
-              port = d.get("port") or d.get("httpPort") or 8080
-              user = d.get("username") or d.get("user") or d.get("login") or ""
-              pwd = d.get("password") or d.get("pass") or ""
-              pid = d.get("id") or d.get("_id") or d.get("proxyId") or ""
-              say(f"      - CREATED in GoLogin account as '{name}' (id={pid or 'n/a'}) -> visible at app.gologin.com/proxy")
-              return {"username": user, "password": pwd, "host": host, "port": int(port), "gologin_id": pid}, ""
-
-
-          def make_bytesflow(seq, cc, name, tries):
-              base = parse_generic_proxy(bytesflow_proxies[tries % len(bytesflow_proxies)])
-              if not base or not base.get("username"):
-                  return None, "could not parse BytesFlow proxy string"
-              m = re.search(r"^(?:u-)?([A-Za-z0-9]+)", base["username"])
-              base_user = m.group(1) if m else base["username"].split("-")[0]
-              user = "-".join([f"u-{base_user}", f"loc-{cc}", "t-10", f"s-{rand_letters(8)}"])
-              return {"username": user, "password": base["password"], "host": base["host"], "port": base["port"]}, ""
-
-
-          def make_scrapeops(seq, cc, name, tries):
-              key = scrapeops_keys[(seq // 15 + tries) % len(scrapeops_keys)]
-              user = f"scrapeops.country={cc.lower()}"
-              if mobile:
-                  user += ".mobile=true"
-              if sticky:
-                  user += f".sticky_session=p{seq}{rand_letters(4)}"
-              return {"username": user, "password": key, "host": "residential-proxy.scrapeops.io", "port": 8181}, ""
-
-
-          def make_manual(seq, cc, name, tries):
-              p = parse_generic_proxy(manual_proxies[(seq - 1 + tries) % len(manual_proxies)])
-              if not p:
-                  return None, "could not parse manual proxy string"
-              return p, ""
-
-
-          providers = []  # (label, fn, lenient_country_when_no_fallback)
-          if gologin_keys:
-              providers.append(("gologin", make_gologin, True))
-          if bytesflow_proxies:
-              providers.append(("bytesflow", make_bytesflow, False))
-          if scrapeops_keys:
-              providers.append(("scrapeops", make_scrapeops, False))
-          if manual_proxies:
-              providers.append(("manual", make_manual, True))
-
-          say(f"[Pool] Providers detected      : " + (", ".join(p[0] for p in providers) if providers else "NONE"))
-          if other_keys:
-              say(f"[Pool] NOTE: {other_keys} key(s) of types not supported by the pool (Redscrape/FloppyData) are ignored here; devices handle them on-demand.")
-
-          collected = []
-          failures = []
-          started = time.time()
-          MAX_CONSEC = 10
-          MAX_ATTEMPTS = COUNT * 4 + 10
-          attempts = 0
-          consec = 0
-          seq_fail = 0
-          prov_idx = 0
-
-          if not providers:
-              say("::error title=Proxy Pool::No supported proxy provider/API key found in the input. Devices will fall back to on-demand generation.")
-          elif COUNT <= 0:
-              say("[Pool] Nothing to generate for this chunk.")
-          else:
-              while len(collected) < COUNT and attempts < MAX_ATTEMPTS:
-                  label, fn, lenient = providers[prov_idx]
-                  seq = START_SEQ + len(collected)
-                  expected = cc_primary
-                  if cc_fallback and seq_fail >= 7 and cc_fallback != cc_primary:
-                      expected = cc_fallback
-                  name = f"{seq}-{expected}-{rand_letters()}"
-                  attempts += 1
-                  t0 = time.time()
-                  group(f"[{TAG}] Proxy #{seq} ({len(collected) + 1}/{COUNT}) | attempt {seq_fail + 1} | provider={label}")
-                  pinfo, err = fn(seq, expected, name, seq_fail)
-                  res = None
-                  if pinfo:
-                      res = validate_proxy(pinfo)
-                      if res and not (res["cc"] == expected or (lenient and cc_fallback is None)):
-                          say(f"      - country mismatch: got {res['cc']} expected {expected}")
-                          err = f"country mismatch {res['cc']} != {expected}"
-                          res = None
-                      elif not res:
-                          err = "validation failed (no echo endpoint reachable through proxy)"
-                          if label == "gologin":
-                              say(f"      - NOTE: proxy '{name}' exists in GoLogin dashboard but failed validation (not deleted).")
-                  endgroup()
-
-                  if pinfo and res:
-                      if len(pinfo.get("password", "")) >= 8:
-                          print(f"::add-mask::{pinfo['password']}", flush=True)
-                      rec = {
-                          "seq": seq, "name": name, "gologin_id": pinfo.get("gologin_id", ""), "source": label,
-                          "host": pinfo["host"], "port": pinfo["port"],
-                          "username": pinfo.get("username", ""), "password": pinfo.get("password", ""),
-                          "server": f"{pinfo['host']}:{pinfo['port']}",
-                          "server_with_proto": f"http://{pinfo['host']}:{pinfo['port']}",
-                          "proxy_type_label": label, "working": True,
-                          "country_code": res["cc"], "country_name": res["cc"], "ip": res["ip"],
-                          "city": res["city"], "region": res["region"],
-                          "timezone_iana": res["tz"], "timezone_windows": tz_to_windows_tz(res["tz"]),
-                          "windows_locale": country_code_to_locale(res["cc"]),
-                          "windows_keyboard": country_code_to_keyboard(res["cc"]),
-                          "latency_ms": res["latency_ms"], "chunk_idx": CHUNK_IDX, "created_at": now_iso(),
-                      }
-                      collected.append(rec)
-                      consec = 0
-                      seq_fail = 0
-                      total_now = prior_count + len(collected)
-                      say(f"[Pool] OK  #{seq:<4} '{name}' | IP {res['ip']} | {res['cc']} {res['city']} | {int(time.time() - t0)}s")
-                      say(f"[Pool]     chunk {len(collected)}/{COUNT} {bar(len(collected), COUNT, 20)} | POOL {total_now}/{POOL_TOTAL} {bar(total_now, POOL_TOTAL)}")
-                  else:
-                      consec += 1
-                      seq_fail += 1
-                      failures.append({"seq": seq, "name": name, "reason": err})
-                      say(f"[Pool] FAIL #{seq:<4} '{name}' | {err} | consecutive failures: {consec}/{MAX_CONSEC}")
-                      err_l = (err or "").lower()
-                      hard_quota = any(x in err_l for x in (
-                          "maximum number of proxies", "free api requests limit",
-                          "please subscribe", "quota exceeded", "rate limit",
-                          "too many requests", "402", "payment required",
-                      ))
-                      if hard_quota:
-                          say(f"::warning title=Proxy Pool {TAG}::Hard quota/rate-limit detected. Stopping this batch early with {len(collected)}/{COUNT} proxies so they can be uploaded now.")
-                          break
-                      if consec >= MAX_CONSEC:
-                          if prov_idx + 1 < len(providers):
-                              prov_idx += 1
-                              consec = 0
-                              say(f"[Pool] Switching provider -> {providers[prov_idx][0]}")
-                          else:
-                              say(f"::warning title=Proxy Pool {TAG}::Stopping early after {consec} consecutive failures (quota/limit?). Generated {len(collected)}/{COUNT} — uploading partial batch.")
-                              break
-                  time.sleep(0.7)
-
-          # ----------------------------------------------------------------------------
-          # Output
-          # ----------------------------------------------------------------------------
-          elapsed = int(time.time() - started)
-          total_after = prior_count + len(collected)
-          payload = {
-              "chunk_idx": CHUNK_IDX, "start_seq": START_SEQ, "end_seq": END_SEQ, "requested": COUNT,
-              "generated": len(collected), "failed_attempts": len(failures), "created_at": now_iso(),
-              "proxies": collected,
-          }
-          with open(OUT_FILE, "w", encoding="utf-8") as fh:
-              json.dump(payload, fh, indent=2)
-
-          say("")
-          say("=" * 72)
-          say(f" {TAG} COMPLETE in {elapsed}s")
-          say("=" * 72)
-          say(f"[Pool] Generated this chunk : {len(collected)}/{COUNT}  (failed attempts: {len(failures)})")
-          say(f"[Pool] Pool now holds       : {total_after}/{POOL_TOTAL}  {bar(total_after, POOL_TOTAL)}")
-          say(f"[Pool] Covers tasks         : {min(total_after, TASKS_TOTAL)}/{TASKS_TOTAL} (+{max(0, total_after - TASKS_TOTAL)} spare)")
-          say(f"[Pool] Artifact             : {OUT_FILE}")
-          if collected:
-              say("[Pool] Names created in GoLogin dashboard (app.gologin.com/proxy):" if gologin_keys else "[Pool] Proxy names:")
-              say("       " + ", ".join(p["name"] for p in collected))
-          if len(collected) < COUNT:
-              say(f"::warning title=Proxy Pool {TAG}::Only {len(collected)}/{COUNT} proxies generated. Devices needing the missing numbers fall back to API-key generation.")
-
-          summary = os.environ.get("GITHUB_STEP_SUMMARY")
-          if summary:
-              with open(summary, "a", encoding="utf-8") as fh:
-                  fh.write(f"## Proxy Pool - {TAG}\n\n")
-                  fh.write(f"- Range: **#{START_SEQ} - #{END_SEQ}** ({COUNT} requested)\n")
-                  fh.write(f"- Generated this chunk: **{len(collected)}/{COUNT}** | failed attempts: {len(failures)} | time: {elapsed}s\n")
-                  fh.write(f"- Pool progress: **{total_after}/{POOL_TOTAL}** ({(total_after / POOL_TOTAL * 100.0) if POOL_TOTAL else 0:.1f}%)\n")
-                  fh.write(f"- Tasks covered: {min(total_after, TASKS_TOTAL)}/{TASKS_TOTAL}\n\n")
-                  if collected:
-                      fh.write("| # | Dashboard name | IP | Country | City | Latency |\n|---|---|---|---|---|---|\n")
-                      for p in collected:
-                          fh.write(f"| {p['seq']} | `{p['name']}` | {p['ip']} | {p['country_code']} | {p['city']} | {p['latency_ms']} ms |\n")
-                  if failures:
-                      fh.write("\n<details><summary>Failed attempts</summary>\n\n")
-                      for f_ in failures[:50]:
-                          fh.write(f"- #{f_['seq']} `{f_['name']}`: {f_['reason']}\n")
-                      fh.write("\n</details>\n")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-              fh.write(f"generated={len(collected)}\n")
-              fh.write(f"pool_now={total_after}\n")
-
-          if len(collected) == 0 and COUNT > 0:
-              say(f"::error title=Proxy Pool {TAG}::Zero proxies generated for this chunk.")
-              sys.exit(1)
-
-      - name: Upload Chunk 0 Artifact (proxy-chunk-000)
+      - name: Chunk 000 - Upload to pool (proxy-chunk-000)
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -1213,42 +786,27 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
 
-      - name: Initial Pool Ready
+      - name: Initial 5% ready - device runners may proceed
+        id: initial_ready
         if: always()
         run: |
           echo "============================================================"
-          echo " INITIAL POOL STEP FINISHED - generated: ${{ steps.generate.outputs.generated }} / ${{ needs.prepare_matrix.outputs.initial_target }}"
-          echo " Device jobs may start now. Continuous feed starts in parallel."
+          echo " INITIAL 5% POOL READY"
+          echo " Generated: ${{ steps.gen000.outputs.generated }} / ${{ needs.prepare_matrix.outputs.initial_target }}"
+          echo " Artifact : proxy-chunk-000"
+          echo " Device runners may acquire proxies from the pool now."
+          echo " Continuous batches continue in this same job..."
           echo "============================================================"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
 
-  proxy_pool_continuous:
-    name: "Proxy Pool Batch ${{ matrix.chunk_idx }} [#${{ matrix.start_seq }}-${{ matrix.end_seq }}]"
-    needs: [prepare_matrix, proxy_pool_initial]
-    if: ${{ !cancelled() && needs.proxy_pool_initial.result == 'success' && needs.prepare_matrix.outputs.chunk_count != '0' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix: ${{ fromJson(needs.prepare_matrix.outputs.chunk_matrix) }}
-    steps:
-      - name: Load Earlier Chunks (for cumulative stats)
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          pattern: proxy-chunk-*
-          merge-multiple: true
-          path: prior_chunks
-
-      - name: Generate Batch ${{ matrix.chunk_idx }} (up to 10 proxies)
-        id: generate
+      - name: Chunk 001 - Generate (continuous feed)
+        id: gen001
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 1 }}
         shell: python
         env:
-          CHUNK_IDX: ${{ matrix.chunk_idx }}
-          START_SEQ: ${{ matrix.start_seq }}
-          END_SEQ: ${{ matrix.end_seq }}
+          SELECT_CHUNK_IDX: '1'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
           CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
-          OUT_FILE: ${{ matrix.file_name }}
           TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
           POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
           NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
@@ -1258,482 +816,1201 @@ jobs:
           MOBILE: ${{ inputs.mobile_proxies }}
           STICKY: ${{ inputs.sticky_sessions }}
         run: |
-          import os, sys, json, re, time, random, string, glob, datetime, subprocess
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
 
-          try:
-              import requests, urllib3
-          except ImportError:
-              subprocess.check_call([sys.executable, "-m", "pip", "install", "requests[socks]", "urllib3", "--quiet"])
-              import requests, urllib3
-          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-
-          def say(m=""):
-              print(m, flush=True)
-
-
-          def group(t):
-              print("::group::" + t, flush=True)
-
-
-          def endgroup():
-              print("::endgroup::", flush=True)
-
-
-
-          def geti(k, d=0):
-              try:
-                  return int(os.environ.get(k, str(d)))
-              except Exception:
-                  return d
-
-
-          def bar(done, total, width=30):
-              pct = (done / total * 100.0) if total else 0.0
-              filled = int(width * min(done, total) / total) if total else 0
-              return "[" + "#" * filled + "-" * (width - filled) + f"] {pct:5.1f}%"
-
-
-          def rand_letters(n=6):
-              return "".join(random.choices(string.ascii_lowercase, k=n))
-
-
-          def now_iso():
-              return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-          # ----------------------------------------------------------------------------
-          # Config
-          # ----------------------------------------------------------------------------
-          CHUNK_IDX = geti("CHUNK_IDX")
-          START_SEQ = geti("START_SEQ", 1)
-          END_SEQ = geti("END_SEQ", 1)
-          TASKS_TOTAL = geti("TASKS_TOTAL")
-          POOL_TOTAL = geti("POOL_TOTAL")
-          CHUNKS_TOTAL = geti("CHUNKS_TOTAL", 1)
-          NUM_DEVICES = geti("NUM_DEVICES", 1)
-          COUNT = max(0, END_SEQ - START_SEQ + 1)
-          OUT_FILE = os.environ.get("OUT_FILE", f"proxy_chunk_{CHUNK_IDX:03d}.json")
-          PRIOR_DIR = os.environ.get("PRIOR_DIR", "prior_chunks")
-          IS_INITIAL = CHUNK_IDX == 0
-          TAG = "INITIAL 5%" if IS_INITIAL else f"CHUNK {CHUNK_IDX}/{CHUNKS_TOTAL - 1}"
-
-          proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
-          country_input = os.environ.get("COUNTRY", "USA")
-          fallback_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
-          mobile = os.environ.get("MOBILE", "false").lower() == "true"
-          sticky = os.environ.get("STICKY", "false").lower() == "true"
-
-          country_map = {
-              "USA": "us", "UK": "gb", "Canada": "ca", "Australia": "au", "Germany": "de", "France": "fr",
-              "Brazil": "br", "Mexico": "mx", "Spain": "es", "Vietnam": "vn", "Switzerland": "ch",
-              "Indonesia": "id", "Italy": "it", "Netherlands": "nl", "Poland": "pl",
-          }
-          cc_primary = country_map.get(country_input, "us").upper()
-          cc_fallback = None if fallback_input == "No Fallback" else country_map.get(fallback_input, "us").upper()
-
-
-          def country_code_to_locale(cc):
-              _m = {"US": "en-US", "GB": "en-GB", "CA": "en-CA", "AU": "en-AU", "DE": "de-DE",
-                    "FR": "fr-FR", "BR": "pt-BR", "MX": "es-MX", "ES": "es-ES", "VN": "vi-VN",
-                    "CH": "de-CH", "ID": "id-ID", "IT": "it-IT", "NL": "nl-NL", "PL": "pl-PL"}
-              return _m.get(cc.upper(), "en-US")
-
-
-          def country_code_to_keyboard(cc):
-              _m = {"US": "0409:00000409", "GB": "0809:00000809", "CA": "1009:00000409",
-                    "AU": "0C09:00000409", "DE": "0407:00000407", "FR": "040C:0000040C",
-                    "BR": "0416:00000416", "MX": "080A:0000080A", "ES": "0C0A:0000080A",
-                    "VN": "042A:0000042A", "CH": "0807:00000807", "ID": "0421:00000409",
-                    "IT": "0410:00000410", "NL": "0413:00020409", "PL": "0415:00000415"}
-              return _m.get(cc.upper(), "0409:00000409")
-
-
-          def tz_to_windows_tz(iana_tz):
-              _m = {"America/New_York": "Eastern Standard Time", "America/Chicago": "Central Standard Time",
-                    "America/Denver": "Mountain Standard Time", "America/Phoenix": "US Mountain Standard Time",
-                    "America/Los_Angeles": "Pacific Standard Time", "America/Toronto": "Eastern Standard Time",
-                    "America/Sao_Paulo": "E. South America Standard Time",
-                    "America/Mexico_City": "Central Standard Time (Mexico)",
-                    "Europe/London": "GMT Standard Time", "Europe/Paris": "Romance Standard Time",
-                    "Europe/Berlin": "W. Europe Standard Time", "Europe/Madrid": "Romance Standard Time",
-                    "Europe/Rome": "W. Europe Standard Time", "Europe/Amsterdam": "W. Europe Standard Time",
-                    "Europe/Warsaw": "Central European Standard Time",
-                    "Asia/Ho_Chi_Minh": "SE Asia Standard Time", "Europe/Zurich": "W. Europe Standard Time",
-                    "Asia/Jakarta": "SE Asia Standard Time", "Australia/Sydney": "AUS Eastern Standard Time"}
-              return _m.get(iana_tz, "UTC")
-
-
-          # ----------------------------------------------------------------------------
-          # Banner + plan
-          # ----------------------------------------------------------------------------
-          prior_count, prior_chunks = 0, 0
-          for fp in glob.glob(os.path.join(PRIOR_DIR, "**", "proxy_chunk_*.json"), recursive=True):
-              try:
-                  with open(fp, "r", encoding="utf-8") as fh:
-                      d = json.load(fh)
-                  if d.get("chunk_idx") == CHUNK_IDX:
-                      continue
-                  prior_count += len(d.get("proxies", []))
-                  prior_chunks += 1
-              except Exception:
-                  pass
-
-          say("=" * 72)
-          say(f" PROXY POOL GENERATION  |  {TAG}")
-          say("=" * 72)
-          say(f"[Pool] Tasks total            : {TASKS_TOTAL}")
-          say(f"[Pool] Pool total (tasks+extra): {POOL_TOTAL}  (extra buffer = {POOL_TOTAL - TASKS_TOTAL})")
-          say(f"[Pool] This chunk range       : #{START_SEQ} -> #{END_SEQ}  ({COUNT} proxies)")
-          say(f"[Pool] Already in pool        : {prior_count} proxies across {prior_chunks} earlier chunk(s)")
-          say(f"[Pool] Pool progress (before) : {bar(prior_count, POOL_TOTAL)}  {prior_count}/{POOL_TOTAL}")
-          say(f"[Pool] Country                : {cc_primary} | Fallback: {cc_fallback or 'none'} | Mobile: {mobile} | Sticky: {sticky}")
-          say(f"[Pool] Naming format          : <number>-<COUNTRY>-<6 random letters>   e.g. {START_SEQ}-{cc_primary}-{rand_letters()}")
-          say("")
-
-          # ----------------------------------------------------------------------------
-          # Key / proxy parsing
-          # ----------------------------------------------------------------------------
-          SCRAPEOPS_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
-          REDSCRAPE_RE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)
-          GOLOGIN_RE = re.compile(r"^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
-          FLOPPY_RE = re.compile(r"^[A-Za-z0-9_]{30,80}$")
-
-          gologin_keys, bytesflow_proxies, scrapeops_keys, manual_proxies = [], [], [], []
-          other_keys = 0
-          for item in proxy_input.split():
-              item = item.strip()
-              if not item:
-                  continue
-              if GOLOGIN_RE.match(item):
-                  gologin_keys.append(item)
-              elif "bytesflows.com" in item.lower():
-                  bytesflow_proxies.append(item)
-              elif REDSCRAPE_RE.match(item):
-                  other_keys += 1
-              elif SCRAPEOPS_RE.match(item):
-                  scrapeops_keys.append(item)
-              elif FLOPPY_RE.match(item) and len(item) >= 30:
-                  other_keys += 1
-              elif (":" in item or "@" in item or "://" in item or "." in item) and len(item) > 5:
-                  manual_proxies.append(item)
-
-
-          def parse_generic_proxy(proxy_str):
-              original = proxy_str.strip()
-              if not original:
-                  return None
-              protocol, rest = "http", original
-              if "://" in rest:
-                  protocol, rest = rest.split("://", 1)
-                  if protocol.lower() == "geolocation":
-                      protocol = "http"
-              rest = re.sub(r":(\d+):[A-Za-z].*$", r":\1", rest)
-              m = re.search(r"([^:@\s]+):([^:@\s]+)@([^:@\s]+):(\d+)", rest)
-              if m:
-                  u, p, h, pt = m.groups()
-                  return {"username": u, "password": p, "host": h, "port": int(pt)}
-              m = re.search(r"^([^:@\s]+):(\d+):([^:@\s]+):([^:@\s]+)", rest)
-              if m:
-                  h, pt, u, p = m.groups()
-                  return {"username": u, "password": p, "host": h, "port": int(pt)}
-              m = re.search(r"^([^:@\s]+):([^:@\s]+):([^:@\s]+):(\d+)", rest)
-              if m:
-                  u, p, h, pt = m.groups()
-                  return {"username": u, "password": p, "host": h, "port": int(pt)}
-              m = re.search(r"^([^:@\s]+):(\d+)", rest)
-              if m:
-                  h, pt = m.groups()
-                  return {"username": "", "password": "", "host": h, "port": int(pt)}
-              return None
-
-
-          # ----------------------------------------------------------------------------
-          # Validation (HTTP only - the device Edge launcher consumes http://host:port)
-          # ----------------------------------------------------------------------------
-          def validate_proxy(pinfo):
-              auth = f"{pinfo['username']}:{pinfo['password']}@" if pinfo.get("username") else ""
-              url = f"http://{auth}{pinfo['host']}:{pinfo['port']}"
-              cfg = {"http": url, "https": url}
-              endpoints = [
-                  ("http://ip-api.com/json/", "ip-api.com"),
-                  ("https://ipinfo.io/json", "ipinfo.io"),
-                  ("http://ipwho.is/", "ipwho.is"),
-                  ("https://api.myip.com", "myip.com"),
-              ]
-              for ep, name in endpoints:
-                  t0 = time.time()
-                  try:
-                      r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
-                      if r.status_code != 200:
-                          say(f"      - {name}: HTTP {r.status_code}")
-                          continue
-                      d = r.json()
-                      cc = tz = city = region = ""
-                      ip = None
-                      if name == "ip-api.com" and d.get("status") == "success":
-                          cc, tz, ip, city, region = d.get("countryCode"), d.get("timezone"), d.get("query"), d.get("city"), d.get("regionName")
-                      elif name == "ipinfo.io" and "ip" in d:
-                          cc, tz, ip, city, region = d.get("country"), d.get("timezone"), d.get("ip"), d.get("city"), d.get("region")
-                      elif name == "ipwho.is" and d.get("success"):
-                          cc, tz, ip, city, region = d.get("country_code"), (d.get("timezone") or {}).get("id"), d.get("ip"), d.get("city"), d.get("region")
-                      elif name == "myip.com" and "ip" in d:
-                          cc, ip = d.get("cc"), d.get("ip")
-                      if ip:
-                          say(f"      - validated via {name} in {int((time.time() - t0) * 1000)} ms -> IP {ip} ({cc})")
-                          return {"ip": ip, "cc": (cc or "US").upper(), "tz": tz or "UTC", "city": city or "",
-                                  "region": region or "", "latency_ms": int((time.time() - t0) * 1000)}
-                  except Exception as e:
-                      say(f"      - {name} failed: {type(e).__name__}")
-              return None
-
-
-          # ----------------------------------------------------------------------------
-          # Providers: each returns (pinfo | None, error_text)
-          # ----------------------------------------------------------------------------
-          GOLOGIN_API = "https://api.gologin.com"
-          _logged_gologin_shape = {"done": False}
-
-
-          def make_gologin(seq, cc, name, tries):
-              key = gologin_keys[(seq // 15 + tries) % len(gologin_keys)]
-              say(f"      - GoLogin API key ...{key[-6:]} -> creating proxy named '{name}' (country={cc}, mobile={mobile})")
-              try:
-                  r = requests.post(
-                      f"{GOLOGIN_API}/users-proxies/mobile-proxy",
-                      headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                      json={"countryCode": cc.lower(), "isMobile": mobile, "isDC": False, "customName": name},
-                      timeout=25, verify=False,
-                  )
-              except Exception as e:
-                  return None, f"request error {type(e).__name__}: {e}"
-              if r.status_code == 429:
-                  say("      - GoLogin rate limit (429) -> backing off 12s")
-                  time.sleep(12)
-                  return None, "rate limited (429)"
-              if r.status_code not in (200, 201):
-                  return None, f"HTTP {r.status_code}: {r.text[:160]}"
-              try:
-                  d = r.json()
-              except Exception:
-                  return None, "non-JSON response"
-              if not _logged_gologin_shape["done"]:
-                  say(f"      - GoLogin response fields: {sorted(d.keys()) if isinstance(d, dict) else type(d).__name__}")
-                  _logged_gologin_shape["done"] = True
-              host = d.get("host") or d.get("ip") or d.get("server") or "proxy.gologin.com"
-              port = d.get("port") or d.get("httpPort") or 8080
-              user = d.get("username") or d.get("user") or d.get("login") or ""
-              pwd = d.get("password") or d.get("pass") or ""
-              pid = d.get("id") or d.get("_id") or d.get("proxyId") or ""
-              say(f"      - CREATED in GoLogin account as '{name}' (id={pid or 'n/a'}) -> visible at app.gologin.com/proxy")
-              return {"username": user, "password": pwd, "host": host, "port": int(port), "gologin_id": pid}, ""
-
-
-          def make_bytesflow(seq, cc, name, tries):
-              base = parse_generic_proxy(bytesflow_proxies[tries % len(bytesflow_proxies)])
-              if not base or not base.get("username"):
-                  return None, "could not parse BytesFlow proxy string"
-              m = re.search(r"^(?:u-)?([A-Za-z0-9]+)", base["username"])
-              base_user = m.group(1) if m else base["username"].split("-")[0]
-              user = "-".join([f"u-{base_user}", f"loc-{cc}", "t-10", f"s-{rand_letters(8)}"])
-              return {"username": user, "password": base["password"], "host": base["host"], "port": base["port"]}, ""
-
-
-          def make_scrapeops(seq, cc, name, tries):
-              key = scrapeops_keys[(seq // 15 + tries) % len(scrapeops_keys)]
-              user = f"scrapeops.country={cc.lower()}"
-              if mobile:
-                  user += ".mobile=true"
-              if sticky:
-                  user += f".sticky_session=p{seq}{rand_letters(4)}"
-              return {"username": user, "password": key, "host": "residential-proxy.scrapeops.io", "port": 8181}, ""
-
-
-          def make_manual(seq, cc, name, tries):
-              p = parse_generic_proxy(manual_proxies[(seq - 1 + tries) % len(manual_proxies)])
-              if not p:
-                  return None, "could not parse manual proxy string"
-              return p, ""
-
-
-          providers = []  # (label, fn, lenient_country_when_no_fallback)
-          if gologin_keys:
-              providers.append(("gologin", make_gologin, True))
-          if bytesflow_proxies:
-              providers.append(("bytesflow", make_bytesflow, False))
-          if scrapeops_keys:
-              providers.append(("scrapeops", make_scrapeops, False))
-          if manual_proxies:
-              providers.append(("manual", make_manual, True))
-
-          say(f"[Pool] Providers detected      : " + (", ".join(p[0] for p in providers) if providers else "NONE"))
-          if other_keys:
-              say(f"[Pool] NOTE: {other_keys} key(s) of types not supported by the pool (Redscrape/FloppyData) are ignored here; devices handle them on-demand.")
-
-          collected = []
-          failures = []
-          started = time.time()
-          MAX_CONSEC = 10
-          MAX_ATTEMPTS = COUNT * 4 + 10
-          attempts = 0
-          consec = 0
-          seq_fail = 0
-          prov_idx = 0
-
-          if not providers:
-              say("::error title=Proxy Pool::No supported proxy provider/API key found in the input. Devices will fall back to on-demand generation.")
-          elif COUNT <= 0:
-              say("[Pool] Nothing to generate for this chunk.")
-          else:
-              while len(collected) < COUNT and attempts < MAX_ATTEMPTS:
-                  label, fn, lenient = providers[prov_idx]
-                  seq = START_SEQ + len(collected)
-                  expected = cc_primary
-                  if cc_fallback and seq_fail >= 7 and cc_fallback != cc_primary:
-                      expected = cc_fallback
-                  name = f"{seq}-{expected}-{rand_letters()}"
-                  attempts += 1
-                  t0 = time.time()
-                  group(f"[{TAG}] Proxy #{seq} ({len(collected) + 1}/{COUNT}) | attempt {seq_fail + 1} | provider={label}")
-                  pinfo, err = fn(seq, expected, name, seq_fail)
-                  res = None
-                  if pinfo:
-                      res = validate_proxy(pinfo)
-                      if res and not (res["cc"] == expected or (lenient and cc_fallback is None)):
-                          say(f"      - country mismatch: got {res['cc']} expected {expected}")
-                          err = f"country mismatch {res['cc']} != {expected}"
-                          res = None
-                      elif not res:
-                          err = "validation failed (no echo endpoint reachable through proxy)"
-                          if label == "gologin":
-                              say(f"      - NOTE: proxy '{name}' exists in GoLogin dashboard but failed validation (not deleted).")
-                  endgroup()
-
-                  if pinfo and res:
-                      if len(pinfo.get("password", "")) >= 8:
-                          print(f"::add-mask::{pinfo['password']}", flush=True)
-                      rec = {
-                          "seq": seq, "name": name, "gologin_id": pinfo.get("gologin_id", ""), "source": label,
-                          "host": pinfo["host"], "port": pinfo["port"],
-                          "username": pinfo.get("username", ""), "password": pinfo.get("password", ""),
-                          "server": f"{pinfo['host']}:{pinfo['port']}",
-                          "server_with_proto": f"http://{pinfo['host']}:{pinfo['port']}",
-                          "proxy_type_label": label, "working": True,
-                          "country_code": res["cc"], "country_name": res["cc"], "ip": res["ip"],
-                          "city": res["city"], "region": res["region"],
-                          "timezone_iana": res["tz"], "timezone_windows": tz_to_windows_tz(res["tz"]),
-                          "windows_locale": country_code_to_locale(res["cc"]),
-                          "windows_keyboard": country_code_to_keyboard(res["cc"]),
-                          "latency_ms": res["latency_ms"], "chunk_idx": CHUNK_IDX, "created_at": now_iso(),
-                      }
-                      collected.append(rec)
-                      consec = 0
-                      seq_fail = 0
-                      total_now = prior_count + len(collected)
-                      say(f"[Pool] OK  #{seq:<4} '{name}' | IP {res['ip']} | {res['cc']} {res['city']} | {int(time.time() - t0)}s")
-                      say(f"[Pool]     chunk {len(collected)}/{COUNT} {bar(len(collected), COUNT, 20)} | POOL {total_now}/{POOL_TOTAL} {bar(total_now, POOL_TOTAL)}")
-                  else:
-                      consec += 1
-                      seq_fail += 1
-                      failures.append({"seq": seq, "name": name, "reason": err})
-                      say(f"[Pool] FAIL #{seq:<4} '{name}' | {err} | consecutive failures: {consec}/{MAX_CONSEC}")
-                      err_l = (err or "").lower()
-                      hard_quota = any(x in err_l for x in (
-                          "maximum number of proxies", "free api requests limit",
-                          "please subscribe", "quota exceeded", "rate limit",
-                          "too many requests", "402", "payment required",
-                      ))
-                      if hard_quota:
-                          say(f"::warning title=Proxy Pool {TAG}::Hard quota/rate-limit detected. Stopping this batch early with {len(collected)}/{COUNT} proxies so they can be uploaded now.")
-                          break
-                      if consec >= MAX_CONSEC:
-                          if prov_idx + 1 < len(providers):
-                              prov_idx += 1
-                              consec = 0
-                              say(f"[Pool] Switching provider -> {providers[prov_idx][0]}")
-                          else:
-                              say(f"::warning title=Proxy Pool {TAG}::Stopping early after {consec} consecutive failures (quota/limit?). Generated {len(collected)}/{COUNT} — uploading partial batch.")
-                              break
-                  time.sleep(0.7)
-
-          # ----------------------------------------------------------------------------
-          # Output
-          # ----------------------------------------------------------------------------
-          elapsed = int(time.time() - started)
-          total_after = prior_count + len(collected)
-          payload = {
-              "chunk_idx": CHUNK_IDX, "start_seq": START_SEQ, "end_seq": END_SEQ, "requested": COUNT,
-              "generated": len(collected), "failed_attempts": len(failures), "created_at": now_iso(),
-              "proxies": collected,
-          }
-          with open(OUT_FILE, "w", encoding="utf-8") as fh:
-              json.dump(payload, fh, indent=2)
-
-          say("")
-          say("=" * 72)
-          say(f" {TAG} COMPLETE in {elapsed}s")
-          say("=" * 72)
-          say(f"[Pool] Generated this chunk : {len(collected)}/{COUNT}  (failed attempts: {len(failures)})")
-          say(f"[Pool] Pool now holds       : {total_after}/{POOL_TOTAL}  {bar(total_after, POOL_TOTAL)}")
-          say(f"[Pool] Covers tasks         : {min(total_after, TASKS_TOTAL)}/{TASKS_TOTAL} (+{max(0, total_after - TASKS_TOTAL)} spare)")
-          say(f"[Pool] Artifact             : {OUT_FILE}")
-          if collected:
-              say("[Pool] Names created in GoLogin dashboard (app.gologin.com/proxy):" if gologin_keys else "[Pool] Proxy names:")
-              say("       " + ", ".join(p["name"] for p in collected))
-          if len(collected) < COUNT:
-              say(f"::warning title=Proxy Pool {TAG}::Only {len(collected)}/{COUNT} proxies generated. Devices needing the missing numbers fall back to API-key generation.")
-
-          summary = os.environ.get("GITHUB_STEP_SUMMARY")
-          if summary:
-              with open(summary, "a", encoding="utf-8") as fh:
-                  fh.write(f"## Proxy Pool - {TAG}\n\n")
-                  fh.write(f"- Range: **#{START_SEQ} - #{END_SEQ}** ({COUNT} requested)\n")
-                  fh.write(f"- Generated this chunk: **{len(collected)}/{COUNT}** | failed attempts: {len(failures)} | time: {elapsed}s\n")
-                  fh.write(f"- Pool progress: **{total_after}/{POOL_TOTAL}** ({(total_after / POOL_TOTAL * 100.0) if POOL_TOTAL else 0:.1f}%)\n")
-                  fh.write(f"- Tasks covered: {min(total_after, TASKS_TOTAL)}/{TASKS_TOTAL}\n\n")
-                  if collected:
-                      fh.write("| # | Dashboard name | IP | Country | City | Latency |\n|---|---|---|---|---|---|\n")
-                      for p in collected:
-                          fh.write(f"| {p['seq']} | `{p['name']}` | {p['ip']} | {p['country_code']} | {p['city']} | {p['latency_ms']} ms |\n")
-                  if failures:
-                      fh.write("\n<details><summary>Failed attempts</summary>\n\n")
-                      for f_ in failures[:50]:
-                          fh.write(f"- #{f_['seq']} `{f_['name']}`: {f_['reason']}\n")
-                      fh.write("\n</details>\n")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-              fh.write(f"generated={len(collected)}\n")
-              fh.write(f"pool_now={total_after}\n")
-
-          if len(collected) == 0 and COUNT > 0:
-              say(f"::error title=Proxy Pool {TAG}::Zero proxies generated for this chunk.")
-              sys.exit(1)
-
-      - name: Upload Batch Artifact (${{ matrix.artifact_name }})
-        if: always()
+      - name: Chunk 001 - Upload to pool (proxy-chunk-001)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 1 }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.file_name }}
+          name: proxy-chunk-001
+          path: proxy_chunk_001.json
           retention-days: 1
           if-no-files-found: ignore
 
-      - name: Batch Summary
+      - name: Chunk 002 - Generate (continuous feed)
+        id: gen002
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 2 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '2'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 002 - Upload to pool (proxy-chunk-002)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 2 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-002
+          path: proxy_chunk_002.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 003 - Generate (continuous feed)
+        id: gen003
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 3 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '3'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 003 - Upload to pool (proxy-chunk-003)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 3 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-003
+          path: proxy_chunk_003.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 004 - Generate (continuous feed)
+        id: gen004
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 4 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '4'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 004 - Upload to pool (proxy-chunk-004)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 4 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-004
+          path: proxy_chunk_004.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 005 - Generate (continuous feed)
+        id: gen005
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 5 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '5'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 005 - Upload to pool (proxy-chunk-005)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 5 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-005
+          path: proxy_chunk_005.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 006 - Generate (continuous feed)
+        id: gen006
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 6 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '6'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 006 - Upload to pool (proxy-chunk-006)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 6 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-006
+          path: proxy_chunk_006.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 007 - Generate (continuous feed)
+        id: gen007
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 7 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '7'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 007 - Upload to pool (proxy-chunk-007)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 7 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-007
+          path: proxy_chunk_007.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 008 - Generate (continuous feed)
+        id: gen008
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 8 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '8'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 008 - Upload to pool (proxy-chunk-008)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 8 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-008
+          path: proxy_chunk_008.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 009 - Generate (continuous feed)
+        id: gen009
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 9 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '9'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 009 - Upload to pool (proxy-chunk-009)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 9 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-009
+          path: proxy_chunk_009.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 010 - Generate (continuous feed)
+        id: gen010
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 10 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '10'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 010 - Upload to pool (proxy-chunk-010)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 10 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-010
+          path: proxy_chunk_010.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 011 - Generate (continuous feed)
+        id: gen011
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 11 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '11'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 011 - Upload to pool (proxy-chunk-011)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 11 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-011
+          path: proxy_chunk_011.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 012 - Generate (continuous feed)
+        id: gen012
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 12 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '12'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 012 - Upload to pool (proxy-chunk-012)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 12 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-012
+          path: proxy_chunk_012.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 013 - Generate (continuous feed)
+        id: gen013
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 13 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '13'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 013 - Upload to pool (proxy-chunk-013)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 13 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-013
+          path: proxy_chunk_013.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 014 - Generate (continuous feed)
+        id: gen014
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 14 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '14'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 014 - Upload to pool (proxy-chunk-014)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 14 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-014
+          path: proxy_chunk_014.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 015 - Generate (continuous feed)
+        id: gen015
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 15 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '15'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 015 - Upload to pool (proxy-chunk-015)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 15 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-015
+          path: proxy_chunk_015.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 016 - Generate (continuous feed)
+        id: gen016
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 16 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '16'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 016 - Upload to pool (proxy-chunk-016)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 16 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-016
+          path: proxy_chunk_016.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 017 - Generate (continuous feed)
+        id: gen017
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 17 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '17'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 017 - Upload to pool (proxy-chunk-017)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 17 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-017
+          path: proxy_chunk_017.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 018 - Generate (continuous feed)
+        id: gen018
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 18 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '18'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 018 - Upload to pool (proxy-chunk-018)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 18 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-018
+          path: proxy_chunk_018.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 019 - Generate (continuous feed)
+        id: gen019
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 19 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '19'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 019 - Upload to pool (proxy-chunk-019)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 19 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-019
+          path: proxy_chunk_019.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 020 - Generate (continuous feed)
+        id: gen020
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 20 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '20'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 020 - Upload to pool (proxy-chunk-020)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 20 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-020
+          path: proxy_chunk_020.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 021 - Generate (continuous feed)
+        id: gen021
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 21 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '21'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 021 - Upload to pool (proxy-chunk-021)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 21 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-021
+          path: proxy_chunk_021.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 022 - Generate (continuous feed)
+        id: gen022
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 22 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '22'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 022 - Upload to pool (proxy-chunk-022)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 22 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-022
+          path: proxy_chunk_022.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 023 - Generate (continuous feed)
+        id: gen023
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 23 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '23'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 023 - Upload to pool (proxy-chunk-023)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 23 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-023
+          path: proxy_chunk_023.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 024 - Generate (continuous feed)
+        id: gen024
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 24 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '24'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 024 - Upload to pool (proxy-chunk-024)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 24 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-024
+          path: proxy_chunk_024.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 025 - Generate (continuous feed)
+        id: gen025
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 25 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '25'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 025 - Upload to pool (proxy-chunk-025)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 25 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-025
+          path: proxy_chunk_025.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 026 - Generate (continuous feed)
+        id: gen026
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 26 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '26'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 026 - Upload to pool (proxy-chunk-026)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 26 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-026
+          path: proxy_chunk_026.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 027 - Generate (continuous feed)
+        id: gen027
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 27 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '27'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 027 - Upload to pool (proxy-chunk-027)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 27 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-027
+          path: proxy_chunk_027.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 028 - Generate (continuous feed)
+        id: gen028
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 28 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '28'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 028 - Upload to pool (proxy-chunk-028)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 28 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-028
+          path: proxy_chunk_028.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 029 - Generate (continuous feed)
+        id: gen029
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 29 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '29'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 029 - Upload to pool (proxy-chunk-029)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 29 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-029
+          path: proxy_chunk_029.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 030 - Generate (continuous feed)
+        id: gen030
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 30 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '30'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 030 - Upload to pool (proxy-chunk-030)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 30 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-030
+          path: proxy_chunk_030.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 031 - Generate (continuous feed)
+        id: gen031
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 31 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '31'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 031 - Upload to pool (proxy-chunk-031)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 31 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-031
+          path: proxy_chunk_031.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 032 - Generate (continuous feed)
+        id: gen032
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 32 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '32'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 032 - Upload to pool (proxy-chunk-032)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 32 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-032
+          path: proxy_chunk_032.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 033 - Generate (continuous feed)
+        id: gen033
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 33 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '33'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 033 - Upload to pool (proxy-chunk-033)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 33 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-033
+          path: proxy_chunk_033.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 034 - Generate (continuous feed)
+        id: gen034
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 34 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '34'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 034 - Upload to pool (proxy-chunk-034)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 34 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-034
+          path: proxy_chunk_034.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 035 - Generate (continuous feed)
+        id: gen035
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 35 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '35'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 035 - Upload to pool (proxy-chunk-035)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 35 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-035
+          path: proxy_chunk_035.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 036 - Generate (continuous feed)
+        id: gen036
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 36 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '36'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 036 - Upload to pool (proxy-chunk-036)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 36 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-036
+          path: proxy_chunk_036.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 037 - Generate (continuous feed)
+        id: gen037
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 37 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '37'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 037 - Upload to pool (proxy-chunk-037)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 37 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-037
+          path: proxy_chunk_037.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 038 - Generate (continuous feed)
+        id: gen038
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 38 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '38'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 038 - Upload to pool (proxy-chunk-038)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 38 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-038
+          path: proxy_chunk_038.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 039 - Generate (continuous feed)
+        id: gen039
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 39 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '39'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 039 - Upload to pool (proxy-chunk-039)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 39 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-039
+          path: proxy_chunk_039.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Chunk 040 - Generate (continuous feed)
+        id: gen040
+        if: ${{ fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 40 }}
+        shell: python
+        env:
+          SELECT_CHUNK_IDX: '40'
+          CHUNK_MATRIX_JSON: ${{ needs.prepare_matrix.outputs.chunk_matrix }}
+          CHUNKS_TOTAL: ${{ needs.prepare_matrix.outputs.chunks_total }}
+          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
+          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
+          NUM_DEVICES: ${{ needs.prepare_matrix.outputs.num_devices }}
+          API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
+          COUNTRY: ${{ inputs.proxy_country }}
+          FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
+          MOBILE: ${{ inputs.mobile_proxies }}
+          STICKY: ${{ inputs.sticky_sessions }}
+        run: |
+          import subprocess, sys
+          r = subprocess.call([sys.executable, "/tmp/pool_gen.py"])
+          raise SystemExit(r)
+
+      - name: Chunk 040 - Upload to pool (proxy-chunk-040)
+        if: ${{ always() && fromJSON(needs.prepare_matrix.outputs.chunk_count || '0') >= 40 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy-chunk-040
+          path: proxy_chunk_040.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Proxy Pool Complete
         if: always()
         run: |
           echo "============================================================"
-          echo " BATCH ${{ matrix.chunk_idx }} DONE"
-          echo " Range   : #${{ matrix.start_seq }} - #${{ matrix.end_seq }}"
-          echo " Artifact: ${{ matrix.artifact_name }}  (file ${{ matrix.file_name }})"
-          echo " Generated this batch: ${{ steps.generate.outputs.generated }}"
-          echo " Pool now            : ${{ steps.generate.outputs.pool_now }}"
-          echo " Next batch (if any) will start after this upload."
+          echo " ALL PROXY POOL STEPS FINISHED"
           echo "============================================================"
+
 
   proxy_pool_report:
     name: "Proxy Pool - Final Report"
-    needs: [prepare_matrix, proxy_pool_initial, proxy_pool_continuous]
-    if: ${{ !cancelled() && needs.proxy_pool_initial.result != 'skipped' }}
+    needs: [prepare_matrix, proxy_pool]
+    if: ${{ !cancelled() && needs.proxy_pool.result != 'skipped' }}
     runs-on: ubuntu-latest
     steps:
       - name: Download All Chunks
@@ -1845,7 +2122,7 @@ jobs:
     name: ${{ matrix.display_name }}
     # Waits for the INITIAL pool job only. The continuous feed runs in parallel.
     # !cancelled() keeps devices running even if the pool job was skipped/failed (API-key fallback).
-    needs: [prepare_matrix, proxy_pool_initial]
+    needs: [prepare_matrix]
     if: ${{ !cancelled() && needs.prepare_matrix.result == 'success' && needs.prepare_matrix.outputs.has_tasks == 'true' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
@@ -1888,7 +2165,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
-          POOL_ENABLED: ${{ needs.proxy_pool_initial.result != 'skipped' && 'true' || 'false' }}
+          POOL_ENABLED: ${{ inputs.generate_all_proxies == true && inputs.use_without_proxy != true && 'true' || 'false' }}
           TASK_INDEX: ${{ matrix.task_index }}
           TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
           POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
