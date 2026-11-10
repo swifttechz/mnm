@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '3'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -62,17 +62,17 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '0'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '200'
+        default: '10'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '50'
+        default: '0'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjJjYmI2MTMxMDQ4OGJmMjUzNzJiYyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmMmNiYjYxMzEwNDg4YmYyNTM3MmI1In0.s9COHpg-3qvEZjlvRbYkbgCIS7H4i7ZPeB2EgyCzI6s'
+        default: 'geolocation://jgxaM4I0Ui5raZb4:ReNKnl3rexQJYOAt@geo.floppydata.com:10080:1-ES-dtshmj geolocation://e8T52uhC9rLkqsFw:e3tcuXZAYRcfMnVE@geo.floppydata.com:10080:2-ES-lglthr geolocation://98Pjj1XLBeDiVTFB:Xv0e4XJ7gV17xoVk@geo.floppydata.com:10080:3-ES-kvyoar geolocation://RTeTPNreoC8gFSHO:VEhRsbCdoFWCT20s@geo.floppydata.com:10080:4-ES-eabrdd geolocation://ByHpRsN5RDLFR4v5:QTAw5SShdrzw5sFU@geo.floppydata.com:10080:5-ES-fqdtue geolocation://TnLLuLJuFXnzpU31:bBEXHq4z4YBTFBGP@geo.floppydata.com:10080:6-ES-keludm geolocation://1ZDwQ3pzVu2UiyRO:AkTSn2Of9uFBRkJ8@geo.floppydata.com:10080:7-ES-bsrztb geolocation://ADPj9b80vyo3u3Ur:1BfYxAJ8l4DtwoAr@geo.floppydata.com:10080:8-ES-uafwim geolocation://e2PCdaLqlY2HgolP:0qUA68EM81G1K5gv@geo.floppydata.com:10080:9-ES-gphdxn geolocation://mPmzm2w2xBuHThKn:3tAqJefSr5fCaytM@geo.floppydata.com:10080:10-ES-lgtaox geolocation://iDPhfKvnPzDfKJxs:hO0fXzUfYFiZDpOp@geo.floppydata.com:10080:11-ES-wposrd geolocation://ovEKRqcH3mJv6p7H:QHRukHXyjsaRoNsI@geo.floppydata.com:10080:12-ES-maapli geolocation://W1P8lGaoiqUCDUaf:Fri4jzahtvqeEnE6@geo.floppydata.com:10080:13-ES-jtjkis geolocation://u3ZrSGVGkdYbmsBk:LXOmporI3C4Meccb@geo.floppydata.com:10080:14-ES-athetq geolocation://qIYApF3dnIEeaQrd:gH23U63FjVBITSwg@geo.floppydata.com:10080:15-ES-wopogq geolocation://VrfphnsFIK2GY6qy:XHW0cLbG5mwcfu07@geo.floppydata.com:10080:16-ES-ledycx geolocation://QhXOuPIK2608ab6h:aaZiIninDZltoPx7@geo.floppydata.com:10080:17-ES-lzumsw geolocation://CF6Cg9VxvMj7wERs:3u8uot1wYq1w5sH2@geo.floppydata.com:10080:18-ES-tarpbz geolocation://YAcr7KjlmEK8TbkF:GASFHDWvgRYgebdH@geo.floppydata.com:10080:19-ES-mieecp geolocation://qgZ5vbYQfZKfwBqF:078536rk4tLJHg3u@geo.floppydata.com:10080:20-ES-fpsgdu geolocation://jbbNV0eHJQ2ebzs7:l40aYvAZsQncOMDW@geo.floppydata.com:10080:21-ES-ewfupm geolocation://nP5PysMcaHDdg92u:CQAExZ7Akd7LN6cy@geo.floppydata.com:10080:22-ES-vgefhr geolocation://u4o12czQZmvyaNlz:uQTGF1douJp8URbA@geo.floppydata.com:10080:23-ES-ittreq'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -146,7 +146,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'Spain'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -168,7 +168,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'No Fallback'
+        default: 'Spain'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
@@ -3840,42 +3840,40 @@ jobs:
               return any(_normalize_text(kw) in tl for kw in keyword_list)
 
           def _is_proxy_auth_dialog(window_text):
-              """Return True only for real proxy/system auth dialogs, never for normal web forms."""
+              """True for Chromium/Edge proxy auth dialogs (any language)."""
               if not window_text:
                   return False
               nt = _normalize_text(window_text)
 
-              # Strongest signal: known proxy host / port in the dialog text
+              # Host / port is definitive (matches the dialog in the screenshot)
               if "floppydata" in nt or "geo.floppydata" in nt or "10080" in nt:
                   return True
 
-              # Classic auth dialog titles (multi-language) – must look like a *dialog*, not a page
-              # Reject very long titles that are clearly full page titles
-              if len(nt) > 120:
+              # Long page titles are not auth dialogs
+              if len(nt) > 140:
                   return False
 
-              # Require an authentication-related phrase, not just the word "proxy" alone
-              strong_phrases = [
-                  "authentication required", "proxy authentication", "sign in",
-                  "enter credentials", "network authentication", "enter network credentials",
-                  "iniciar sesion", "inicie sesion", "autenticacion",
-                  "connexion", "authentification",
-                  "anmelden", "authentifizierung",
-                  "accedi", "autenticazione",
-                  "aanmelden", "authenticatie",
-                  "zaloguj", "uwierzytelnianie",
-                  "dang nhap", "xac thuc",
+              strong = [
+                  "sign in to access", "sign in to access this site",
+                  "authentication required", "proxy authentication",
+                  "enter credentials", "network authentication",
+                  "enter network credentials", "the proxy http",
+                  "requires a username", "requires username and password",
+                  "iniciar sesion", "inicie sesion", "inicie sesion para obtener",
+                  "autenticacion", "requiere un nombre", "nombre de usuario",
+                  "connexion", "authentification", "anmelden", "authentifizierung",
+                  "accedi", "autenticazione", "aanmelden", "authenticatie",
+                  "zaloguj", "uwierzytelnianie", "dang nhap", "xac thuc",
                   "masuk", "autentikasi",
-                  "requiere un nombre", "nombre de usuario",
-                  "requires a username", "requires username",
               ]
-              if any(p in nt for p in strong_phrases):
+              if any(p in nt for p in strong):
                   return True
 
-              # Weak keyword list only if combined with "proxy" context and short title
-              if "proxy" in nt and any(k in nt for k in ("auth", "credential", "login", "sign", "user", "pass", "contrasen", "usuario")):
+              if "proxy" in nt and any(k in nt for k in (
+                  "auth", "credential", "username", "password", "sign in",
+                  "login", "usuario", "contrasen", "user", "pass"
+              )):
                   return True
-
               return False
 
           def _find_username_fields(container):
@@ -4255,67 +4253,47 @@ jobs:
               return False
 
           def inject_proxy_auth(window, label=""):
+              """Fill proxy username/password into a real auth dialog. Safe to call only on auth dialogs."""
               if not USE_PROXY or not PROXY_USER or not PROXY_PASS:
                   return False
 
               try:
-                  # ----------------------------------------------------------
-                  # Guard: never inject into a full browser page / website form.
-                  # Real proxy dialogs are small, have few controls, and usually
-                  # contain the proxy host or classic auth phrasing.
-                  # ----------------------------------------------------------
+                  wt = ""
                   try:
-                      wt = (window.window_text() or "")
-                      nt = _normalize_text(wt)
-                      # If this looks like the main Edge window (long title, many children) skip
-                      child_count = 0
-                      try:
-                          child_count = len(list(window.descendants())[:80])
-                      except Exception:
-                          pass
-                      is_strong_auth = (
-                          "floppydata" in nt or "geo.floppydata" in nt or "10080" in nt
-                          or any(p in nt for p in (
-                              "authentication required", "proxy authentication",
-                              "iniciar sesion", "inicie sesion", "requiere un nombre",
-                              "sign in", "enter credentials", "network authentication"
-                          ))
-                      )
-                      # Many controls + no strong auth signal => website form, not proxy dialog
-                      if child_count > 25 and not is_strong_auth:
-                          log_msg("ProxyAuth", f"[{label}] Skipping – looks like a webpage ({child_count} controls, no strong auth signal).")
-                          return False
-                      # Title looks like a normal page title
-                      if len(nt) > 90 and not is_strong_auth:
-                          log_msg("ProxyAuth", f"[{label}] Skipping – long title without auth keywords.")
-                          return False
+                      wt = window.window_text() or ""
                   except Exception:
                       pass
+                  nt = _normalize_text(wt)
+                  log_msg("ProxyAuth", f"[{label}] Attempting inject on window: '{wt[:70]}'")
 
-                  # ----------------------------------------------------------
-                  # Strategy 1: structural (exactly 2 Edit fields) – language independent
-                  # Strategy 2: keyword-matched username / password fields
-                  # Strategy 3: pure keyboard fallback after focus
-                  # ----------------------------------------------------------
+                  # Strong signal if dialog text mentions our proxy host
+                  is_strong = (
+                      "floppydata" in nt or "geo.floppydata" in nt or "10080" in nt
+                      or "sign in to access" in nt or "the proxy http" in nt
+                      or "requires a username" in nt or "inicie sesion" in nt
+                      or "requiere un nombre" in nt
+                  )
+
+                  # Collect edit fields
                   user_fields = _find_username_fields(window)
                   pass_fields = _find_password_fields(window)
 
                   if not user_fields or not pass_fields:
                       u_struct, p_struct = _is_auth_dialog_by_structure(window)
                       if u_struct and p_struct:
-                          log_msg("ProxyAuth", f"[{label}] Using structural detection (2-field dialog).")
                           user_fields = [u_struct]
                           pass_fields = [p_struct]
+                          log_msg("ProxyAuth", f"[{label}] Structural 2-field detection.")
 
-                  # Extra structural sweep: only when the window already looks like an auth dialog
-                  # (prevents filling random website login/contact forms that also have 2+ edits)
-                  if (not user_fields or not pass_fields) and _is_proxy_auth_dialog(window.window_text() or ""):
+                  if not user_fields or not pass_fields:
                       try:
-                          all_edits = [c for c in window.descendants(control_type="Edit")
-                                       if not _is_address_bar_control(c)]
-                          if 2 <= len(all_edits) <= 4:  # real auth dialogs are small
-                              pass_candidates = []
-                              user_candidates = []
+                          all_edits = []
+                          for c in window.descendants(control_type="Edit"):
+                              if _is_address_bar_control(c):
+                                  continue
+                              all_edits.append(c)
+                          if 2 <= len(all_edits) <= 6:
+                              pass_candidates, user_candidates = [], []
                               for e in all_edits:
                                   try:
                                       if e.get_property("IsPassword"):
@@ -4330,144 +4308,109 @@ jobs:
                               if user_candidates and pass_candidates:
                                   user_fields = [user_candidates[0]]
                                   pass_fields = [pass_candidates[0]]
-                                  log_msg("ProxyAuth", f"[{label}] Fallback structural (2-4 edits, auth dialog) used.")
-                      except Exception:
-                          pass
+                                  log_msg("ProxyAuth", f"[{label}] Fallback structural edits used ({len(all_edits)} edits).")
+                      except Exception as e:
+                          log_msg("ProxyAuth", f"[{label}] Structural sweep error: {e}")
 
-                  if user_fields and pass_fields:
-                      if _is_address_bar_control(user_fields[0]) or _is_address_bar_control(pass_fields[0]):
-                          log_msg("ProxyAuth", f"[{label}] BLOCKED — fields look like address bars. Skipping.")
-                          return False
+                  # If still nothing and not a strong dialog, abort (avoid website forms)
+                  if (not user_fields or not pass_fields) and not is_strong:
+                      log_msg("ProxyAuth", f"[{label}] No fields and no strong auth signal – skipping (not a proxy dialog).")
+                      return False
 
-                      log_msg("ProxyAuth", f"[{label}] Injecting credentials (lang-agnostic). User={PROXY_USER[:25]}...")
-                      try:
-                          window.set_focus()
-                      except Exception:
-                          pass
-                      time.sleep(0.4)
+                  # ---- Type credentials ----
+                  try:
+                      window.set_focus()
+                  except Exception:
+                      pass
+                  time.sleep(0.35)
 
-                      # ---- Username ----
-                      typed_user = False
+                  typed_user = False
+                  typed_pass = False
+
+                  if user_fields:
                       try:
                           user_fields[0].click_input()
-                          time.sleep(0.25)
-                          send_keys('^a')
+                          time.sleep(0.2)
+                          send_keys("^a")
                           time.sleep(0.08)
-                          send_keys('{DELETE}')
+                          send_keys("{DELETE}")
                           time.sleep(0.08)
-                          user_fields[0].type_keys(PROXY_USER, with_spaces=True, pause=0.015)
+                          user_fields[0].type_keys(PROXY_USER, with_spaces=True, pause=0.012)
                           typed_user = True
                           time.sleep(0.25)
                       except Exception as eu:
-                          log_msg("ProxyAuth", f"[{label}] Username type_keys failed: {eu}")
+                          log_msg("ProxyAuth", f"[{label}] User field type failed: {eu}")
 
-                      if not typed_user:
-                          try:
-                              # pure keyboard path
-                              send_keys('^a{DELETE}')
-                              for ch in PROXY_USER:
-                                  if ch.isalnum() or ch in '.-_=@':
-                                      send_keys(ch)
-                                  else:
-                                      send_keys('{%s}' % ch)
-                                  time.sleep(0.012)
-                              time.sleep(0.2)
-                              typed_user = True
-                          except Exception:
-                              pass
-
-                      # ---- Password ----
-                      typed_pass = False
+                  if pass_fields:
                       try:
                           pass_fields[0].click_input()
-                          time.sleep(0.25)
-                          send_keys('^a')
+                          time.sleep(0.2)
+                          send_keys("^a")
                           time.sleep(0.08)
-                          send_keys('{DELETE}')
+                          send_keys("{DELETE}")
                           time.sleep(0.08)
-                          pass_fields[0].type_keys(PROXY_PASS, with_spaces=True, pause=0.015)
+                          pass_fields[0].type_keys(PROXY_PASS, with_spaces=True, pause=0.012)
                           typed_pass = True
                           time.sleep(0.25)
                       except Exception as ep:
-                          log_msg("ProxyAuth", f"[{label}] Password type_keys failed: {ep}")
+                          log_msg("ProxyAuth", f"[{label}] Pass field type failed: {ep}")
 
-                      if not typed_pass:
-                          try:
-                              send_keys('{TAB}')
-                              time.sleep(0.15)
-                              send_keys('^a{DELETE}')
-                              for ch in PROXY_PASS:
-                                  if ch.isalnum() or ch in '.-_=@':
-                                      send_keys(ch)
-                                  else:
-                                      send_keys('{%s}' % ch)
-                                  time.sleep(0.012)
-                              time.sleep(0.2)
-                              typed_pass = True
-                          except Exception:
-                              pass
+                  # Keyboard-only fallback when UIA fields failed but we know this is the dialog
+                  if (not typed_user or not typed_pass) and is_strong:
+                      log_msg("ProxyAuth", f"[{label}] Keyboard-only fallback for strong proxy dialog...")
+                      try:
+                          window.set_focus()
+                          time.sleep(0.3)
+                          # Focus first field
+                          send_keys("{TAB}")
+                          time.sleep(0.15)
+                          send_keys("^a{DELETE}")
+                          for ch in PROXY_USER:
+                              if ch.isalnum() or ch in ".-_=@":
+                                  send_keys(ch)
+                              else:
+                                  send_keys("{%s}" % ch)
+                              time.sleep(0.01)
+                          time.sleep(0.2)
+                          send_keys("{TAB}")
+                          time.sleep(0.15)
+                          send_keys("^a{DELETE}")
+                          for ch in PROXY_PASS:
+                              if ch.isalnum() or ch in ".-_=@":
+                                  send_keys(ch)
+                              else:
+                                  send_keys("{%s}" % ch)
+                              time.sleep(0.01)
+                          time.sleep(0.2)
+                          typed_user = typed_pass = True
+                      except Exception as ek:
+                          log_msg("ProxyAuth", f"[{label}] Keyboard fallback failed: {ek}")
 
-                      # ---- Submit ----
-                      submitted = False
-                      btn = _find_submit_button(window)
-                      if btn:
-                          try:
-                              if click_element_robust(btn, "ProxyAuth-Submit"):
-                                  submitted = True
-                                  log_msg("ProxyAuth", f"[{label}] Submitted via button click.")
-                          except Exception:
-                              pass
-
-                      if not submitted:
-                          try:
-                              send_keys('{ENTER}')
-                              time.sleep(0.4)
-                              submitted = True
-                              log_msg("ProxyAuth", f"[{label}] Submitted via ENTER key.")
-                          except Exception:
-                              pass
-
-                      if typed_user and typed_pass:
-                          log_msg("ProxyAuth", f"[{label}] Credentials injected successfully.")
-                          return True
-                      else:
-                          log_msg("ProxyAuth", f"[{label}] Partial injection (user={typed_user}, pass={typed_pass}).")
-                          return typed_user or typed_pass
-
-                  # ----------------------------------------------------------
-                  # Last-resort pure keyboard (focus dialog then Tab/type)
-                  # ----------------------------------------------------------
-                  log_msg("ProxyAuth", f"[{label}] No fields located – attempting pure keyboard injection.")
-                  try:
-                      window.set_focus()
-                      time.sleep(0.5)
-                      # Clear any existing focus and start from first field
-                      send_keys('{TAB}')
-                      time.sleep(0.2)
-                      send_keys('^a{DELETE}')
-                      for ch in PROXY_USER:
-                          if ch.isalnum() or ch in '.-_=@':
-                              send_keys(ch)
-                          else:
-                              send_keys('{%s}' % ch)
-                          time.sleep(0.012)
-                      time.sleep(0.25)
-                      send_keys('{TAB}')
-                      time.sleep(0.2)
-                      send_keys('^a{DELETE}')
-                      for ch in PROXY_PASS:
-                          if ch.isalnum() or ch in '.-_=@':
-                              send_keys(ch)
-                          else:
-                              send_keys('{%s}' % ch)
-                          time.sleep(0.012)
-                      time.sleep(0.25)
-                      send_keys('{ENTER}')
-                      log_msg("ProxyAuth", f"[{label}] Keyboard-only auth submitted.")
-                      return True
-                  except Exception as e:
-                      log_msg("ProxyAuth", f"[{label}] Keyboard-only failed: {e}")
+                  if not (typed_user and typed_pass):
+                      log_msg("ProxyAuth", f"[{label}] Could not type both fields (user={typed_user}, pass={typed_pass}).")
                       return False
+
+                  # Submit
+                  submitted = False
+                  btn = _find_submit_button(window)
+                  if btn:
+                      try:
+                          if click_element_robust(btn, "ProxyAuth-Submit"):
+                              submitted = True
+                              log_msg("ProxyAuth", f"[{label}] Submitted via button.")
+                      except Exception:
+                          pass
+                  if not submitted:
+                      try:
+                          send_keys("{ENTER}")
+                          time.sleep(0.4)
+                          submitted = True
+                          log_msg("ProxyAuth", f"[{label}] Submitted via ENTER.")
+                      except Exception:
+                          pass
+
+                  log_msg("ProxyAuth", f"[{label}] Credentials injected successfully.")
+                  return True
 
               except Exception as e:
                   log_msg("ProxyAuth", f"[{label}] inject_proxy_auth exception: {e}")
@@ -5347,6 +5290,11 @@ jobs:
               desktop = Desktop(backend="uia")
               start_time = time.time()
               proxy_auth_time = start_time
+              proxy_auth_completed = False
+              PROXY_AUTH_DONE_GRACE = 8
+              _auth_inject_succeeded = False
+              last_auth_inject_time = 0
+              AUTH_INJECT_COOLDOWN = 4
 
               log_msg("UI-Engine", f"Started. Action: {action_mode.upper()} | Type: {software_type} | Profile: {profile_tag}")
               log_msg("UI-Engine", f"Target URL: {TARGET_URL}")
@@ -5359,6 +5307,44 @@ jobs:
               if not verify_edge_launch(TARGET_URL, EDGE_EXE, PROXY_SERVER, USE_PROXY, LANG_CODE, ACCEPT_LANG, APPLY_MASKING, TZ_IANA):
                   log_msg("UI-Engine", "FATAL: Could not verify Edge launch. Exiting.")
                   sys.exit(1)
+
+              # Immediate first-pass proxy auth (do not wait for the main loop cooldown)
+              if USE_PROXY and PROXY_USER and PROXY_PASS:
+                  log_msg("ProxyAuth", "Immediate first-pass scan for proxy auth dialog...")
+                  try:
+                      desktop0 = Desktop(backend="uia")
+                      for attempt in range(1, 8):
+                          injected0 = False
+                          for w in desktop0.windows(visible_only=True):
+                              wt = w.window_text() or ""
+                              if _is_proxy_auth_dialog(wt):
+                                  log_msg("ProxyAuth", f"[Immediate] Found dialog: '{wt[:60]}'")
+                                  if inject_proxy_auth(w, label=f"immediate-{attempt}"):
+                                      injected0 = True
+                                      proxy_auth_time = time.time()
+                                      break
+                              # Edge may own the dialog
+                              if "Edge" in wt or "edge" in (wt or "").lower()[:24]:
+                                  try:
+                                      for d in w.descendants():
+                                          dwt = d.window_text() or ""
+                                          if dwt and ("floppydata" in dwt.lower() or "10080" in dwt or "sign in to access" in dwt.lower()):
+                                              log_msg("ProxyAuth", f"[Immediate-Edge] Proxy dialog text under Edge")
+                                              if inject_proxy_auth(w, label=f"immediate-edge-{attempt}"):
+                                                  injected0 = True
+                                                  proxy_auth_time = time.time()
+                                              break
+                                  except Exception:
+                                      pass
+                              if injected0:
+                                  break
+                          if injected0:
+                              log_msg("ProxyAuth", "Immediate inject succeeded.")
+                              time.sleep(2)
+                              break
+                          time.sleep(1.2)
+                  except Exception as e0:
+                      log_msg("ProxyAuth", f"Immediate pass error: {e0}")
 
               download_clicked = False
               download_started = False
@@ -5384,9 +5370,8 @@ jobs:
               INTERFERENCE_SWEEP_INTERVAL = 2
 
               last_auth_inject_time = 0
-              AUTH_INJECT_COOLDOWN = 8
-              proxy_auth_completed = False   # once True, never inject proxy credentials again
-              PROXY_AUTH_DONE_GRACE = 12     # seconds after successful inject before we mark complete
+              AUTH_INJECT_COOLDOWN = 4
+              # proxy_auth_completed / _auth_inject_succeeded already initialised before Edge launch
 
               surf_simulation_executed = False
 
@@ -5442,6 +5427,7 @@ jobs:
                               proxy_auth_time = time.time()
                               last_auth_inject_time = 0
                               proxy_auth_completed = False
+                              _auth_inject_succeeded = False
                               download_clicked = False
                               download_started = False
                               download_click_attempts = 0
@@ -5461,69 +5447,104 @@ jobs:
                           try:
                               for auth_window in desktop.windows(visible_only=True):
                                   awt = auth_window.window_text() or ""
-                                  # Skip the main Edge browser window (it has a long title once a page loads)
-                                  if "Microsoft Edge" in awt and len(awt) > 20:
+                                  if not awt:
                                       continue
                                   if _is_target_software_window(awt, software_type):
                                       continue
+
+                                  # Direct match on window title (e.g. "Sign in to access this site")
                                   if _is_proxy_auth_dialog(awt):
                                       last_auth_inject_time = now
-                                      log_msg("ProxyAuth", f"[TopLevel] Auth dialog: '{awt[:60]}' — injecting...")
+                                      log_msg("ProxyAuth", f"[TopLevel] Auth dialog: '{awt[:70]}' — injecting...")
                                       injected = inject_proxy_auth(auth_window, label=f"toplevel-{awt[:30]}")
                                       if injected:
                                           proxy_auth_time = time.time()
                                           auth_injected_this_tick = True
+                                          _auth_inject_succeeded = True
                                           break
-                          except Exception:
-                              pass
+                                      continue
 
-                          # Only scan Edge *children* for an embedded dialog when we have
-                          # not already injected and the main window title still looks empty/loading.
-                          if not auth_injected_this_tick and edge_window:
-                              try:
-                                  edge_title = (edge_window.window_text() or "").strip()
-                                  # Once Edge has a real page title, stop looking inside it for auth dialogs
-                                  page_looks_loaded = (
-                                      len(edge_title) > 15
-                                      and edge_title.lower() not in ("microsoft edge", "edge", "new tab", "")
-                                      and "http" not in edge_title.lower()  # address sometimes leaks into title
-                                  )
-                                  if not page_looks_loaded:
-                                      for child in edge_window.children():
-                                          cwt = child.window_text() or ""
-                                          if _is_proxy_auth_dialog(cwt):
+                                  # Edge main window may host the dialog as a child / pane.
+                                  # Scan its descendants for proxy-dialog text OR 2 password-capable edits
+                                  # ONLY when auth is not yet completed (we stop after success).
+                                  is_edge = ("Microsoft Edge" in awt or awt.strip() in ("Microsoft Edge", "Edge")
+                                             or "edge" in awt.lower()[:30])
+                                  if is_edge and not auth_injected_this_tick:
+                                      try:
+                                          # Quick text scan of immediate children
+                                          found_dialog_child = None
+                                          for child in auth_window.children():
+                                              cwt = child.window_text() or ""
+                                              if _is_proxy_auth_dialog(cwt):
+                                                  found_dialog_child = child
+                                                  break
+                                          if found_dialog_child is not None:
                                               last_auth_inject_time = now
-                                              log_msg("ProxyAuth", f"[EdgeChild] Embedded auth dialog: '{cwt[:40]}'")
-                                              injected = inject_proxy_auth(child, label=f"edge-child-{cwt[:20]}")
+                                              log_msg("ProxyAuth", f"[EdgeChild] Auth dialog under Edge — injecting...")
+                                              injected = inject_proxy_auth(found_dialog_child, label="edge-child")
                                               if injected:
                                                   proxy_auth_time = time.time()
                                                   auth_injected_this_tick = True
+                                                  _auth_inject_succeeded = True
                                                   break
-                              except Exception:
-                                  pass
 
-                      # Mark proxy auth as permanently done once credentials were injected
-                      # and a short grace period has passed (dialog gone / page loading).
-                      if USE_PROXY and not proxy_auth_completed and (now - proxy_auth_time) > PROXY_AUTH_DONE_GRACE:
-                          # Extra confirmation: Edge has a non-empty page title or no auth dialog is visible
+                                          # Deep scan: any descendant text containing proxy host
+                                          for desc in auth_window.descendants():
+                                              try:
+                                                  dwt = desc.window_text() or ""
+                                              except Exception:
+                                                  dwt = ""
+                                              if dwt and ("floppydata" in dwt.lower() or "10080" in dwt or "sign in to access" in dwt.lower()):
+                                                  # Inject into the Edge window itself (dialog fields are under it)
+                                                  last_auth_inject_time = now
+                                                  log_msg("ProxyAuth", f"[EdgeDeep] Proxy dialog text found under Edge — injecting into Edge window...")
+                                                  injected = inject_proxy_auth(auth_window, label="edge-deep")
+                                                  if injected:
+                                                      proxy_auth_time = time.time()
+                                                      auth_injected_this_tick = True
+                                                      _auth_inject_succeeded = True
+                                                  break
+                                          if auth_injected_this_tick:
+                                              break
+                                      except Exception as ee:
+                                          log_msg("ProxyAuth", f"[EdgeScan] {ee}")
+                          except Exception as e:
+                              log_msg("ProxyAuth", f"[Scan] {e}")
+
+                      # Mark proxy auth permanently complete ONLY after a successful inject
+                      # and the dialog is gone (or grace period elapsed with no dialog visible).
+                      if USE_PROXY and not proxy_auth_completed and _auth_inject_succeeded and (now - proxy_auth_time) > PROXY_AUTH_DONE_GRACE:
                           try:
                               still_has_dialog = False
                               for w in desktop.windows(visible_only=True):
                                   wt = w.window_text() or ""
-                                  if _is_proxy_auth_dialog(wt) and len(wt) < 100:
+                                  if _is_proxy_auth_dialog(wt):
                                       still_has_dialog = True
                                       break
-                              edge_title = ""
-                              if edge_window:
-                                  edge_title = (edge_window.window_text() or "").strip()
-                              page_ok = len(edge_title) > 10 and edge_title.lower() not in ("microsoft edge", "edge", "new tab", "")
-                              if not still_has_dialog or page_ok:
+                                  # also check Edge descendants briefly
+                                  if "Edge" in wt or "edge" in wt.lower()[:20]:
+                                      try:
+                                          for d in w.descendants():
+                                              dwt = (d.window_text() or "")
+                                              if dwt and ("floppydata" in dwt.lower() or "sign in to access" in dwt.lower()):
+                                                  still_has_dialog = True
+                                                  break
+                                      except Exception:
+                                          pass
+                                  if still_has_dialog:
+                                      break
+                              if not still_has_dialog:
                                   proxy_auth_completed = True
                                   log_msg("ProxyAuth", "Proxy authentication completed – will not inject credentials again.")
+                              else:
+                                  # Dialog still visible after grace – allow another inject attempt soon
+                                  last_auth_inject_time = 0
+                                  log_msg("ProxyAuth", "Auth dialog still visible after grace – will retry inject.")
                           except Exception:
-                              # After grace period just lock it to be safe
-                              proxy_auth_completed = True
-                              log_msg("ProxyAuth", "Proxy authentication marked complete (grace elapsed).")
+                              # Fail-safe: if we already injected once, lock after extended grace
+                              if (now - proxy_auth_time) > (PROXY_AUTH_DONE_GRACE * 3):
+                                  proxy_auth_completed = True
+                                  log_msg("ProxyAuth", "Proxy authentication marked complete (extended grace).")
 
                       if not download_windows_closed and os.path.exists(sentinel_path):
                           log_msg("Sentinel", "Download flag detected. Initiating Edge cleanup sequence...")
