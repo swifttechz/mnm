@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '3'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -62,17 +62,17 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '0'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '200'
+        default: '10'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '50'
+        default: '0'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjMxYTVmM2VmNDk2YzQ3NDQwMjc0YiIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmMzFhNWYzZWY0OTZjNDc0NDAyNzNiIn0.7ZVghzov7fyrtTWR8gujYjkckwdhKiOBapEh1JiWVCs'
+        default: 'geolocation://jgxaM4I0Ui5raZb4:ReNKnl3rexQJYOAt@geo.floppydata.com:10080:1-ES-dtshmj geolocation://e8T52uhC9rLkqsFw:e3tcuXZAYRcfMnVE@geo.floppydata.com:10080:2-ES-lglthr geolocation://98Pjj1XLBeDiVTFB:Xv0e4XJ7gV17xoVk@geo.floppydata.com:10080:3-ES-kvyoar geolocation://RTeTPNreoC8gFSHO:VEhRsbCdoFWCT20s@geo.floppydata.com:10080:4-ES-eabrdd geolocation://ByHpRsN5RDLFR4v5:QTAw5SShdrzw5sFU@geo.floppydata.com:10080:5-ES-fqdtue geolocation://TnLLuLJuFXnzpU31:bBEXHq4z4YBTFBGP@geo.floppydata.com:10080:6-ES-keludm geolocation://1ZDwQ3pzVu2UiyRO:AkTSn2Of9uFBRkJ8@geo.floppydata.com:10080:7-ES-bsrztb geolocation://ADPj9b80vyo3u3Ur:1BfYxAJ8l4DtwoAr@geo.floppydata.com:10080:8-ES-uafwim geolocation://e2PCdaLqlY2HgolP:0qUA68EM81G1K5gv@geo.floppydata.com:10080:9-ES-gphdxn geolocation://mPmzm2w2xBuHThKn:3tAqJefSr5fCaytM@geo.floppydata.com:10080:10-ES-lgtaox geolocation://iDPhfKvnPzDfKJxs:hO0fXzUfYFiZDpOp@geo.floppydata.com:10080:11-ES-wposrd geolocation://ovEKRqcH3mJv6p7H:QHRukHXyjsaRoNsI@geo.floppydata.com:10080:12-ES-maapli geolocation://W1P8lGaoiqUCDUaf:Fri4jzahtvqeEnE6@geo.floppydata.com:10080:13-ES-jtjkis geolocation://u3ZrSGVGkdYbmsBk:LXOmporI3C4Meccb@geo.floppydata.com:10080:14-ES-athetq geolocation://qIYApF3dnIEeaQrd:gH23U63FjVBITSwg@geo.floppydata.com:10080:15-ES-wopogq geolocation://VrfphnsFIK2GY6qy:XHW0cLbG5mwcfu07@geo.floppydata.com:10080:16-ES-ledycx geolocation://QhXOuPIK2608ab6h:aaZiIninDZltoPx7@geo.floppydata.com:10080:17-ES-lzumsw geolocation://CF6Cg9VxvMj7wERs:3u8uot1wYq1w5sH2@geo.floppydata.com:10080:18-ES-tarpbz geolocation://YAcr7KjlmEK8TbkF:GASFHDWvgRYgebdH@geo.floppydata.com:10080:19-ES-mieecp geolocation://qgZ5vbYQfZKfwBqF:078536rk4tLJHg3u@geo.floppydata.com:10080:20-ES-fpsgdu geolocation://jbbNV0eHJQ2ebzs7:l40aYvAZsQncOMDW@geo.floppydata.com:10080:21-ES-ewfupm geolocation://nP5PysMcaHDdg92u:CQAExZ7Akd7LN6cy@geo.floppydata.com:10080:22-ES-vgefhr geolocation://u4o12czQZmvyaNlz:uQTGF1douJp8URbA@geo.floppydata.com:10080:23-ES-ittreq'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -146,7 +146,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'Spain'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -168,7 +168,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'No Fallback'
+        default: 'Spain'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
@@ -661,6 +661,20 @@ jobs:
               enable_scroll = os.environ.get("ENABLE_SCROLL", "true").lower() in ("true", "1", "yes")
               enable_surf   = os.environ.get("ENABLE_SURF", "true").lower() in ("true", "1", "yes")
 
+              # Per-action hard job timeout (minutes). Click/surf must not run for 15-20 min.
+              ka_raw_e = os.environ.get("KEEP_ALIVE_DURATION", "8 minutes")
+              try:
+                  _ka = int("".join(ch for ch in ka_raw_e if ch.isdigit()) or "8")
+              except Exception:
+                  _ka = 8
+              _ka = max(6, min(_ka, 30))
+              if action_mode == "click":
+                  job_timeout_minutes = min(6, _ka)          # click: max 6 minutes total
+              elif action_mode == "surf":
+                  job_timeout_minutes = min(8, max(6, _ka))  # surf: max 8 minutes
+              else:
+                  job_timeout_minutes = _ka + 5              # install setup + keep-alive + overhead
+
               entry = {
                   "task_index":    absolute_idx,
                   "absolute_idx":  absolute_idx,
@@ -679,7 +693,8 @@ jobs:
                   "display_name":  display_name,
                   "preassigned_proxy": "false",
                   "enable_scroll": "true" if enable_scroll else "false",
-                  "enable_surf":   "true" if enable_surf else "false"
+                  "enable_surf":   "true" if enable_surf else "false",
+                  "job_timeout_minutes": str(job_timeout_minutes)
               }
 
               includes.append(entry)
@@ -2148,7 +2163,7 @@ jobs:
     needs: [prepare_matrix]
     if: ${{ !cancelled() && needs.prepare_matrix.result == 'success' && needs.prepare_matrix.outputs.has_tasks == 'true' }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ fromJSON(needs.prepare_matrix.outputs.device_timeout_minutes || '12') }}
+    timeout-minutes: ${{ fromJSON(matrix.job_timeout_minutes || needs.prepare_matrix.outputs.device_timeout_minutes || '10') }}
 
     strategy:
       fail-fast: false
@@ -2784,7 +2799,7 @@ jobs:
 
               active_proxy = None
               use_proxy = False
-              MAX_ATTEMPTS = 20
+              MAX_ATTEMPTS = 5   # keep device-side fallback short so click jobs cannot burn 15+ minutes
 
               if not without_proxy:
                   print("========== FALLBACK: NO PROXY FROM POOL -> GENERATING WITH API KEY ON DEVICE ==========")
@@ -2855,6 +2870,13 @@ jobs:
                                       sys.exit(1)
                           else:
                               print(f"      -> GoLogin API request failed with status {resp.status_code}: {resp.text}")
+                              body_l = (resp.text or "").lower()
+                              if resp.status_code in (401, 402, 403, 429) or any(x in body_l for x in (
+                                  "maximum number of proxies", "free api requests limit", "please subscribe",
+                                  "quota", "rate limit", "too many requests"
+                              )):
+                                  print("      -> Hard quota/rate-limit from GoLogin — stopping device-side generation early.")
+                                  break
                               time.sleep(2)
                       except Exception as e:
                           print(f"      -> GoLogin API error: {e}")
@@ -3501,13 +3523,29 @@ jobs:
 
           # Hard wall-clock deadline for this entire Setup step (cannot exceed keep_alive budget)
           $globalDeadline = $null
+          $setupStarted = Get-Date
           try {
+              $budgetSec = 0
               if ($env:SESSION_BUDGET_SECONDS -and [int]$env:SESSION_BUDGET_SECONDS -gt 0) {
-                  # budget is active session time; allow a bit extra for dependency install
-                  $globalDeadline = (Get-Date).AddSeconds([int]$env:SESSION_BUDGET_SECONDS + 120)
-                  Write-Host "[Timeout] Setup step hard deadline: $globalDeadline (budget $($env:SESSION_BUDGET_SECONDS)s + 120s setup slack)" -ForegroundColor DarkCyan
+                  $budgetSec = [int]$env:SESSION_BUDGET_SECONDS
               }
-          } catch {}
+              # Path-specific absolute caps (seconds) for the whole Setup step
+              if ($env:ACTION_MODE -eq "click") {
+                  $maxSetup = 180   # 3 minutes max for click
+              } elseif ($env:ACTION_MODE -eq "surf") {
+                  $maxSetup = 300  # 5 minutes max for surf
+              } else {
+                  $maxSetup = if ($budgetSec -gt 0) { $budgetSec + 90 } else { 480 }
+              }
+              if ($budgetSec -gt 0) {
+                  $maxSetup = [Math]::Min($maxSetup, $budgetSec + 90)
+              }
+              $globalDeadline = $setupStarted.AddSeconds($maxSetup)
+              Write-Host "[Timeout] Setup hard deadline: $globalDeadline (max ${maxSetup}s for action=$($env:ACTION_MODE))" -ForegroundColor DarkCyan
+          } catch {
+              $globalDeadline = (Get-Date).AddMinutes(6)
+              Write-Host "[Timeout] Fallback deadline: $globalDeadline" -ForegroundColor Yellow
+          }
 
           $edgeExe = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
           if (-Not (Test-Path $edgeExe)) {
@@ -3521,7 +3559,27 @@ jobs:
           $acceptLang = "$langCode,$langPrimary;q=0.9,en;q=0.8"
 
           Write-Host "[Dependencies] Installing python UIA modules (pywinauto, pyautogui, etc)..." -ForegroundColor DarkGray
-          python -m pip install pywinauto pyautogui pygetwindow keyboard --quiet
+          # Hard timeout so pip can never hang the Setup step for tens of minutes
+          $pipOk = $false
+          try {
+              $pipJob = Start-Job -ScriptBlock {
+                  python -m pip install --disable-pip-version-check --no-input pywinauto pyautogui pygetwindow keyboard 2>&1
+              }
+              if (Wait-Job $pipJob -Timeout 90) {
+                  $pipOut = Receive-Job $pipJob
+                  if ($pipJob.State -eq 'Completed') { $pipOk = $true }
+                  Write-Host $pipOut
+              } else {
+                  Write-Host "[Dependencies] pip install timed out after 90s — continuing with whatever is already installed." -ForegroundColor Yellow
+                  Stop-Job $pipJob -ErrorAction SilentlyContinue
+                  Remove-Job $pipJob -Force -ErrorAction SilentlyContinue
+              }
+          } catch {
+              Write-Host "[Dependencies] pip install error: $_ — continuing." -ForegroundColor Yellow
+          }
+          if (-not $pipOk) {
+              Write-Host "[Dependencies] Warning: dependency install may be incomplete." -ForegroundColor Yellow
+          }
 
           $credFile = "$env:TEMP\proxy_creds.json"
           $credObj  = @{
@@ -3538,6 +3596,7 @@ jobs:
               apply_masking = ($env:APPLY_MASKING -eq 'true')
               tz_iana       = $env:TIMEZONE_IANA
               profile_tag   = $env:PROFILE_TAG
+              session_budget = $env:SESSION_BUDGET_SECONDS
           }
           $credJson = $credObj | ConvertTo-Json -Depth 2
           [System.IO.File]::WriteAllText($credFile, $credJson, [System.Text.UTF8Encoding]::new($false))
@@ -3689,6 +3748,9 @@ jobs:
           ACCEPT_LANG   = _CREDS.get("accept_lang", "en-US,en;q=0.9")
           APPLY_MASKING = _CREDS.get("apply_masking", True)
           TZ_IANA       = _CREDS.get("tz_iana", "UTC")
+          # Prefer session budget from creds file so Start-Process children always see it
+          if _CREDS.get("session_budget") and not os.environ.get("SESSION_BUDGET_SECONDS"):
+              os.environ["SESSION_BUDGET_SECONDS"] = str(_CREDS.get("session_budget"))
           PROFILE_TAG_PARAM = _CREDS.get("profile_tag", "P1")
 
           DOWNLOAD_DONE_TITLES = [
@@ -5611,7 +5673,7 @@ jobs:
               log_msg("OperaOnboard", "Onboarding dismissal finished (or timed out).")
               return True
 
-          def handle_automation(software_type, action_mode, profile_tag="P1", timeout=450):
+          def handle_automation(software_type, action_mode, profile_tag="P1", timeout=300):
               # Honour session budget from keep_alive_duration (injected via env)
               try:
                   budget = int(os.environ.get("SESSION_BUDGET_SECONDS", "0") or "0")
@@ -5619,11 +5681,14 @@ jobs:
                   budget = 0
               if budget > 0:
                   timeout = min(timeout, budget)
-              # Click path should never hold the runner for a long UI timeout
+              # Hard per-path caps so a stuck dialog can never burn the whole keep_alive window
               if action_mode == "click":
-                  timeout = min(timeout, 120)
+                  timeout = min(timeout, 90)
               elif action_mode == "surf":
-                  timeout = min(timeout, 240)
+                  timeout = min(timeout, 200)
+              else:
+                  timeout = min(timeout, 300)
+              log_msg("UI-Engine", f"Automation hard timeout set to {timeout}s (action={action_mode}, budget={budget})")
               desktop = Desktop(backend="uia")
               start_time = time.time()
               proxy_auth_time = start_time
@@ -6055,19 +6120,27 @@ jobs:
           $handlerPyBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($handlerPy)
           [System.IO.File]::WriteAllBytes("$env:TEMP\auto_handler.py", $handlerPyBytes)
 
+          # Clear any leftover Edge BEFORE starting the UI engine (never after)
+          Write-Host "[System] Clearing leftover Edge processes before UI-Engine start..." -ForegroundColor DarkGray
+          Stop-Process -Name "msedge" -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 1
+
           Write-Host "[UI-Engine] Spinning up background Python process..." -ForegroundColor DarkGray
-          Start-Process -FilePath "python" `
+          $handlerProc = Start-Process -FilePath "python" `
               -ArgumentList "-u `"$env:TEMP\auto_handler.py`" `"$env:SOFTWARE_CHOICE`" `"$env:SOFTWARE_TYPE`" `"$env:ACTION_MODE`" `"$env:PROFILE_TAG`"" `
-              -WindowStyle Hidden
+              -WindowStyle Hidden -PassThru
+          if ($handlerProc) { Write-Host "[UI-Engine] Python PID: $($handlerProc.Id)" -ForegroundColor DarkGray }
 
           $dlFolder    = "$env:USERPROFILE\Downloads"
           # Cap watcher / install wait by session budget (from keep_alive_duration)
-          $timeoutSecs = 450
+          $timeoutSecs = 300
           try {
               if ($env:SESSION_BUDGET_SECONDS -and [int]$env:SESSION_BUDGET_SECONDS -gt 0) {
-                  $timeoutSecs = [Math]::Min(450, [int]$env:SESSION_BUDGET_SECONDS)
+                  $timeoutSecs = [Math]::Min(300, [int]$env:SESSION_BUDGET_SECONDS)
               }
           } catch {}
+          if ($env:ACTION_MODE -eq "click") { $timeoutSecs = [Math]::Min($timeoutSecs, 90) }
+          if ($env:ACTION_MODE -eq "surf")  { $timeoutSecs = [Math]::Min($timeoutSecs, 200) }
           Write-Host "[Timeout] Session budget for this device: $timeoutSecs seconds (from keep_alive_duration)" -ForegroundColor DarkCyan
           $softwareType = $env:SOFTWARE_TYPE
           $exeFilter   = $env:EXE_FILTER
@@ -6169,11 +6242,7 @@ jobs:
               } -ArgumentList $dlFolder, $timeoutSecs, $softwareType, $exeFilter, $sentinelPath, $installerExecutedSentinel
           }
 
-          Write-Host "[System] Closing any lingering Edge processes..." -ForegroundColor DarkGray
-          Stop-Process -Name "msedge" -Force -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 2
-
-          Write-Host "[System] UI-Engine (Python) will autonomously manage Edge..." -ForegroundColor Cyan
+          Write-Host "[System] UI-Engine (Python) is managing Edge — do not kill browser here." -ForegroundColor Cyan
           Write-Host "========== RUNTIME EXECUTION ==========" -ForegroundColor Cyan
 
           if ($env:ACTION_MODE -eq "install") {
