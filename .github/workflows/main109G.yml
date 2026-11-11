@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '10'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '0'
+        default: '10'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'geolocation://UbqrRPTcGOvoLP4g:S7qWj1pVFQiVuZ6E@geo.floppydata.com:10080:1-FR-oyhgug geolocation://JSCU65GskDDhtEuu:DfjNDM3j2yjgdLYZ@geo.floppydata.com:10080:2-FR-vcpvvt geolocation://ApTrJ5Bv3bo7JcRm:Cs9F4gRoLFXBx6D4@geo.floppydata.com:10080:3-FR-xmumfz geolocation://n7W0MysQq0XVlSjA:T8a08FAOC0wKYxWj@geo.floppydata.com:10080:4-FR-yrnepa geolocation://YrqbHfeI95VLxyAB:NYTN8LbHs8EcI9fD@geo.floppydata.com:10080:5-FR-dtwgke geolocation://KczzYH2Txifv6mmB:E50AUyYtVgFUbzbC@geo.floppydata.com:10080:6-FR-djdyjh geolocation://LL3KVxKpsrqhkjwc:iNOghtaytV5gnlrL@geo.floppydata.com:10080:7-FR-zcfgvt geolocation://kF1u3bljebRxn3yz:QdMdqS1ZAXep5UMB@geo.floppydata.com:10080:8-FR-ijlsmy geolocation://nTziLPFlXfuz6ed0:iCVeeftUBXV3E91j@geo.floppydata.com:10080:9-FR-ukrrao geolocation://ess6q9GAFYfoiIYz:KKbBLH5uvGDBUq4l@geo.floppydata.com:10080:10-FR-klijbf geolocation://hIIA17UNzsdBC2Pj:mJHjNy9QC9aZcXvy@geo.floppydata.com:10080:11-FR-lerzok geolocation://zIxmcgRifVqLu0m5:cWO8FH9uD8fsK5oc@geo.floppydata.com:10080:12-FR-xjbxfe geolocation://gAhu6rNowtdil28L:2u3aoSt51gvb2mbj@geo.floppydata.com:10080:1-FR-jqgljm geolocation://byxnrZ4gRiyjbr86:mGJCR1Vsz30yGXnr@geo.floppydata.com:10080:2-FR-mprfvm'
+        default: 'geolocation://jgxaM4I0Ui5raZb4:ReNKnl3rexQJYOAt@geo.floppydata.com:10080:1-ES-dtshmj geolocation://e8T52uhC9rLkqsFw:e3tcuXZAYRcfMnVE@geo.floppydata.com:10080:2-ES-lglthr geolocation://98Pjj1XLBeDiVTFB:Xv0e4XJ7gV17xoVk@geo.floppydata.com:10080:3-ES-kvyoar geolocation://RTeTPNreoC8gFSHO:VEhRsbCdoFWCT20s@geo.floppydata.com:10080:4-ES-eabrdd geolocation://ByHpRsN5RDLFR4v5:QTAw5SShdrzw5sFU@geo.floppydata.com:10080:5-ES-fqdtue geolocation://TnLLuLJuFXnzpU31:bBEXHq4z4YBTFBGP@geo.floppydata.com:10080:6-ES-keludm geolocation://1ZDwQ3pzVu2UiyRO:AkTSn2Of9uFBRkJ8@geo.floppydata.com:10080:7-ES-bsrztb geolocation://ADPj9b80vyo3u3Ur:1BfYxAJ8l4DtwoAr@geo.floppydata.com:10080:8-ES-uafwim geolocation://e2PCdaLqlY2HgolP:0qUA68EM81G1K5gv@geo.floppydata.com:10080:9-ES-gphdxn geolocation://mPmzm2w2xBuHThKn:3tAqJefSr5fCaytM@geo.floppydata.com:10080:10-ES-lgtaox geolocation://iDPhfKvnPzDfKJxs:hO0fXzUfYFiZDpOp@geo.floppydata.com:10080:11-ES-wposrd geolocation://ovEKRqcH3mJv6p7H:QHRukHXyjsaRoNsI@geo.floppydata.com:10080:12-ES-maapli geolocation://W1P8lGaoiqUCDUaf:Fri4jzahtvqeEnE6@geo.floppydata.com:10080:13-ES-jtjkis geolocation://u3ZrSGVGkdYbmsBk:LXOmporI3C4Meccb@geo.floppydata.com:10080:14-ES-athetq geolocation://qIYApF3dnIEeaQrd:gH23U63FjVBITSwg@geo.floppydata.com:10080:15-ES-wopogq geolocation://VrfphnsFIK2GY6qy:XHW0cLbG5mwcfu07@geo.floppydata.com:10080:16-ES-ledycx geolocation://QhXOuPIK2608ab6h:aaZiIninDZltoPx7@geo.floppydata.com:10080:17-ES-lzumsw geolocation://CF6Cg9VxvMj7wERs:3u8uot1wYq1w5sH2@geo.floppydata.com:10080:18-ES-tarpbz geolocation://YAcr7KjlmEK8TbkF:GASFHDWvgRYgebdH@geo.floppydata.com:10080:19-ES-mieecp geolocation://qgZ5vbYQfZKfwBqF:078536rk4tLJHg3u@geo.floppydata.com:10080:20-ES-fpsgdu geolocation://jbbNV0eHJQ2ebzs7:l40aYvAZsQncOMDW@geo.floppydata.com:10080:21-ES-ewfupm geolocation://nP5PysMcaHDdg92u:CQAExZ7Akd7LN6cy@geo.floppydata.com:10080:22-ES-vgefhr geolocation://u4o12czQZmvyaNlz:uQTGF1douJp8URbA@geo.floppydata.com:10080:23-ES-ittreq'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -146,7 +146,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'France'
+        default: 'Spain'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -168,7 +168,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Canada'
+        default: 'Spain'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
@@ -193,12 +193,12 @@ on:
         description: 'Enable Full Surfing (Surf path; if only this is on, also applies to Click tasks)'
         required: true
         type: boolean
-        default: false
+        default: true
       reuse_proxies:
         description: 'Reuse Proxies (when pool is exhausted, wrap from #1 again)'
         required: true
         type: boolean
-        default: true
+        default: false
       unique_ip:
         description: 'Unique IP (each device must get an IP not used by another device this run)'
         required: true
@@ -2690,23 +2690,65 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          STEP_PREFIX: "fail-step-acquire-proxy-"
+          STEP_LABEL: "Acquire Proxy"
         run: |
           set +e
-          sleep 5
-          count=0
+          sleep 8
+          names=""
           page=1
-          while [ "$page" -le 15 ]; do
-            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
-            batch=$(echo "$resp" | python3 -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get('artifacts',[]) if str(a.get('name','')).startswith('fail-step-acquire-proxy-')))" 2>/dev/null || echo 0)
-            count=$((count + batch))
-            total=$(echo "$resp" | python3 -c "import sys,json;print(int(json.load(sys.stdin).get('total_count') or 0))" 2>/dev/null || echo 0)
-            if [ $((page * 100)) -ge "$total" ]; then break; fi
+          while [ "$page" -le 20 ]; do
+            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}" 2>/dev/null) || break
+            batch=$(echo "$resp" | python3 -c '
+import sys, json, os
+try:
+    d = json.load(sys.stdin)
+    arts = d.get("artifacts") or []
+    prefix = os.environ.get("STEP_PREFIX", "")
+    for a in arts:
+        n = str(a.get("name") or "")
+        if n.startswith(prefix):
+            print(n)
+except Exception:
+    pass
+' 2>/dev/null)
+            names="${names}
+${batch}"
+            total=$(echo "$resp" | python3 -c "import sys,json;print(int(json.load(sys.stdin).get(\"total_count\") or 0))" 2>/dev/null || echo 0)
+            if [ $((page * 100)) -ge "$total" ] || [ -z "$resp" ]; then break; fi
             page=$((page + 1))
           done
-          echo "Acquire Proxy failures so far: $count"
-          if [ "$count" -ge 3 ]; then
-            echo "::error::3+ devices failed on Acquire Proxy - cancelling entire workflow run ${RUN_ID}"
-            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
+          consecutive_info=$(echo "$names" | python3 -c '
+import sys, re
+idxs = []
+for line in sys.stdin:
+    m = re.search(r"(\d+)$", line.strip())
+    if m:
+        idxs.append(int(m.group(1)))
+idxs = sorted(set(idxs))
+print("indices:", idxs)
+consec = 1
+max_consec = 1
+for i in range(1, len(idxs)):
+    if idxs[i] == idxs[i-1] + 1:
+        consec += 1
+        max_consec = max(max_consec, consec)
+    else:
+        consec = 1
+print("max_consecutive:", max_consec)
+print("total_unique:", len(idxs))
+' 2>/dev/null || echo "indices: [] max_consecutive: 0 total_unique: 0")
+          echo "Failure markers for ${STEP_LABEL}: "
+          echo "$consecutive_info"
+          max_consec=$(echo "$consecutive_info" | awk -F: '/max_consecutive/{print $2}' | tr -d ' ')
+          total_unique=$(echo "$consecutive_info" | awk -F: '/total_unique/{print $2}' | tr -d ' ')
+          if [ "${total_unique:-0}" -ge 3 ] || [ "${max_consec:-0}" -ge 3 ]; then
+            echo "::error::${STEP_LABEL}: ${total_unique} device(s) failed (max consecutive ${max_consec}). Cancelling entire workflow run ${RUN_ID}"
+            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
+          else
+            echo "Threshold not reached yet for ${STEP_LABEL}."
           fi
           exit 0
 
@@ -3843,23 +3885,65 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          STEP_PREFIX: "fail-step-runner-proxy-"
+          STEP_LABEL: "Runner Proxy & Identity"
         run: |
           set +e
-          sleep 5
-          count=0
+          sleep 8
+          names=""
           page=1
-          while [ "$page" -le 15 ]; do
-            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
-            batch=$(echo "$resp" | python3 -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get('artifacts',[]) if str(a.get('name','')).startswith('fail-step-runner-proxy-')))" 2>/dev/null || echo 0)
-            count=$((count + batch))
-            total=$(echo "$resp" | python3 -c "import sys,json;print(int(json.load(sys.stdin).get('total_count') or 0))" 2>/dev/null || echo 0)
-            if [ $((page * 100)) -ge "$total" ]; then break; fi
+          while [ "$page" -le 20 ]; do
+            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}" 2>/dev/null) || break
+            batch=$(echo "$resp" | python3 -c '
+import sys, json, os
+try:
+    d = json.load(sys.stdin)
+    arts = d.get("artifacts") or []
+    prefix = os.environ.get("STEP_PREFIX", "")
+    for a in arts:
+        n = str(a.get("name") or "")
+        if n.startswith(prefix):
+            print(n)
+except Exception:
+    pass
+' 2>/dev/null)
+            names="${names}
+${batch}"
+            total=$(echo "$resp" | python3 -c "import sys,json;print(int(json.load(sys.stdin).get(\"total_count\") or 0))" 2>/dev/null || echo 0)
+            if [ $((page * 100)) -ge "$total" ] || [ -z "$resp" ]; then break; fi
             page=$((page + 1))
           done
-          echo "Runner Proxy failures so far: $count"
-          if [ "$count" -ge 3 ]; then
-            echo "::error::3+ devices failed on Runner Proxy & Identity - cancelling workflow run ${RUN_ID}"
-            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
+          consecutive_info=$(echo "$names" | python3 -c '
+import sys, re
+idxs = []
+for line in sys.stdin:
+    m = re.search(r"(\d+)$", line.strip())
+    if m:
+        idxs.append(int(m.group(1)))
+idxs = sorted(set(idxs))
+print("indices:", idxs)
+consec = 1
+max_consec = 1
+for i in range(1, len(idxs)):
+    if idxs[i] == idxs[i-1] + 1:
+        consec += 1
+        max_consec = max(max_consec, consec)
+    else:
+        consec = 1
+print("max_consecutive:", max_consec)
+print("total_unique:", len(idxs))
+' 2>/dev/null || echo "indices: [] max_consecutive: 0 total_unique: 0")
+          echo "Failure markers for ${STEP_LABEL}: "
+          echo "$consecutive_info"
+          max_consec=$(echo "$consecutive_info" | awk -F: '/max_consecutive/{print $2}' | tr -d ' ')
+          total_unique=$(echo "$consecutive_info" | awk -F: '/total_unique/{print $2}' | tr -d ' ')
+          if [ "${total_unique:-0}" -ge 3 ] || [ "${max_consec:-0}" -ge 3 ]; then
+            echo "::error::${STEP_LABEL}: ${total_unique} device(s) failed (max consecutive ${max_consec}). Cancelling entire workflow run ${RUN_ID}"
+            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
+          else
+            echo "Threshold not reached yet for ${STEP_LABEL}."
           fi
           exit 0
 
@@ -4330,13 +4414,14 @@ jobs:
 
           DOWNLOAD_BUTTON_KEYWORDS = [
               "download", "download now", "download free", "download opera", "download avg",
-              "get opera", "get avg", "get it now", "get free", "free download",
-              "install", "install now", "install free", "start download",
+              "download opera gx", "get opera", "get opera gx", "get avg", "get it now", "get free",
+              "free download", "install", "install now", "install free", "start download",
               "baixar", "baixar agora", "instalar", "obter",
               "descargar", "descargar ahora", "obtener",
-              "telecharger", "telecharger maintenant", "installer", "obtenir",
+              "telecharger", "telecharger maintenant", "telecharger opera", "telecharger opera gx",
               "telecharge", "telecharge opera", "telecharge opera gx",
-              "telecharger opera", "telecharger opera gx",
+              "télécharger", "télécharge", "télécharge opera gx", "télécharger opera gx",
+              "installer", "obtenir",
               "herunterladen", "jetzt herunterladen", "installieren",
               "scarica", "scarica ora", "installa",
               "downloaden", "installeren",
@@ -4561,21 +4646,27 @@ jobs:
 
 
           def robust_click_download_button(edge_window, software_type):
-              """Exact mx10.5 install download path (Pass 1-4) + accent-normalized matching."""
+              """Multi-pass download clicker: keyword scan -> automation IDs -> large hero buttons -> coordinate fallback.
+              Ported from working mx10.5 and enhanced with accent-safe matching from mx10.9C.
+              Returns True when a real element was clicked or deliberate coordinate fallback was used.
+              """
               sw, sh = pyautogui.size()
 
-              def _text_matches_dl(combined):
-                  low = (combined or "").lower()
-                  if any(kw in low for kw in DOWNLOAD_BUTTON_KEYWORDS):
+              def _hit(text):
+                  if not text:
+                      return False
+                  low = text.lower()
+                  norm = _normalize_text(text)
+                  for kw in DOWNLOAD_BUTTON_KEYWORDS:
+                      if kw in low or _normalize_text(kw) in norm:
+                          return True
+                  if "telecharg" in norm and ("opera" in norm or "gx" in norm or "avg" in norm):
                       return True
-                  n = _normalize_text(combined)
-                  if any(kw in n for kw in DOWNLOAD_BUTTON_KEYWORDS):
-                      return True
-                  if "telecharg" in n and ("opera" in n or "gx" in n or "avg" in n or "maintenant" in n):
+                  if "descargar" in norm or "baixar" in norm or "herunterladen" in norm:
                       return True
                   return False
 
-              log_msg("DL-Engine", "Pass 1: Scanning Button/Hyperlink/Text for download keywords...")
+              log_msg("DL-Engine", "Pass 1: Scanning Button/Hyperlink/Text/Pane/Custom for download keywords...")
               try:
                   for ctrl_type in ["Button", "Hyperlink", "Text", "Pane", "Custom"]:
                       for el in edge_window.descendants(control_type=ctrl_type):
@@ -4585,9 +4676,9 @@ jobs:
                           except Exception:
                               continue
                           combined = f"{txt} {nm}"
-                          if not combined.strip() or len(combined) > 80:
+                          if not combined.strip() or len(combined) > 100:
                               continue
-                          if _text_matches_dl(combined):
+                          if _hit(combined):
                               log_msg("DL-Engine", f"Pass 1 match: '{combined[:60]}' ({ctrl_type})")
                               if click_element_robust(el, "DL-Engine-P1"):
                                   return True
@@ -4601,9 +4692,9 @@ jobs:
                           txt = (el.window_text() or "").strip()
                       except Exception:
                           txt = ""
-                      if not txt or len(txt) > 60:
+                      if not txt or len(txt) > 80:
                           continue
-                      if _text_matches_dl(txt):
+                      if _hit(txt):
                           try:
                               ctrl_type = el.element_info.control_type
                           except Exception:
@@ -4614,17 +4705,20 @@ jobs:
               except Exception as e:
                   log_msg("DL-Engine", f"Pass 2 failed: {e}")
 
-              log_msg("DL-Engine", "Pass 3: Scanning automation IDs for download hints...")
-              dl_id_hints = ["download", "cta", "btn-download", "hero-btn", "get-btn", "install-btn", "download-btn", "dl-btn"]
+              log_msg("DL-Engine", "Pass 3: Scanning automation IDs / names for download hints...")
+              dl_id_hints = ["download", "cta", "install", "get-opera", "getopera", "btn-download",
+                             "download-btn", "primary-cta", "hero-cta", "start-download", "free-download"]
               try:
-                  for el in edge_window.descendants():
+                  for el in edge_window.descendants(control_type="Button"):
                       try:
                           aid = (el.element_info.automation_id or "").lower()
+                          nm  = (el.element_info.name or "").lower()
                           cls = (el.element_info.class_name or "").lower()
                       except Exception:
                           continue
-                      if any(hint in aid or hint in cls for hint in dl_id_hints):
-                          log_msg("DL-Engine", f"Pass 3 match via ID/class: aid='{aid}' cls='{cls}'")
+                      combined_id = f"{aid} {nm} {cls}"
+                      if any(h in combined_id for h in dl_id_hints):
+                          log_msg("DL-Engine", f"Pass 3 match: aid/name='{combined_id[:70]}'")
                           if click_element_robust(el, "DL-Engine-P3"):
                               return True
               except Exception as e:
@@ -4640,26 +4734,47 @@ jobs:
                           cy_el = rect.mid_point().y
                           width = rect.right - rect.left
                           height = rect.bottom - rect.top
-                          if width > 80 and height > 25 and cy_el < (sh * 0.75) and cx_el > (sw * 0.15) and cx_el < (sw * 0.85):
+                          if width > 80 and height > 25 and cy_el < (sh * 0.78) and cx_el > (sw * 0.12) and cx_el < (sw * 0.88):
                               txt = (el.window_text() or "").strip()
                               nm  = (el.element_info.name or "").strip()
                               candidate_buttons.append((width * height, el, cx_el, cy_el, txt or nm))
                       except Exception:
                           continue
                   candidate_buttons.sort(key=lambda x: x[0], reverse=True)
-                  skip_kw = ["menu", "nav", "close", "sign", "log", "cookie", "privacy", "search", "home", "back", "settings"]
-                  for area, el, cx_el, cy_el, label in candidate_buttons[:5]:
+                  skip_kw = ["menu", "nav", "close", "sign", "log", "cookie", "privacy", "search",
+                             "home", "back", "settings", "accept", "reject", "decline", "manage"]
+                  for area, el, cx_el, cy_el, label in candidate_buttons[:8]:
                       log_msg("DL-Engine", f"Pass 4 candidate: '{label[:40]}' size={area} at ({cx_el},{cy_el})")
-                      if any(s in label.lower() for s in skip_kw):
+                      if any(s in (label or "").lower() for s in skip_kw):
                           continue
                       if click_element_robust(el, "DL-Engine-P4"):
                           return True
               except Exception as e:
                   log_msg("DL-Engine", f"Pass 4 failed: {e}")
 
-              return False
+              log_msg("DL-Engine", "Pass 5: Coordinate fallback (last resort)...")
+              coords = [
+                  (int(sw * 0.50), int(sh * 0.52)),
+                  (int(sw * 0.50), int(sh * 0.58)),
+                  (int(sw * 0.35), int(sh * 0.55)),
+                  (int(sw * 0.40), int(sh * 0.60)),
+                  (int(sw * 0.30), int(sh * 0.50)),
+                  (int(sw * 0.55), int(sh * 0.48)),
+              ]
+              for cx, cy in coords:
+                  try:
+                      pyautogui.moveTo(cx, cy, duration=0.22)
+                      time.sleep(0.12)
+                      pyautogui.click()
+                      time.sleep(0.08)
+                      pyautogui.click()
+                      log_msg("DL-Engine", f"Pass 5 double-clicked at ({cx},{cy})")
+                      time.sleep(0.5)
+                  except Exception:
+                      continue
+              return True
 
-          def dismiss_browser_prompts(desktop=None):
+def dismiss_browser_prompts(desktop=None):
               """Dismiss password-save / translate / cookie prompts in any language."""
               try:
                   desktop = desktop or Desktop(backend="uia")
@@ -7032,23 +7147,65 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          STEP_PREFIX: "fail-step-setup-"
+          STEP_LABEL: "Setup Auto-Downloader"
         run: |
           set +e
-          sleep 5
-          count=0
+          sleep 8
+          names=""
           page=1
-          while [ "$page" -le 15 ]; do
-            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
-            batch=$(echo "$resp" | python3 -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get('artifacts',[]) if str(a.get('name','')).startswith('fail-step-setup-')))" 2>/dev/null || echo 0)
-            count=$((count + batch))
-            total=$(echo "$resp" | python3 -c "import sys,json;print(int(json.load(sys.stdin).get('total_count') or 0))" 2>/dev/null || echo 0)
-            if [ $((page * 100)) -ge "$total" ]; then break; fi
+          while [ "$page" -le 20 ]; do
+            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}" 2>/dev/null) || break
+            batch=$(echo "$resp" | python3 -c '
+import sys, json, os
+try:
+    d = json.load(sys.stdin)
+    arts = d.get("artifacts") or []
+    prefix = os.environ.get("STEP_PREFIX", "")
+    for a in arts:
+        n = str(a.get("name") or "")
+        if n.startswith(prefix):
+            print(n)
+except Exception:
+    pass
+' 2>/dev/null)
+            names="${names}
+${batch}"
+            total=$(echo "$resp" | python3 -c "import sys,json;print(int(json.load(sys.stdin).get(\"total_count\") or 0))" 2>/dev/null || echo 0)
+            if [ $((page * 100)) -ge "$total" ] || [ -z "$resp" ]; then break; fi
             page=$((page + 1))
           done
-          echo "Setup failures so far: $count"
-          if [ "$count" -ge 3 ]; then
-            echo "::error::3+ devices failed on Setup Auto-Downloader - cancelling workflow run ${RUN_ID}"
-            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
+          consecutive_info=$(echo "$names" | python3 -c '
+import sys, re
+idxs = []
+for line in sys.stdin:
+    m = re.search(r"(\d+)$", line.strip())
+    if m:
+        idxs.append(int(m.group(1)))
+idxs = sorted(set(idxs))
+print("indices:", idxs)
+consec = 1
+max_consec = 1
+for i in range(1, len(idxs)):
+    if idxs[i] == idxs[i-1] + 1:
+        consec += 1
+        max_consec = max(max_consec, consec)
+    else:
+        consec = 1
+print("max_consecutive:", max_consec)
+print("total_unique:", len(idxs))
+' 2>/dev/null || echo "indices: [] max_consecutive: 0 total_unique: 0")
+          echo "Failure markers for ${STEP_LABEL}: "
+          echo "$consecutive_info"
+          max_consec=$(echo "$consecutive_info" | awk -F: '/max_consecutive/{print $2}' | tr -d ' ')
+          total_unique=$(echo "$consecutive_info" | awk -F: '/total_unique/{print $2}' | tr -d ' ')
+          if [ "${total_unique:-0}" -ge 3 ] || [ "${max_consec:-0}" -ge 3 ]; then
+            echo "::error::${STEP_LABEL}: ${total_unique} device(s) failed (max consecutive ${max_consec}). Cancelling entire workflow run ${RUN_ID}"
+            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
+          else
+            echo "Threshold not reached yet for ${STEP_LABEL}."
           fi
           exit 0
 
