@@ -62,17 +62,17 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '0'
+        default: '10'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '200'
+        default: '150'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '50'
+        default: '0'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjNmNjMyNTBkOWU4OGZmY2M0OTQwZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmM2Y2MzI1MGQ5ZTg4ZmZjYzQ5NDA4In0.pyMJcC_q92VZxBvDSkEFyUbWIVscXkTwkinEIZdOtRI'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjQwNTA2ODQzYjVhYTNjYzUyM2Y5ZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNDA1MDY4NDNiNWFhM2NjNTIzZjkzIn0.zX6UWw192LxAmS-0R2oIgqA9ayr1mtLw-4H0kD8eIJU'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -146,7 +146,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'France'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -168,7 +168,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'No Fallback'
+        default: 'Canada'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
@@ -193,7 +193,7 @@ on:
         description: 'Enable Full Surfing (Surf path; if only this is on, also applies to Click tasks)'
         required: true
         type: boolean
-        default: true
+        default: false
       reuse_proxies:
         description: 'Reuse Proxies (when pool is exhausted, wrap from #1 again)'
         required: true
