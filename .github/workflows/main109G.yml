@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '10'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '0'
+        default: '10'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'geolocation://4qn9swFHGnwuXm3g:hYSgPyNNXnH6t5oD@geo.floppydata.com:10080:42-FR-qdarxy geolocation://oV6hoARUUbcZrN4u:hI8bl2BkdFRhNGlJ@geo.floppydata.com:10080:43-FR-gqufui geolocation://0alPXntFtVCdcNmA:NvkmlhBOfJMPA7By@geo.floppydata.com:10080:44-FR-gscbck geolocation://jOO0Ki4B3qOPZcj2:4ZrEs1eOOGA0UC1R@geo.floppydata.com:10080:45-FR-cwsnhd geolocation://UZisixQAM3If398R:8MSojVZPpWd1GfFI@geo.floppydata.com:10080:46-FR-woybqr geolocation://dwFYYO55XO6jbrdK:oRz4lOdEwYa5jfKT@geo.floppydata.com:10080:47-FR-ocjzlr geolocation://qzzjt5Y574vVgqfD:OIpxyoMuKcOlNa3V@geo.floppydata.com:10080:48-FR-kxlkuj geolocation://VAAbaY74LF5U3TOk:tcdnZkKkWjeT1G6L@geo.floppydata.com:10080:49-FR-vdrydj geolocation://ZYur9dN4h1HPAvfR:bQLwM3LppgZzpPZ8@geo.floppydata.com:10080:50-FR-vcqiuw geolocation://umHUOGeoR6YN1iog:Ed8mkurzofyR7SqG@geo.floppydata.com:10080:51-FR-nrdvoi geolocation://SkqYIyz15ifcf2j8:H7jz4kI0gAaKYq5E@geo.floppydata.com:10080:52-FR-mxlxvf geolocation://FETZ0acwfqaNg6Lh:hl7evGLnrRFbmQoS@geo.floppydata.com:10080:53-FR-pkromc'
+        default: 'geolocation://jgxaM4I0Ui5raZb4:ReNKnl3rexQJYOAt@geo.floppydata.com:10080:1-ES-dtshmj geolocation://e8T52uhC9rLkqsFw:e3tcuXZAYRcfMnVE@geo.floppydata.com:10080:2-ES-lglthr geolocation://98Pjj1XLBeDiVTFB:Xv0e4XJ7gV17xoVk@geo.floppydata.com:10080:3-ES-kvyoar geolocation://RTeTPNreoC8gFSHO:VEhRsbCdoFWCT20s@geo.floppydata.com:10080:4-ES-eabrdd geolocation://ByHpRsN5RDLFR4v5:QTAw5SShdrzw5sFU@geo.floppydata.com:10080:5-ES-fqdtue geolocation://TnLLuLJuFXnzpU31:bBEXHq4z4YBTFBGP@geo.floppydata.com:10080:6-ES-keludm geolocation://1ZDwQ3pzVu2UiyRO:AkTSn2Of9uFBRkJ8@geo.floppydata.com:10080:7-ES-bsrztb geolocation://ADPj9b80vyo3u3Ur:1BfYxAJ8l4DtwoAr@geo.floppydata.com:10080:8-ES-uafwim geolocation://e2PCdaLqlY2HgolP:0qUA68EM81G1K5gv@geo.floppydata.com:10080:9-ES-gphdxn geolocation://mPmzm2w2xBuHThKn:3tAqJefSr5fCaytM@geo.floppydata.com:10080:10-ES-lgtaox geolocation://iDPhfKvnPzDfKJxs:hO0fXzUfYFiZDpOp@geo.floppydata.com:10080:11-ES-wposrd geolocation://ovEKRqcH3mJv6p7H:QHRukHXyjsaRoNsI@geo.floppydata.com:10080:12-ES-maapli geolocation://W1P8lGaoiqUCDUaf:Fri4jzahtvqeEnE6@geo.floppydata.com:10080:13-ES-jtjkis geolocation://u3ZrSGVGkdYbmsBk:LXOmporI3C4Meccb@geo.floppydata.com:10080:14-ES-athetq geolocation://qIYApF3dnIEeaQrd:gH23U63FjVBITSwg@geo.floppydata.com:10080:15-ES-wopogq geolocation://VrfphnsFIK2GY6qy:XHW0cLbG5mwcfu07@geo.floppydata.com:10080:16-ES-ledycx geolocation://QhXOuPIK2608ab6h:aaZiIninDZltoPx7@geo.floppydata.com:10080:17-ES-lzumsw geolocation://CF6Cg9VxvMj7wERs:3u8uot1wYq1w5sH2@geo.floppydata.com:10080:18-ES-tarpbz geolocation://YAcr7KjlmEK8TbkF:GASFHDWvgRYgebdH@geo.floppydata.com:10080:19-ES-mieecp geolocation://qgZ5vbYQfZKfwBqF:078536rk4tLJHg3u@geo.floppydata.com:10080:20-ES-fpsgdu geolocation://jbbNV0eHJQ2ebzs7:l40aYvAZsQncOMDW@geo.floppydata.com:10080:21-ES-ewfupm geolocation://nP5PysMcaHDdg92u:CQAExZ7Akd7LN6cy@geo.floppydata.com:10080:22-ES-vgefhr geolocation://u4o12czQZmvyaNlz:uQTGF1douJp8URbA@geo.floppydata.com:10080:23-ES-ittreq'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -146,7 +146,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'France'
+        default: 'Spain'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -168,7 +168,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Canada'
+        default: 'Spain'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
@@ -193,12 +193,12 @@ on:
         description: 'Enable Full Surfing (Surf path; if only this is on, also applies to Click tasks)'
         required: true
         type: boolean
-        default: false
+        default: true
       reuse_proxies:
         description: 'Reuse Proxies (when pool is exhausted, wrap from #1 again)'
         required: true
         type: boolean
-        default: true
+        default: false
       unique_ip:
         description: 'Unique IP (each device must get an IP not used by another device this run)'
         required: true
@@ -2225,6 +2225,8 @@ jobs:
           INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
           CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
           POOL_WAIT_MINUTES: ${{ needs.prepare_matrix.outputs.pool_wait_minutes || '2' }}
+          REUSE_PROXIES: ${{ inputs.reuse_proxies }}
+          UNIQUE_IP: ${{ inputs.unique_ip }}
         run: |
           import os, sys, json, time, io, zipfile, subprocess
           import urllib.request, urllib.error
@@ -2524,6 +2526,13 @@ jobs:
               else:
                   say(f"[Pool] Device #{TASK} targets pool proxy #{primary_seq} (chunk {chunk_for(primary_seq)})")
 
+              # Stagger unique-IP claims so parallel devices don't race on the same IP
+              if UNIQUE:
+                  stagger = min(12, (TASK % 7) * 0.35)
+                  if stagger > 0:
+                      say(f"[UniqueIP] Stagger {stagger:.1f}s before claim to reduce parallel races")
+                      time.sleep(stagger)
+
               chosen, origin = None, ""
               claimed = list_claimed_ips() if UNIQUE else set()
               if UNIQUE:
@@ -2553,10 +2562,13 @@ jobs:
                       continue
                   p = dict(p)
                   p["ip"] = live_ip
-                  if UNIQUE and live_ip in claimed:
-                      say(f"[UniqueIP] IP {live_ip} already used by another device — skipping proxy #{seq}.")
-                      continue
-                  chosen, origin = p, (f"reuse->{seq}" if seq != TASK else ("primary" if seq == primary_seq else f"alt #{seq}"))
+                  if UNIQUE:
+                      # Refresh claims right before accept (other devices may have claimed mid-loop)
+                      claimed = list_claimed_ips()
+                      if live_ip in claimed:
+                          say(f"[UniqueIP] IP {live_ip} already used by another device — skipping proxy #{seq}.")
+                          continue
+                  chosen, origin = p, (f"reuse->{seq}" if (REUSE and seq != primary_seq) or seq != TASK else ("primary" if seq == primary_seq else f"alt #{seq}"))
                   say(f"[Pool] Selected proxy #{seq} with LIVE IP {live_ip}")
                   break
 
@@ -2628,38 +2640,16 @@ jobs:
           if-no-files-found: ignore
           overwrite: true
 
-      - name: Handle Acquire Proxy failure (marker + cancel if 3+)
+      - name: Mark Acquire Proxy failure
         if: failure()
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
           TASK: ${{ matrix.task_index }}
         run: |
-          set +e
           mkdir -p "$RUNNER_TEMP/failmark"
           echo "acquire_proxy" > "$RUNNER_TEMP/failmark/step.txt"
           echo "$TASK" > "$RUNNER_TEMP/failmark/task.txt"
-          count=0
-          page=1
-          while [ "$page" -le 10 ]; do
-            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
-            batch=$(echo "$resp" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get("artifacts",[]) if str(a.get("name","")).startswith("fail-step-acquire-proxy-")))' 2>/dev/null || echo 0)
-            count=$((count + batch))
-            total=$(echo "$resp" | python3 -c 'import sys,json;print(int(json.load(sys.stdin).get("total_count") or 0))' 2>/dev/null || echo 0)
-            if [ $((page * 100)) -ge "$total" ]; then break; fi
-            page=$((page + 1))
-          done
-          count=$((count + 1))
-          echo "Acquire Proxy failures (including this device): $count"
-          if [ "$count" -ge 3 ]; then
-            echo "::error::3+ devices failed on Acquire Proxy - cancelling entire workflow run ${RUN_ID}"
-            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
-          fi
-          exit 0
+          echo "marked"
 
       - name: Upload Acquire-Proxy failure marker
         if: failure()
@@ -2670,6 +2660,33 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
           overwrite: true
+
+      - name: Cancel run if 3+ Acquire Proxy failures
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set +e
+          sleep 5
+          count=0
+          page=1
+          while [ "$page" -le 15 ]; do
+            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
+            batch=$(echo "$resp" | python3 -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get('artifacts',[]) if str(a.get('name','')).startswith('fail-step-acquire-proxy-')))" 2>/dev/null || echo 0)
+            count=$((count + batch))
+            total=$(echo "$resp" | python3 -c "import sys,json;print(int(json.load(sys.stdin).get('total_count') or 0))" 2>/dev/null || echo 0)
+            if [ $((page * 100)) -ge "$total" ]; then break; fi
+            page=$((page + 1))
+          done
+          echo "Acquire Proxy failures so far: $count"
+          if [ "$count" -ge 3 ]; then
+            echo "::error::3+ devices failed on Acquire Proxy - cancelling entire workflow run ${RUN_ID}"
+            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
+          fi
+          exit 0
 
       - name: Runner Proxy & Identity Provisioning
         shell: python
@@ -2702,6 +2719,11 @@ jobs:
           PRE_TZ_IANA: ${{ matrix.timezone_iana }}
           PRE_LOCALE: ${{ matrix.windows_locale }}
           PRE_KB: ${{ matrix.windows_keyboard }}
+          UNIQUE_IP: ${{ inputs.unique_ip }}
+          REUSE_PROXIES: ${{ inputs.reuse_proxies }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           import os, time, sys, uuid, json, re, random
 
@@ -3767,38 +3789,15 @@ jobs:
           if-no-files-found: ignore
           overwrite: true
 
-      - name: Handle Runner-Proxy failure (marker + cancel if 3+)
+      - name: Mark Runner-Proxy failure
         if: failure()
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
           TASK: ${{ matrix.task_index }}
         run: |
-          set +e
           mkdir -p "$RUNNER_TEMP/failmark-proxy"
           echo "runner_proxy" > "$RUNNER_TEMP/failmark-proxy/step.txt"
           echo "$TASK" > "$RUNNER_TEMP/failmark-proxy/task.txt"
-          count=0
-          page=1
-          while [ "$page" -le 10 ]; do
-            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
-            batch=$(echo "$resp" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get("artifacts",[]) if str(a.get("name","")).startswith("fail-step-runner-proxy-")))' 2>/dev/null || echo 0)
-            count=$((count + batch))
-            total=$(echo "$resp" | python3 -c 'import sys,json;print(int(json.load(sys.stdin).get("total_count") or 0))' 2>/dev/null || echo 0)
-            if [ $((page * 100)) -ge "$total" ]; then break; fi
-            page=$((page + 1))
-          done
-          count=$((count + 1))
-          echo "Runner Proxy failures (including this device): $count"
-          if [ "$count" -ge 3 ]; then
-            echo "::error::3+ devices failed on Runner Proxy - cancelling workflow run ${RUN_ID}"
-            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
-          fi
-          exit 0
 
       - name: Upload Runner-Proxy failure marker
         if: failure()
@@ -3809,6 +3808,33 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
           overwrite: true
+
+      - name: Cancel run if 3+ Runner-Proxy failures
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set +e
+          sleep 5
+          count=0
+          page=1
+          while [ "$page" -le 15 ]; do
+            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
+            batch=$(echo "$resp" | python3 -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get('artifacts',[]) if str(a.get('name','')).startswith('fail-step-runner-proxy-')))" 2>/dev/null || echo 0)
+            count=$((count + batch))
+            total=$(echo "$resp" | python3 -c "import sys,json;print(int(json.load(sys.stdin).get('total_count') or 0))" 2>/dev/null || echo 0)
+            if [ $((page * 100)) -ge "$total" ]; then break; fi
+            page=$((page + 1))
+          done
+          echo "Runner Proxy failures so far: $count"
+          if [ "$count" -ge 3 ]; then
+            echo "::error::3+ devices failed on Runner Proxy & Identity - cancelling workflow run ${RUN_ID}"
+            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
+          fi
+          exit 0
 
       - name: Setup Auto-Downloader, Surfer & Software Installation
         shell: pwsh
@@ -4276,11 +4302,12 @@ jobs:
 
           DOWNLOAD_BUTTON_KEYWORDS = [
               "download", "download now", "download free", "download opera", "download avg",
-              "get opera", "get avg", "get it now", "get free", "free download",
-              "install", "install now", "install free", "start download",
+              "download opera gx", "get opera", "get opera gx", "get avg", "get it now", "get free",
+              "free download", "install", "install now", "install free", "start download",
               "baixar", "baixar agora", "instalar", "obter",
               "descargar", "descargar ahora", "obtener",
-              "telecharger", "telecharger maintenant", "installer", "obtenir",
+              "telecharger", "telecharger maintenant", "telecharger opera", "telecharger opera gx",
+              "telecharge", "telecharge opera", "telecharge opera gx", "installer", "obtenir",
               "herunterladen", "jetzt herunterladen", "installieren",
               "scarica", "scarica ora", "installa",
               "downloaden", "installeren",
@@ -4288,7 +4315,6 @@ jobs:
               "tai xuong", "tai ve", "cai dat",
               "unduh", "unduh sekarang", "pasang",
           ]
-
           def launch_edge_guaranteed(target_url, edge_exe, proxy_server, use_proxy, lang_code, accept_lang, apply_masking=True, tz_iana="UTC", attempt_num=1):
               if not target_url or target_url.strip() == "":
                   log_msg("EdgeLaunch", f"CRITICAL: target_url is empty! Cannot launch Edge without URL.")
@@ -4488,47 +4514,143 @@ jobs:
 
               return clicked
 
+          def _normalize_text(text):
+              """Remove diacritics / accents so Spanish/French/etc. match English keywords."""
+              if not text:
+                  return ""
+              try:
+                  t = unicodedata.normalize("NFKD", str(text))
+                  t = "".join(c for c in t if not unicodedata.combining(c))
+                  return t.lower().strip()
+              except Exception:
+                  return str(text).lower().strip()
+
+          def _matches_any(text, keyword_list):
+              if not text: return False
+              tl = _normalize_text(text)
+              return any(_normalize_text(kw) in tl for kw in keyword_list)
+
+
           def robust_click_download_button(edge_window, software_type):
+              """Find and click the primary download CTA (any language, accents OK)."""
               sw, sh = pyautogui.size()
 
-              log_msg("DL-Engine", f"Pass 1: Scanning Button/Hyperlink/Text for download keywords...")
+              def _is_dl(text):
+                  if not text:
+                      return False
+                  return _matches_any(text, DOWNLOAD_BUTTON_KEYWORDS) or ("opera" in _normalize_text(text) and "telecharg" in _normalize_text(text))
+
+              log_msg("DL-Engine", "Pass 1: Scanning Button/Hyperlink/Text for download keywords...")
               try:
-                  for ctrl_type in ["Button", "Hyperlink", "Text", "Pane", "Custom"]:
+                  for ctrl_type in ["Button", "Hyperlink", "Text", "Pane", "Custom", "Group"]:
                       for el in edge_window.descendants(control_type=ctrl_type):
                           try:
                               txt = (el.window_text() or "").strip()
                               nm  = (el.element_info.name or "").strip()
                           except Exception:
                               continue
-                          combined = f"{txt} {nm}".lower()
-                          if not combined.strip(): continue
-                          if len(combined) > 80: continue
-                          if any(kw in combined for kw in DOWNLOAD_BUTTON_KEYWORDS):
+                          combined = f"{txt} {nm}"
+                          if not combined.strip():
+                              continue
+                          if len(combined) > 100:
+                              continue
+                          if _is_dl(combined):
                               log_msg("DL-Engine", f"Pass 1 match: '{combined[:60]}' ({ctrl_type})")
                               if click_element_robust(el, "DL-Engine-P1"):
                                   return True
               except Exception as e:
                   log_msg("DL-Engine", f"Pass 1 failed: {e}")
 
-              log_msg("DL-Engine", f"Pass 2: Broad descendant scan for download keywords...")
+              log_msg("DL-Engine", "Pass 2: Broad descendant scan for download keywords...")
               try:
                   for el in edge_window.descendants():
                       try:
                           txt = (el.window_text() or "").strip()
+                          nm  = (el.element_info.name or "").strip()
                       except Exception:
-                          txt = ""
-                      if not txt or len(txt) > 60: continue
-                      if any(kw in txt.lower() for kw in DOWNLOAD_BUTTON_KEYWORDS):
+                          continue
+                      combined = f"{txt} {nm}"
+                      if not combined.strip() or len(combined) > 100:
+                          continue
+                      if _is_dl(combined):
                           try:
                               ctrl_type = el.element_info.control_type
                           except Exception:
                               ctrl_type = "Unknown"
-                          log_msg("DL-Engine", f"Pass 2 match: '{txt[:60]}' ({ctrl_type})")
+                          log_msg("DL-Engine", f"Pass 2 match: '{combined[:60]}' ({ctrl_type})")
                           if click_element_robust(el, "DL-Engine-P2"):
                               return True
               except Exception as e:
                   log_msg("DL-Engine", f"Pass 2 failed: {e}")
 
+              # Pass 3: click centre-lower red CTA region (Opera GX landing common layout)
+              log_msg("DL-Engine", "Pass 3: Coordinate fallback near page centre (Opera GX style CTA)...")
+              try:
+                  # Common positions for the red "Download Opera GX" button
+                  candidates = [
+                      (int(sw * 0.35), int(sh * 0.55)),
+                      (int(sw * 0.40), int(sh * 0.58)),
+                      (int(sw * 0.30), int(sh * 0.52)),
+                      (int(sw * 0.45), int(sh * 0.60)),
+                  ]
+                  for cx, cy in candidates:
+                      try:
+                          pyautogui.moveTo(cx, cy, duration=0.25)
+                          time.sleep(0.15)
+                          pyautogui.click()
+                          log_msg("DL-Engine", f"Pass 3 clicked at ({cx},{cy})")
+                          time.sleep(0.8)
+                          return True
+                      except Exception:
+                          continue
+              except Exception as e:
+                  log_msg("DL-Engine", f"Pass 3 failed: {e}")
+
+              return False
+
+          def dismiss_browser_prompts(desktop=None):
+              """Dismiss password-save / translate / cookie prompts in any language."""
+              try:
+                  desktop = desktop or Desktop(backend="uia")
+              except Exception:
+                  return
+              save_kw = [
+                  "save password", "enregistrer", "enregistrer votre mot de passe",
+                  "guardar contrasena", "salvar senha", "passwort speichern",
+                  "salva password", "wachtwoord opslaan", "zapisz haslo",
+              ]
+              dismiss_kw = [
+                  "not now", "never", "no thanks", "pas maintenant", "jamais",
+                  "ahora no", "agora nao", "nicht jetzt", "non ora", "niet nu",
+                  "nie teraz", "close", "fermer", "cerrar", "fechar", "schließen",
+              ]
+              try:
+                  for w in desktop.windows(visible_only=True):
+                      try:
+                          wt = _normalize_text(w.window_text() or "")
+                      except Exception:
+                          continue
+                      if not any(_normalize_text(k) in wt for k in save_kw) and "mot de passe" not in wt and "password" not in wt:
+                          # still scan buttons for dismiss
+                          pass
+                      try:
+                          for btn in w.descendants(control_type="Button"):
+                              try:
+                                  t = _normalize_text((btn.window_text() or "") + " " + (btn.element_info.name or ""))
+                              except Exception:
+                                  continue
+                              if any(_normalize_text(k) in t for k in dismiss_kw):
+                                  try:
+                                      btn.click_input()
+                                      log_msg("Prompts", f"Dismissed browser prompt via '{t[:40]}'")
+                                      time.sleep(0.5)
+                                      return True
+                                  except Exception:
+                                      continue
+                      except Exception:
+                          continue
+              except Exception as e:
+                  log_msg("Prompts", f"dismiss_browser_prompts: {e}")
               return False
 
           def _is_address_bar_control(ctrl):
@@ -4551,22 +4673,6 @@ jobs:
               except Exception:
                   pass
               return False
-
-          def _normalize_text(text):
-              """Remove diacritics / accents so Spanish/French/etc. match English keywords."""
-              if not text:
-                  return ""
-              try:
-                  t = unicodedata.normalize("NFKD", str(text))
-                  t = "".join(c for c in t if not unicodedata.combining(c))
-                  return t.lower().strip()
-              except Exception:
-                  return str(text).lower().strip()
-
-          def _matches_any(text, keyword_list):
-              if not text: return False
-              tl = _normalize_text(text)
-              return any(_normalize_text(kw) in tl for kw in keyword_list)
 
           def _is_proxy_auth_dialog(window_text):
               """True for Chromium/Edge proxy auth dialogs (any language)."""
@@ -6403,6 +6509,12 @@ jobs:
                                                     "dynamic_opera", "opera_smart_link", "avg"]):
                           elapsed = time.time() - proxy_auth_time
 
+                          # Dismiss password-save / other browser prompts that block the CTA
+                          try:
+                              dismiss_browser_prompts(desktop)
+                          except Exception:
+                              pass
+
                           if not download_clicked and elapsed > 30:
                               log_msg("DL-Engine", f"{elapsed:.1f}s elapsed. PRIMARY: Initiating download button detection...")
                               try: edge_window.set_focus()
@@ -6413,6 +6525,24 @@ jobs:
                               download_clicked = True
                               download_click_attempts = 1
                               last_dl_click_time = time.time()
+                              last_download_reattempt_time = time.time()
+                              keep_mouse_step = 0
+                              keep_mouse_last_try = 0
+
+                          elif (download_clicked and not download_started
+                                and download_click_attempts < MAX_DOWNLOAD_CLICK_ATTEMPTS
+                                and (time.time() - last_download_reattempt_time) > 20
+                                and not keep_mouse_sequence_done):
+                              log_msg("DL-Engine", f"Re-attempt {download_click_attempts + 1}/{MAX_DOWNLOAD_CLICK_ATTEMPTS}...")
+                              try: edge_window.set_focus()
+                              except Exception: pass
+                              time.sleep(0.5)
+                              try:
+                                  dismiss_browser_prompts(desktop)
+                              except Exception:
+                                  pass
+                              robust_click_download_button(edge_window, software_type)
+                              download_click_attempts += 1
                               last_download_reattempt_time = time.time()
 
                       if download_clicked and not keep_mouse_sequence_done and edge_window:
@@ -6432,7 +6562,7 @@ jobs:
                                           txt = (btn.window_text() or "").lower()
                                           nm = (btn.element_info.name or "").lower()
                                           combined = f"{txt} {nm}"
-                                          if any(kw in combined for kw in KEEP_KW):
+                                          if _matches_any(combined, KEEP_KW):
                                               if click_element_robust(btn, "KeepMouse"):
                                                   clicked_keep = True
                                                   break
@@ -6558,23 +6688,82 @@ jobs:
                               elseif ($file.Name -match "Opera.*Setup|Opera") { $actualSoftware = "opera_one" }
                               elseif ($file.Name -match "avg") { $actualSoftware = "avg" }
                               else { $actualSoftware = "opera_one" }
+                          } elseif ($softwareType -eq "opera_gx") {
+                              if ($file.Name -match "OperaGX") { $actualSoftware = "opera_gx" }
+                              elseif ($file.Name -match "Opera.*Setup") { $actualSoftware = "opera_one" }
+                          } elseif ($softwareType -eq "opera_one") {
+                              if ($file.Name -match "OperaGX") { $actualSoftware = "opera_gx" }
+                              else { $actualSoftware = "opera_one" }
                           }
 
                           Write-Output "[$($actualSoftware.ToUpper())-INSTALL] Fingerprinted as: $actualSoftware"
+                          Write-Output "[$($actualSoftware.ToUpper())-INSTALL] Verifying file I/O lock status..."
                           $locked = $true
                           while ($locked) {
                               Start-Sleep -Seconds 2
                               try {
                                   $s = [System.IO.File]::Open($file.FullName, 'Open', 'Read', 'None')
                                   $s.Close(); $locked = $false
+                                  Write-Output "[$($actualSoftware.ToUpper())-INSTALL] File unlocked and ready."
                               } catch { }
                           }
 
+                          Write-Output "[$($actualSoftware.ToUpper())-INSTALL] Writing installer sentinel: $actualSoftware"
                           try { Set-Content -Path $installerExecutedSentinel -Value $actualSoftware -ErrorAction SilentlyContinue } catch {}
+
+                          Write-Output "[$($actualSoftware.ToUpper())-INSTALL] Executing: $($file.FullName) /silent"
                           try {
                               Start-Process -FilePath $file.FullName -ArgumentList "/silent" -Wait
+                              Write-Output "[$($actualSoftware.ToUpper())-INSTALL] Binary deployed successfully."
                               Set-Content -Path "$env:TEMP\software_downloaded_success.flag" -Value "true" -ErrorAction SilentlyContinue
-                          } catch {}
+                          } catch {
+                              Write-Output "[$($actualSoftware.ToUpper())-INSTALL] EXCEPTION running installer: $_"
+                          }
+
+                          Write-Output "[$($actualSoftware.ToUpper())-POST] Scanning for executable..."
+                          if ($actualSoftware -eq "opera_gx") {
+                              $appPaths = @(
+                                  "$env:LOCALAPPDATA\Programs\Opera GX\launcher.exe",
+                                  "$env:LOCALAPPDATA\Programs\Opera GX\opera.exe",
+                                  "C:\Program Files\Opera GX\launcher.exe",
+                                  "C:\Program Files (x86)\Opera GX\launcher.exe"
+                              )
+                          } elseif ($actualSoftware -eq "opera_one") {
+                              $appPaths = @(
+                                  "$env:LOCALAPPDATA\Programs\Opera\launcher.exe",
+                                  "$env:LOCALAPPDATA\Programs\Opera\opera.exe",
+                                  "C:\Program Files\Opera\launcher.exe",
+                                  "C:\Program Files (x86)\Opera\launcher.exe"
+                              )
+                          } else {
+                              $appPaths = @(
+                                  "C:\Program Files\AVG\Browser\Application\AVGBrowser.exe",
+                                  "C:\Program Files (x86)\AVG\Browser\Application\AVGBrowser.exe",
+                                  "C:\Program Files\AVG\Antivirus\AVGUI.exe",
+                                  "C:\Program Files (x86)\AVG\Antivirus\AVGUI.exe"
+                              )
+                          }
+
+                          $launched = $false
+                          $postDeadline = (Get-Date).AddSeconds(180)
+                          for ($i = 0; $i -lt 90; $i++) {
+                              if ((Get-Date) -gt $postDeadline) { break }
+                              foreach ($p in $appPaths) {
+                                  if (Test-Path $p) {
+                                      Start-Sleep -Seconds 3
+                                      Write-Output "[$($actualSoftware.ToUpper())-POST] Spawning: $p"
+                                      Start-Process -FilePath $p
+                                      $launched = $true
+                                      break
+                                  }
+                              }
+                              if ($launched) { break }
+                              Start-Sleep -Seconds 2
+                          }
+
+                          if (-not $launched) {
+                              Write-Output "[$($actualSoftware.ToUpper())-POST] FATAL: Executable not found within timeout."
+                          }
 
                           $installed = $true
                       } else {
@@ -6751,6 +6940,53 @@ jobs:
               Write-Host "[Runtime] Click pathway exiting cleanly." -ForegroundColor Magenta
               exit 0
           }
+
+      - name: Mark Setup failure
+        if: failure()
+        shell: bash
+        env:
+          TASK: ${{ matrix.task_index }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/failmark-setup"
+          echo "setup" > "$RUNNER_TEMP/failmark-setup/step.txt"
+          echo "$TASK" > "$RUNNER_TEMP/failmark-setup/task.txt"
+
+      - name: Upload Setup failure marker
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fail-step-setup-${{ matrix.task_index }}
+          path: ${{ runner.temp }}/failmark-setup
+          retention-days: 1
+          if-no-files-found: ignore
+          overwrite: true
+
+      - name: Cancel run if 3+ Setup failures
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set +e
+          sleep 5
+          count=0
+          page=1
+          while [ "$page" -le 15 ]; do
+            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
+            batch=$(echo "$resp" | python3 -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get('artifacts',[]) if str(a.get('name','')).startswith('fail-step-setup-')))" 2>/dev/null || echo 0)
+            count=$((count + batch))
+            total=$(echo "$resp" | python3 -c "import sys,json;print(int(json.load(sys.stdin).get('total_count') or 0))" 2>/dev/null || echo 0)
+            if [ $((page * 100)) -ge "$total" ]; then break; fi
+            page=$((page + 1))
+          done
+          echo "Setup failures so far: $count"
+          if [ "$count" -ge 3 ]; then
+            echo "::error::3+ devices failed on Setup Auto-Downloader - cancelling workflow run ${RUN_ID}"
+            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
+          fi
+          exit 0
 
       - name: Keep Runner Alive
         if: always() && matrix.action_mode == 'install' && env.SOFTWARE_DOWNLOADED == 'true'
