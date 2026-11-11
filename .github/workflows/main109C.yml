@@ -2918,6 +2918,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
           POOL_ENABLED: ${{ inputs.generate_all_proxies == true && inputs.use_without_proxy != true && 'true' || 'false' }}
           TASK_INDEX: ${{ matrix.task_index }}
           TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
@@ -2926,7 +2927,6 @@ jobs:
           CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
           POOL_MODE: fetch
           POOL_WAIT_MINUTES: '12'
-          RUN_ATTEMPT: ${{ github.run_attempt }}
           REUSE_PROXIES: ${{ inputs.reuse_proxies }}
           UNIQUE_IP: ${{ inputs.unique_ip }}
         run: |
