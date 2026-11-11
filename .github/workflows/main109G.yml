@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '10'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '0'
+        default: '10'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjQxZWQ2MjU0ZWI1MzZiNjlkMmFkZCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNDFlZDYyNTRlYjUzNmI2OWQyYWNmIn0.7AeznA8QDwS7nlZmrr6eKg2-g972oBknUTk6A5JQ_-8'
+        default: 'geolocation://jgxaM4I0Ui5raZb4:ReNKnl3rexQJYOAt@geo.floppydata.com:10080:1-ES-dtshmj geolocation://e8T52uhC9rLkqsFw:e3tcuXZAYRcfMnVE@geo.floppydata.com:10080:2-ES-lglthr geolocation://98Pjj1XLBeDiVTFB:Xv0e4XJ7gV17xoVk@geo.floppydata.com:10080:3-ES-kvyoar geolocation://RTeTPNreoC8gFSHO:VEhRsbCdoFWCT20s@geo.floppydata.com:10080:4-ES-eabrdd geolocation://ByHpRsN5RDLFR4v5:QTAw5SShdrzw5sFU@geo.floppydata.com:10080:5-ES-fqdtue geolocation://TnLLuLJuFXnzpU31:bBEXHq4z4YBTFBGP@geo.floppydata.com:10080:6-ES-keludm geolocation://1ZDwQ3pzVu2UiyRO:AkTSn2Of9uFBRkJ8@geo.floppydata.com:10080:7-ES-bsrztb geolocation://ADPj9b80vyo3u3Ur:1BfYxAJ8l4DtwoAr@geo.floppydata.com:10080:8-ES-uafwim geolocation://e2PCdaLqlY2HgolP:0qUA68EM81G1K5gv@geo.floppydata.com:10080:9-ES-gphdxn geolocation://mPmzm2w2xBuHThKn:3tAqJefSr5fCaytM@geo.floppydata.com:10080:10-ES-lgtaox geolocation://iDPhfKvnPzDfKJxs:hO0fXzUfYFiZDpOp@geo.floppydata.com:10080:11-ES-wposrd geolocation://ovEKRqcH3mJv6p7H:QHRukHXyjsaRoNsI@geo.floppydata.com:10080:12-ES-maapli geolocation://W1P8lGaoiqUCDUaf:Fri4jzahtvqeEnE6@geo.floppydata.com:10080:13-ES-jtjkis geolocation://u3ZrSGVGkdYbmsBk:LXOmporI3C4Meccb@geo.floppydata.com:10080:14-ES-athetq geolocation://qIYApF3dnIEeaQrd:gH23U63FjVBITSwg@geo.floppydata.com:10080:15-ES-wopogq geolocation://VrfphnsFIK2GY6qy:XHW0cLbG5mwcfu07@geo.floppydata.com:10080:16-ES-ledycx geolocation://QhXOuPIK2608ab6h:aaZiIninDZltoPx7@geo.floppydata.com:10080:17-ES-lzumsw geolocation://CF6Cg9VxvMj7wERs:3u8uot1wYq1w5sH2@geo.floppydata.com:10080:18-ES-tarpbz geolocation://YAcr7KjlmEK8TbkF:GASFHDWvgRYgebdH@geo.floppydata.com:10080:19-ES-mieecp geolocation://qgZ5vbYQfZKfwBqF:078536rk4tLJHg3u@geo.floppydata.com:10080:20-ES-fpsgdu geolocation://jbbNV0eHJQ2ebzs7:l40aYvAZsQncOMDW@geo.floppydata.com:10080:21-ES-ewfupm geolocation://nP5PysMcaHDdg92u:CQAExZ7Akd7LN6cy@geo.floppydata.com:10080:22-ES-vgefhr geolocation://u4o12czQZmvyaNlz:uQTGF1douJp8URbA@geo.floppydata.com:10080:23-ES-ittreq'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -146,7 +146,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'France'
+        default: 'Spain'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -168,7 +168,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Canada'
+        default: 'Spain'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
@@ -193,12 +193,12 @@ on:
         description: 'Enable Full Surfing (Surf path; if only this is on, also applies to Click tasks)'
         required: true
         type: boolean
-        default: false
+        default: true
       reuse_proxies:
         description: 'Reuse Proxies (when pool is exhausted, wrap from #1 again)'
         required: true
         type: boolean
-        default: true
+        default: false
       unique_ip:
         description: 'Unique IP (each device must get an IP not used by another device this run)'
         required: true
@@ -4324,7 +4324,8 @@ jobs:
           KEEP_KW = [
               "keep", "keep anyway", "conserver", "manter", "behalten", "conservar",
               "mantieni", "behouden", "zachowaj", "giu", "simpan", "sakla",
-              "sailyta", "zadrzet", "megtartas", "retain"
+              "sailyta", "zadrzet", "megtartas", "retain",
+              "garder", "conserver quand meme", "mantener", "behouden",
           ]
 
           DOWNLOAD_BUTTON_KEYWORDS = [
@@ -4559,17 +4560,36 @@ jobs:
 
 
           def robust_click_download_button(edge_window, software_type):
-              """Find and click the primary download CTA (any language, accents OK)."""
+              """Find and click the primary download CTA (any language, accents OK).
+              Ported from working mx10.5 install path + FR/ES normalization."""
               sw, sh = pyautogui.size()
 
               def _is_dl(text):
                   if not text:
                       return False
-                  return _matches_any(text, DOWNLOAD_BUTTON_KEYWORDS) or ("opera" in _normalize_text(text) and "telecharg" in _normalize_text(text))
+                  n = _normalize_text(text)
+                  if _matches_any(text, DOWNLOAD_BUTTON_KEYWORDS):
+                      return True
+                  if "telecharg" in n and ("opera" in n or "gx" in n or "avg" in n or "now" in n or "maintenant" in n):
+                      return True
+                  if n.strip() in ("telecharger", "telecharge", "download", "baixar", "descargar", "herunterladen", "scarica"):
+                      return True
+                  return False
 
-              log_msg("DL-Engine", "Pass 1: Scanning Button/Hyperlink/Text for download keywords...")
+              # Clear overlays that block the CTA (password-save, cookies, etc.)
               try:
-                  for ctrl_type in ["Button", "Hyperlink", "Text", "Pane", "Custom", "Group"]:
+                  send_keys("{ESC}")
+                  time.sleep(0.35)
+              except Exception:
+                  pass
+              try:
+                  dismiss_browser_prompts()
+              except Exception:
+                  pass
+
+              log_msg("DL-Engine", "Pass 1: Button/Hyperlink/Text scan for download keywords...")
+              try:
+                  for ctrl_type in ["Button", "Hyperlink", "Text", "Pane", "Custom", "Group", "ListItem"]:
                       for el in edge_window.descendants(control_type=ctrl_type):
                           try:
                               txt = (el.window_text() or "").strip()
@@ -4577,18 +4597,16 @@ jobs:
                           except Exception:
                               continue
                           combined = f"{txt} {nm}"
-                          if not combined.strip():
-                              continue
-                          if len(combined) > 100:
+                          if not combined.strip() or len(combined) > 120:
                               continue
                           if _is_dl(combined):
-                              log_msg("DL-Engine", f"Pass 1 match: '{combined[:60]}' ({ctrl_type})")
+                              log_msg("DL-Engine", f"Pass 1 match: '{combined[:70]}' ({ctrl_type})")
                               if click_element_robust(el, "DL-Engine-P1"):
                                   return True
               except Exception as e:
                   log_msg("DL-Engine", f"Pass 1 failed: {e}")
 
-              log_msg("DL-Engine", "Pass 2: Broad descendant scan for download keywords...")
+              log_msg("DL-Engine", "Pass 2: Broad descendant scan...")
               try:
                   for el in edge_window.descendants():
                       try:
@@ -4597,43 +4615,37 @@ jobs:
                       except Exception:
                           continue
                       combined = f"{txt} {nm}"
-                      if not combined.strip() or len(combined) > 100:
+                      if not combined.strip() or len(combined) > 120:
                           continue
                       if _is_dl(combined):
                           try:
                               ctrl_type = el.element_info.control_type
                           except Exception:
-                              ctrl_type = "Unknown"
-                          log_msg("DL-Engine", f"Pass 2 match: '{combined[:60]}' ({ctrl_type})")
+                              ctrl_type = "?"
+                          log_msg("DL-Engine", f"Pass 2 match: '{combined[:70]}' ({ctrl_type})")
                           if click_element_robust(el, "DL-Engine-P2"):
                               return True
               except Exception as e:
                   log_msg("DL-Engine", f"Pass 2 failed: {e}")
 
-              # Pass 3: click centre-lower red CTA region (Opera GX landing common layout)
-              log_msg("DL-Engine", "Pass 3: Coordinate fallback near page centre (Opera GX style CTA)...")
-              try:
-                  # Common positions for the red "Download Opera GX" button
-                  candidates = [
-                      (int(sw * 0.35), int(sh * 0.55)),
-                      (int(sw * 0.40), int(sh * 0.58)),
-                      (int(sw * 0.30), int(sh * 0.52)),
-                      (int(sw * 0.45), int(sh * 0.60)),
-                  ]
-                  for cx, cy in candidates:
-                      try:
-                          pyautogui.moveTo(cx, cy, duration=0.25)
-                          time.sleep(0.15)
-                          pyautogui.click()
-                          log_msg("DL-Engine", f"Pass 3 clicked at ({cx},{cy})")
-                          time.sleep(0.8)
-                          return True
-                      except Exception:
-                          continue
-              except Exception as e:
-                  log_msg("DL-Engine", f"Pass 3 failed: {e}")
-
-              return False
+              # Pass 3: coordinate candidates for red Opera GX CTA (attempt only; caller re-tries)
+              log_msg("DL-Engine", "Pass 3: Coordinate CTA candidates...")
+              for cx, cy in [
+                  (int(sw * 0.28), int(sh * 0.52)),
+                  (int(sw * 0.35), int(sh * 0.55)),
+                  (int(sw * 0.40), int(sh * 0.58)),
+                  (int(sw * 0.32), int(sh * 0.60)),
+                  (int(sw * 0.45), int(sh * 0.50)),
+              ]:
+                  try:
+                      pyautogui.moveTo(cx, cy, duration=0.2)
+                      time.sleep(0.12)
+                      pyautogui.click()
+                      log_msg("DL-Engine", f"Pass 3 clicked at ({cx},{cy})")
+                      time.sleep(0.45)
+                  except Exception:
+                      continue
+              return True
 
           def dismiss_browser_prompts(desktop=None):
               """Dismiss password-save / translate / cookie prompts in any language."""
@@ -6230,7 +6242,7 @@ jobs:
               keep_mouse_step = 0
               keep_mouse_last_try = 0
               download_click_attempts = 0
-              MAX_DOWNLOAD_CLICK_ATTEMPTS = 3
+              MAX_DOWNLOAD_CLICK_ATTEMPTS = 5
               last_download_reattempt_time = 0
 
               smart_link_interstitial_done = False
@@ -6542,7 +6554,7 @@ jobs:
                           except Exception:
                               pass
 
-                          if not download_clicked and elapsed > 30:
+                          if not download_clicked and elapsed > 12:
                               log_msg("DL-Engine", f"{elapsed:.1f}s elapsed. PRIMARY: Initiating download button detection...")
                               try: edge_window.set_focus()
                               except Exception: pass
@@ -6558,7 +6570,7 @@ jobs:
 
                           elif (download_clicked and not download_started
                                 and download_click_attempts < MAX_DOWNLOAD_CLICK_ATTEMPTS
-                                and (time.time() - last_download_reattempt_time) > 20
+                                and (time.time() - last_download_reattempt_time) > 12
                                 and not keep_mouse_sequence_done):
                               log_msg("DL-Engine", f"Re-attempt {download_click_attempts + 1}/{MAX_DOWNLOAD_CLICK_ATTEMPTS}...")
                               try: edge_window.set_focus()
