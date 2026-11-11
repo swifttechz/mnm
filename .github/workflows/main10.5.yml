@@ -62,7 +62,7 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '5'
+        default: '10'
       num_clicks:
         description: 'Clicks'
         required: true
@@ -110,12 +110,12 @@ on:
         description: 'Apply Fingerprint Masking'
         required: true
         type: boolean
-        default: true
+        default: false
       scrapeops_api_key:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'geolocation://0j5o7OIPsRxHmxIY:2iQoEhbyd1C42JM1@geo.floppydata.com:10080:24-FR-jmnhjm geolocation://hgRtZ48haAfN87Dj:kLGPB0Yh8tMcZ8Vp@geo.floppydata.com:10080:25-FR-xmtsbk geolocation://SNKTTldODJz4Zt2e:l0G1bYvn6dlcwPie@geo.floppydata.com:10080:26-FR-vcnjzr geolocation://p3vKzV6dekXlKs1m:2oTAvvFBUqigwejB@geo.floppydata.com:10080:27-FR-gxbjvk geolocation://NWz1QzI69h3mdJ1S:vGqefNWtUOtN0FWU@geo.floppydata.com:10080:28-FR-pkdlfy geolocation://S22r6HwKNboUuFpS:iySEQhGRCf123Lnj@geo.floppydata.com:10080:29-FR-loslvx geolocation://CIT1fBqVycPS9Uzm:I8wvT3YOPozwJTEH@geo.floppydata.com:10080:30-FR-ajrgwi geolocation://xh3RiVbN3QwAhASc:TMv5cDYhmmr66rAZ@geo.floppydata.com:10080:31-FR-wkpvql geolocation://kaDMEaibAzDfRS6T:dKpQa1umHEr5XXzr@geo.floppydata.com:10080:32-FR-fjbxqf geolocation://HBmXamxqChsk8l7h:mpoPNlW90xCmtHDK@geo.floppydata.com:10080:33-FR-ntpywb geolocation://mhtkZ9LNUNfzthjS:s3hoocj7tptT7S8p@geo.floppydata.com:10080:34-FR-icgpdq'
+        default: 'geolocation://UbqrRPTcGOvoLP4g:S7qWj1pVFQiVuZ6E@geo.floppydata.com:10080:1-FR-oyhgug geolocation://JSCU65GskDDhtEuu:DfjNDM3j2yjgdLYZ@geo.floppydata.com:10080:2-FR-vcpvvt geolocation://ApTrJ5Bv3bo7JcRm:Cs9F4gRoLFXBx6D4@geo.floppydata.com:10080:3-FR-xmumfz geolocation://n7W0MysQq0XVlSjA:T8a08FAOC0wKYxWj@geo.floppydata.com:10080:4-FR-yrnepa geolocation://YrqbHfeI95VLxyAB:NYTN8LbHs8EcI9fD@geo.floppydata.com:10080:5-FR-dtwgke geolocation://KczzYH2Txifv6mmB:E50AUyYtVgFUbzbC@geo.floppydata.com:10080:6-FR-djdyjh geolocation://LL3KVxKpsrqhkjwc:iNOghtaytV5gnlrL@geo.floppydata.com:10080:7-FR-zcfgvt geolocation://kF1u3bljebRxn3yz:QdMdqS1ZAXep5UMB@geo.floppydata.com:10080:8-FR-ijlsmy geolocation://nTziLPFlXfuz6ed0:iCVeeftUBXV3E91j@geo.floppydata.com:10080:9-FR-ukrrao geolocation://ess6q9GAFYfoiIYz:KKbBLH5uvGDBUq4l@geo.floppydata.com:10080:10-FR-klijbf geolocation://hIIA17UNzsdBC2Pj:mJHjNy9QC9aZcXvy@geo.floppydata.com:10080:11-FR-lerzok geolocation://zIxmcgRifVqLu0m5:cWO8FH9uD8fsK5oc@geo.floppydata.com:10080:12-FR-xjbxfe geolocation://gAhu6rNowtdil28L:2u3aoSt51gvb2mbj@geo.floppydata.com:10080:1-FR-jqgljm geolocation://byxnrZ4gRiyjbr86:mGJCR1Vsz30yGXnr@geo.floppydata.com:10080:2-FR-mprfvm'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
