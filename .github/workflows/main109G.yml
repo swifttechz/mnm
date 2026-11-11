@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '3'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -67,7 +67,7 @@ on:
         description: 'Clicks'
         required: true
         type: string
-        default: '150'
+        default: '0'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjQwNTA2ODQzYjVhYTNjYzUyM2Y5ZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNDA1MDY4NDNiNWFhM2NjNTIzZjkzIn0.zX6UWw192LxAmS-0R2oIgqA9ayr1mtLw-4H0kD8eIJU'
+        default: 'geolocation://4qn9swFHGnwuXm3g:hYSgPyNNXnH6t5oD@geo.floppydata.com:10080:42-FR-qdarxy geolocation://oV6hoARUUbcZrN4u:hI8bl2BkdFRhNGlJ@geo.floppydata.com:10080:43-FR-gqufui geolocation://0alPXntFtVCdcNmA:NvkmlhBOfJMPA7By@geo.floppydata.com:10080:44-FR-gscbck geolocation://jOO0Ki4B3qOPZcj2:4ZrEs1eOOGA0UC1R@geo.floppydata.com:10080:45-FR-cwsnhd geolocation://UZisixQAM3If398R:8MSojVZPpWd1GfFI@geo.floppydata.com:10080:46-FR-woybqr geolocation://dwFYYO55XO6jbrdK:oRz4lOdEwYa5jfKT@geo.floppydata.com:10080:47-FR-ocjzlr geolocation://qzzjt5Y574vVgqfD:OIpxyoMuKcOlNa3V@geo.floppydata.com:10080:48-FR-kxlkuj geolocation://VAAbaY74LF5U3TOk:tcdnZkKkWjeT1G6L@geo.floppydata.com:10080:49-FR-vdrydj geolocation://ZYur9dN4h1HPAvfR:bQLwM3LppgZzpPZ8@geo.floppydata.com:10080:50-FR-vcqiuw geolocation://umHUOGeoR6YN1iog:Ed8mkurzofyR7SqG@geo.floppydata.com:10080:51-FR-nrdvoi geolocation://SkqYIyz15ifcf2j8:H7jz4kI0gAaKYq5E@geo.floppydata.com:10080:52-FR-mxlxvf geolocation://FETZ0acwfqaNg6Lh:hl7evGLnrRFbmQoS@geo.floppydata.com:10080:53-FR-pkromc'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
