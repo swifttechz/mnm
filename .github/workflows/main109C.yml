@@ -62,17 +62,17 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '10'
+        default: '0'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '0'
+        default: '200'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '0'
+        default: '50'
       enable_scroll:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
@@ -80,6 +80,16 @@ on:
         default: false
       enable_surf:
         description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
+        required: true
+        type: boolean
+        default: true
+      reuse_proxies:
+        description: 'Reuse Proxies (once every pool proxy has been used, wrap back around to #1, #2, ...)'
+        required: true
+        type: boolean
+        default: false
+      unique_ip:
+        description: 'Unique IP (re-check each proxy exit IP on the device; reject it if another device already used that IP)'
         required: true
         type: boolean
         default: false
@@ -110,7 +120,7 @@ on:
           - '07. Opera - Peggy'
           - '08. Opera - Tufayl'
           
-        default: '06. Opera - Fahmad'
+        default: '04. Opera - Oliver'
       manual_software_url:
         description: 'Manual URL'
         required: false
@@ -130,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'geolocation://0j5o7OIPsRxHmxIY:2iQoEhbyd1C42JM1@geo.floppydata.com:10080:24-FR-jmnhjm geolocation://hgRtZ48haAfN87Dj:kLGPB0Yh8tMcZ8Vp@geo.floppydata.com:10080:25-FR-xmtsbk geolocation://SNKTTldODJz4Zt2e:l0G1bYvn6dlcwPie@geo.floppydata.com:10080:26-FR-vcnjzr geolocation://p3vKzV6dekXlKs1m:2oTAvvFBUqigwejB@geo.floppydata.com:10080:27-FR-gxbjvk geolocation://NWz1QzI69h3mdJ1S:vGqefNWtUOtN0FWU@geo.floppydata.com:10080:28-FR-pkdlfy geolocation://S22r6HwKNboUuFpS:iySEQhGRCf123Lnj@geo.floppydata.com:10080:29-FR-loslvx geolocation://CIT1fBqVycPS9Uzm:I8wvT3YOPozwJTEH@geo.floppydata.com:10080:30-FR-ajrgwi geolocation://xh3RiVbN3QwAhASc:TMv5cDYhmmr66rAZ@geo.floppydata.com:10080:31-FR-wkpvql geolocation://kaDMEaibAzDfRS6T:dKpQa1umHEr5XXzr@geo.floppydata.com:10080:32-FR-fjbxqf geolocation://HBmXamxqChsk8l7h:mpoPNlW90xCmtHDK@geo.floppydata.com:10080:33-FR-ntpywb geolocation://mhtkZ9LNUNfzthjS:s3hoocj7tptT7S8p@geo.floppydata.com:10080:34-FR-icgpdq'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZWQ3MDcxNGNlOGMzNjI2NzMwOWYwMyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFlZDcwNzE0Y2U4YzM2MjY3MzA5ZWZiIn0.qCe-Ug3KdMP51dYgi6FRTGnFIkr4H-HHWEeE-hap3zY'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -156,7 +166,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'France'
+        default: 'USA'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -232,6 +242,8 @@ jobs:
           IN_GENERATE_ALL: ${{ inputs.generate_all_proxies }}
           IN_SCROLL: ${{ inputs.enable_scroll }}
           IN_SURF_ENABLE: ${{ inputs.enable_surf }}
+          IN_REUSE: ${{ inputs.reuse_proxies }}
+          IN_UNIQUE_IP: ${{ inputs.unique_ip }}
         run: |
           import os, re, glob
 
@@ -275,7 +287,9 @@ jobs:
               "sticky_sessions": os.getenv("IN_STICKY"),
               "generate_all_proxies": os.getenv("IN_GENERATE_ALL"),
               "enable_scroll": os.getenv("IN_SCROLL"),
-              "enable_surf": os.getenv("IN_SURF_ENABLE")
+              "enable_surf": os.getenv("IN_SURF_ENABLE"),
+              "reuse_proxies": os.getenv("IN_REUSE"),
+              "unique_ip": os.getenv("IN_UNIQUE_IP")
           }
 
           raw_proxies = os.getenv("IN_PROXY_INPUT", "").split()
@@ -310,7 +324,7 @@ jobs:
 
           in_inputs_section = False
 
-          bool_keys = ["run_manual_link", "apply_masking", "use_without_proxy", "mobile_proxies", "sticky_sessions", "generate_all_proxies", "enable_scroll", "enable_surf"]
+          bool_keys = ["run_manual_link", "apply_masking", "use_without_proxy", "mobile_proxies", "sticky_sessions", "generate_all_proxies", "enable_scroll", "enable_surf", "reuse_proxies", "unique_ip"]
 
           for line in lines:
               if re.match(r"^[ \t]*inputs:\s*$", line):
@@ -392,6 +406,8 @@ jobs:
           GENERATE_ALL_PROXIES: ${{ inputs.generate_all_proxies }}
           ENABLE_SCROLL: ${{ inputs.enable_scroll }}
           ENABLE_SURF: ${{ inputs.enable_surf }}
+          REUSE_PROXIES: ${{ inputs.reuse_proxies }}
+          UNIQUE_IP: ${{ inputs.unique_ip }}
           # true = initial chunk is max(5% of pool, num_devices) so the very first wave of devices is fully covered
           INITIAL_FLOOR_TO_DEVICES: 'true'
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
@@ -652,6 +668,13 @@ jobs:
           behavior_list = [resolve_behavior(m) for m in action_list]
           print("========== POST-LOAD BEHAVIOUR ==========")
           print(f"[Behavior] Scroll checkmark: {enable_scroll} | Surf checkmark: {enable_surf}")
+          reuse_proxies = os.environ.get("REUSE_PROXIES", "false").lower() == "true"
+          unique_ip = os.environ.get("UNIQUE_IP", "false").lower() == "true"
+          print(f"[ProxyOptions] Reuse Proxies: {reuse_proxies} | Unique IP: {unique_ip}")
+          if reuse_proxies:
+              print("[ProxyOptions] Once the pool is fully used, devices wrap back around to proxy #1, #2, ... in order.")
+          if unique_ip:
+              print("[ProxyOptions] Every proxy (pool or API-key) has its exit IP re-checked ON THE DEVICE; an IP already used by another device this run is rejected.")
           for _m in ("click", "surf"):
               _b = [b for m, b in zip(action_list, behavior_list) if m == _m]
               if _b:
@@ -2903,9 +2926,60 @@ jobs:
           CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
           POOL_MODE: fetch
           POOL_WAIT_MINUTES: '12'
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          REUSE_PROXIES: ${{ inputs.reuse_proxies }}
+          UNIQUE_IP: ${{ inputs.unique_ip }}
         run: |
           import os, sys, json, time, io, zipfile, subprocess
           import urllib.request, urllib.error
+
+          def _ipc_api(method, path, body=None):
+              import os, json, urllib.request, urllib.error
+              base = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+              data = json.dumps(body).encode() if body is not None else None
+              headers = {"Authorization": f"Bearer {os.environ.get('GH_TOKEN', '')}", "Accept": "application/vnd.github+json",
+                         "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ip-claim-client"}
+              if data is not None:
+                  headers["Content-Type"] = "application/json"
+              req = urllib.request.Request(base + path, data=data, method=method, headers=headers)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return r.status, r.read()
+              except urllib.error.HTTPError as e:
+                  try:
+                      return e.code, e.read()
+                  except Exception:
+                      return e.code, b""
+              except Exception as e:
+                  return 0, str(e).encode()
+
+
+          def ip_claim(ip):
+              """Atomically claims an exit IP for THIS workflow run (a git ref can only be created once).
+              Returns 'claimed' (we own it) | 'taken' (another device already used it) | 'error' (claim API unusable)."""
+              import os, re, time
+              repo = os.environ.get("REPO", "")
+              sha = os.environ.get("GITHUB_SHA", "")
+              run = f"{os.environ.get('RUN_ID', '0')}-{os.environ.get('RUN_ATTEMPT', '1')}"
+              tag = re.sub(r"[^0-9A-Za-z._-]", "_", str(ip))
+              if not repo or not sha or not tag:
+                  return "error"
+              for ref in (f"refs/ipclaims/{run}/{tag}", f"refs/tags/ipclaim-{run}-{tag}"):
+                  for _try in range(2):
+                      st, _ = _ipc_api("POST", f"/repos/{repo}/git/refs", {"ref": ref, "sha": sha})
+                      if st == 201:
+                          return "claimed"
+                      if st in (0, 500, 502, 503, 504):
+                          time.sleep(1.5)
+                          continue
+                      break
+                  st2, _ = _ipc_api("GET", f"/repos/{repo}/git/ref/{ref[len('refs/'):]}")
+                  if st2 == 200:
+                      return "taken"
+              return "error"
 
 
           def say(m=""):
@@ -2956,6 +3030,169 @@ jobs:
 
           MODE = os.environ.get("POOL_MODE", "fetch")
           GATE_WAIT_MIN = geti("GATE_WAIT_MINUTES", 20)
+          REUSE = os.environ.get("REUSE_PROXIES", "false").lower() == "true"
+          UNIQUE = os.environ.get("UNIQUE_IP", "false").lower() == "true"
+
+
+          def probe_proxy(p):
+              """Device-time check THROUGH the proxy. Returns {'ip','cc','tz','city','region'} or None.
+              Pool proxies are generated earlier and their exit IPs drift, so the IP is always re-read here."""
+              try:
+                  import requests, urllib3
+              except ImportError:
+                  subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "urllib3", "--quiet"])
+                  import requests, urllib3
+              urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+              auth = f"{p['username']}:{p['password']}@" if p.get("username") else ""
+              url = f"http://{auth}{p['host']}:{p['port']}"
+              cfg = {"http": url, "https": url}
+              eps = [("http://ip-api.com/json/", "ip-api"), ("https://ipinfo.io/json", "ipinfo"),
+                     ("http://ipwho.is/", "ipwho"), ("https://api.myip.com", "myip")]
+              for attempt in range(2):
+                  for ep, nm in eps:
+                      try:
+                          r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
+                          if r.status_code != 200:
+                              continue
+                          d = r.json()
+                          ip = cc = tz = city = region = None
+                          if nm == "ip-api" and d.get("status") == "success":
+                              ip, cc, tz, city, region = d.get("query"), d.get("countryCode"), d.get("timezone"), d.get("city"), d.get("regionName")
+                          elif nm == "ipinfo" and d.get("ip"):
+                              ip, cc, tz, city, region = d.get("ip"), d.get("country"), d.get("timezone"), d.get("city"), d.get("region")
+                          elif nm == "ipwho" and d.get("success"):
+                              ip, cc, tz, city, region = d.get("ip"), d.get("country_code"), (d.get("timezone") or {}).get("id"), d.get("city"), d.get("region")
+                          elif nm == "myip" and d.get("ip"):
+                              ip, cc = d.get("ip"), d.get("cc")
+                          if ip:
+                              return {"ip": str(ip), "cc": (cc or "").upper(), "tz": tz or "", "city": city or "", "region": region or ""}
+                      except Exception:
+                          pass
+                  time.sleep(2)
+              return None
+
+
+          def find_seq(data, seq):
+              if not data:
+                  return None
+              for p in data.get("proxies", []):
+                  if p.get("seq") == seq:
+                      return p
+              return None
+
+
+          def load_all_available():
+              """Every proxy that exists in the pool right now, sorted by number (needed to wrap around when reusing)."""
+              allp = {}
+              try:
+                  for a in list_artifacts():
+                      if not a["name"].startswith("proxy-chunk-"):
+                          continue
+                      try:
+                          c = int(a["name"].rsplit("-", 1)[1])
+                      except Exception:
+                          continue
+                      try:
+                          data = get_chunk(c, time.time())
+                      except Exception:
+                          data = None
+                      for p in (data or {}).get("proxies", []):
+                          allp[p["seq"]] = p
+              except Exception as e:
+                  say(f"[Pool] could not enumerate pool chunks: {type(e).__name__}")
+              return [allp[k] for k in sorted(allp)]
+
+
+          _tried = set()
+
+
+          def try_candidate(p, origin, idx, total):
+              """Device-time verification of one pool proxy. Returns the accepted (refreshed) record or None."""
+              seq = p.get("seq")
+              if seq in _tried:
+                  return None
+              _tried.add(seq)
+              say(f"[Pool] Candidate {idx}/{total}: proxy #{seq} '{p.get('name')}' ({origin}) - IP recorded at pool time: {p.get('ip')}")
+              info = probe_proxy(p)
+              if not info:
+                  say("[Pool]   -> UNHEALTHY: no exit IP could be read through this proxy on this device. Skipping.")
+                  return None
+              now_ip = info["ip"]
+              if p.get("ip") and now_ip != p.get("ip"):
+                  say(f"[Pool]   exit IP CHANGED since the pool was generated: {p.get('ip')} -> {now_ip}  (re-checked on this device)")
+              else:
+                  say(f"[Pool]   exit IP on this device: {now_ip}")
+
+              claim = "off"
+              if UNIQUE:
+                  claim = ip_claim(now_ip)
+                  if claim == "taken":
+                      say(f"[Pool]   -> IP {now_ip} is ALREADY USED by another device in this run. Skipping this proxy (Unique IP).")
+                      return None
+                  if claim == "claimed":
+                      say(f"[Pool]   -> IP {now_ip} is UNIQUE and is now recorded for this device.")
+                  else:
+                      say("::warning title=Unique IP::Claim API unavailable - continuing WITHOUT uniqueness guarantee for this device.")
+
+              rec = dict(p)
+              rec["ip_pool_recorded"] = p.get("ip")
+              rec["ip"] = now_ip
+              rec["ip_verified_on_device"] = True
+              rec["ip_claim"] = claim
+              if info["city"]:
+                  rec["city"] = info["city"]
+              if info["region"]:
+                  rec["region"] = info["region"]
+              if info["cc"] and info["cc"] != (p.get("country_code") or "").upper():
+                  say(f"[Pool]   country changed {p.get('country_code')} -> {info['cc']}: locale / timezone / keyboard re-derived so masking matches the real exit IP.")
+                  rec["country_code"] = info["cc"]
+                  rec["country_name"] = info["cc"]
+                  tz = info["tz"] or rec.get("timezone_iana") or "UTC"
+                  rec["timezone_iana"] = tz
+                  rec["timezone_windows"] = tz_to_windows_tz(tz)
+                  rec["windows_locale"] = country_code_to_locale(info["cc"])
+                  rec["windows_keyboard"] = country_code_to_keyboard(info["cc"])
+              elif info["tz"] and not rec.get("timezone_iana"):
+                  rec["timezone_iana"] = info["tz"]
+                  rec["timezone_windows"] = tz_to_windows_tz(info["tz"])
+              return rec
+
+
+          def candidates(primary):
+              """Lazy candidate order for this device.
+              Reuse OFF: primary #N -> spare proxies (the extra 10-15%).
+              Reuse ON : primary #N (or, when the pool is used up, the wrap-around position) and then walk the whole
+                         pool in order, wrapping from the last proxy back to proxy #1."""
+              if primary:
+                  yield primary, "primary"
+              if REUSE:
+                  pool = load_all_available()
+                  if not pool:
+                      return
+                  n = len(pool)
+                  if primary:
+                      start = next((i for i, x in enumerate(pool) if x["seq"] == primary["seq"]), (TASK - 1) % n) + 1
+                      note = "reuse"
+                  else:
+                      start = (TASK - 1) % n
+                      note = f"reuse wrap-around (pool has {n} proxies, device #{TASK} -> position {start + 1})"
+                      say(f"[Pool] REUSE enabled: {note}")
+                  for k in range(min(n, 40)):
+                      x = pool[(start + k) % n]
+                      yield x, f"reuse #{x['seq']}"
+              else:
+                  extra = POOL_TOTAL - TASKS_TOTAL
+                  if extra > 0:
+                      seqs = list(range(TASKS_TOTAL + 1, POOL_TOTAL + 1))
+                      random.Random(TASK).shuffle(seqs)
+                      for sp in seqs[: (10 if UNIQUE else 3)]:
+                          try:
+                              cand = find_seq(get_chunk(chunk_for(sp), time.time()), sp)
+                          except Exception:
+                              cand = None
+                          if cand:
+                              yield cand, f"spare #{sp}"
+
           say("=" * 72)
           say(f" DEVICE #{TASK}: " + ("GATE - WAIT FOR THE INITIAL 5% PROXY POOL" if MODE == "gate" else "ACQUIRE PROXY FROM POOL"))
           say("=" * 72)
@@ -3178,41 +3415,33 @@ jobs:
           try:
               visible = sorted(a["name"] for a in list_artifacts() if a["name"].startswith("proxy-chunk-"))
               say(f"[Pool] Chunks visible right now : {len(visible)} -> {', '.join(visible) if visible else 'none'}")
+              say(f"[Pool] Options                  : Reuse Proxies = {REUSE} | Unique IP = {UNIQUE}")
 
               deadline = time.time() + WAIT_MIN * 60
-              c = chunk_for(TASK)
-              say(f"[Pool] Proxy #{TASK} lives in chunk {c} (artifact proxy-chunk-{c:03d})")
-              chosen, origin = None, ""
-
-              p = find_seq(get_chunk(c, deadline), TASK)
-              if p:
-                  say(f"[Pool] Found proxy #{TASK} '{p['name']}' -> IP {p['ip']} ({p['country_code']}). Health-checking...")
-                  if quick_check(p):
-                      chosen, origin = p, "primary"
-                  else:
-                      say(f"[Pool] Proxy #{TASK} failed the device-side health check.")
+              primary = None
+              if TASK <= POOL_TOTAL:
+                  c = chunk_for(TASK)
+                  say(f"[Pool] Proxy #{TASK} lives in chunk {c} (artifact proxy-chunk-{c:03d})")
+                  primary = find_seq(get_chunk(c, deadline), TASK)
+                  if not primary:
+                      say(f"[Pool] Proxy #{TASK} is not present in chunk {c}.")
               else:
-                  say(f"[Pool] Proxy #{TASK} is not present in chunk {c}.")
+                  say(f"[Pool] Device #{TASK} is beyond the planned pool size ({POOL_TOTAL}) - the pool is used up.")
+
+              chosen, origin = None, ""
+              tried = 0
+              max_tries = 40 if REUSE else (11 if UNIQUE else 4)
+              for cand, how in candidates(primary):
+                  tried += 1
+                  if tried > max_tries:
+                      break
+                  accepted = try_candidate(cand, how, tried, "?")
+                  if accepted:
+                      chosen, origin = accepted, how
+                      break
 
               if not chosen:
-                  extra = POOL_TOTAL - TASKS_TOTAL
-                  if extra > 0:
-                      say(f"[Pool] Trying spare proxies (#{TASKS_TOTAL + 1}-#{POOL_TOTAL}) before touching the API key...")
-                      for attempt in range(3):
-                          sp = TASKS_TOTAL + 1 + ((TASK * 7 + attempt * 13) % extra)
-                          sc = chunk_for(sp)
-                          try:
-                              cand = find_seq(get_chunk(sc, time.time()), sp)
-                          except Exception as e:
-                              cand = None
-                              say(f"[Pool] spare lookup error: {type(e).__name__}")
-                          if cand and quick_check(cand):
-                              chosen, origin = cand, f"spare #{sp}"
-                              break
-                          say(f"[Pool] Spare #{sp} unavailable.")
-
-              if not chosen:
-                  finish_none("proxy missing/unhealthy and no spare available")
+                  finish_none(f"no usable pool proxy after {tried} candidate(s)" + (" (Unique IP rejected the rest)" if UNIQUE else ""))
 
               if len(chosen.get("password", "")) >= 8:
                   print(f"::add-mask::{chosen['password']}", flush=True)
@@ -3221,12 +3450,25 @@ jobs:
                   json.dump(chosen, f)
               set_env("POOL_PROXY_SOURCE", "pool")
               set_env("POOL_PROXY_NAME", chosen["name"])
+              set_env("POOL_PROXY_IP", chosen["ip"])
               say("")
               say(f"[Pool] RESULT: device #{TASK} uses POOL proxy #{chosen['seq']} ({origin})")
               say(f"[Pool]   dashboard name : {chosen['name']}   (app.gologin.com/proxy)")
-              say(f"[Pool]   exit IP        : {chosen['ip']} | {chosen['country_code']} {chosen.get('city', '')}")
+              say(f"[Pool]   exit IP        : {chosen['ip']} (verified on this device) | {chosen['country_code']} {chosen.get('city', '')}")
+              say(f"[Pool]   unique-IP claim: {chosen.get('ip_claim')}")
               say(f"[Pool]   provider       : {chosen['source']}")
               say("[Pool] API-key generation will NOT be used for this device.")
+              summ = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summ:
+                  with open(summ, "a", encoding="utf-8") as fh:
+                      fh.write(f"### Device #{TASK} proxy\n- Pool proxy **#{chosen['seq']}** `{chosen['name']}` ({origin})\n"
+                               f"- Exit IP (verified on device): **{chosen['ip']}** (pool recorded: {chosen.get('ip_pool_recorded')})\n"
+                               f"- Unique-IP claim: **{chosen.get('ip_claim')}** | Reuse: {REUSE}\n")
+          except SystemExit:
+              raise
+          except Exception as e:
+              say(f"::warning title=Pool fetch::{type(e).__name__}: {e}")
+              finish_none(f"pool lookup error {type(e).__name__}")
           except SystemExit:
               raise
           except Exception as e:
@@ -3260,6 +3502,11 @@ jobs:
           PRE_PROXY_CITY: ${{ matrix.proxy_city }}
           PRE_PROXY_REGION: ${{ matrix.proxy_region }}
           PRE_PROXY_IP: ${{ matrix.proxy_real_ip }}
+          UNIQUE_IP_INPUT: ${{ inputs.unique_ip }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
           PRE_TZ_WIN: ${{ matrix.timezone_windows }}
           PRE_TZ_IANA: ${{ matrix.timezone_iana }}
           PRE_LOCALE: ${{ matrix.windows_locale }}
@@ -3405,6 +3652,52 @@ jobs:
                           "Asia/Jakarta": "SE Asia Standard Time", "Australia/Sydney": "AUS Eastern Standard Time"}
                   return _map.get(iana_tz, "UTC")
 
+              def _ipc_api(method, path, body=None):
+                  import os, json, urllib.request, urllib.error
+                  base = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+                  data = json.dumps(body).encode() if body is not None else None
+                  headers = {"Authorization": f"Bearer {os.environ.get('GH_TOKEN', '')}", "Accept": "application/vnd.github+json",
+                             "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ip-claim-client"}
+                  if data is not None:
+                      headers["Content-Type"] = "application/json"
+                  req = urllib.request.Request(base + path, data=data, method=method, headers=headers)
+                  try:
+                      with urllib.request.urlopen(req, timeout=30) as r:
+                          return r.status, r.read()
+                  except urllib.error.HTTPError as e:
+                      try:
+                          return e.code, e.read()
+                      except Exception:
+                          return e.code, b""
+                  except Exception as e:
+                      return 0, str(e).encode()
+
+
+              def ip_claim(ip):
+                  """Atomically claims an exit IP for THIS workflow run (a git ref can only be created once).
+                  Returns 'claimed' (we own it) | 'taken' (another device already used it) | 'error' (claim API unusable)."""
+                  import os, re, time
+                  repo = os.environ.get("REPO", "")
+                  sha = os.environ.get("GITHUB_SHA", "")
+                  run = f"{os.environ.get('RUN_ID', '0')}-{os.environ.get('RUN_ATTEMPT', '1')}"
+                  tag = re.sub(r"[^0-9A-Za-z._-]", "_", str(ip))
+                  if not repo or not sha or not tag:
+                      return "error"
+                  for ref in (f"refs/ipclaims/{run}/{tag}", f"refs/tags/ipclaim-{run}-{tag}"):
+                      for _try in range(2):
+                          st, _ = _ipc_api("POST", f"/repos/{repo}/git/refs", {"ref": ref, "sha": sha})
+                          if st == 201:
+                              return "claimed"
+                          if st in (0, 500, 502, 503, 504):
+                              time.sleep(1.5)
+                              continue
+                          break
+                      st2, _ = _ipc_api("GET", f"/repos/{repo}/git/ref/{ref[len('refs/'):]}")
+                      if st2 == 200:
+                          return "taken"
+                  return "error"
+              UNIQUE_IP = os.environ.get("UNIQUE_IP_INPUT", "false").lower() == "true"
+
               def build_success_dict(pinfo, proto, cc, cname, ip, city, region, tz):
                   return {
                       **pinfo,
@@ -3468,7 +3761,14 @@ jobs:
                                       ip = data.get('ip')
 
                                   if ip and ip != "unknown":
-                                      print(f"      -> SUCCESS: Pinged {name} via {proto.upper()}")
+                                      if UNIQUE_IP:
+                                          claim = ip_claim(ip)
+                                          if claim == "taken":
+                                              print(f"      -> IP {ip} already used by another device this run (Unique IP) - rejecting, will keep generating.")
+                                              continue
+                                          print(f"      -> SUCCESS: Pinged {name} via {proto.upper()} | IP {ip} is UNIQUE (claimed).")
+                                      else:
+                                          print(f"      -> SUCCESS: Pinged {name} via {proto.upper()}")
                                       return build_success_dict(pinfo, proto, cc or 'US', cc or 'US', ip, city or '', region or '', tz or 'UTC')
                           except Exception as e:
                               print(f"         - {name} failed: {type(e).__name__}")
@@ -7417,6 +7717,120 @@ jobs:
               exit 0
           }
 
+      - name: "Failure Guard (cancel run if 3+ devices fail at the same step)"
+        if: ${{ failure() }}
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          JOB_DISPLAY_NAME: ${{ matrix.display_name }}
+          FAIL_CANCEL_THRESHOLD: '3'
+        run: |
+          import os, sys, json, time, urllib.request, urllib.error
+          from collections import Counter
+
+          TH = int(os.environ.get("FAIL_CANCEL_THRESHOLD", "3"))
+          REPO = os.environ["REPO"]
+          RUN_ID = os.environ["RUN_ID"]
+          ME = os.environ.get("JOB_DISPLAY_NAME", "")
+          API = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+          HDR = {"Authorization": f"Bearer {os.environ.get('GH_TOKEN', '')}", "Accept": "application/vnd.github+json",
+                 "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "failure-guard"}
+          GUARD_STEP = "Failure Guard"
+          DEVICE_MARKER = "Gate - Wait for Initial 5% Proxy Pool"
+
+
+          def say(m=""):
+              print(m, flush=True)
+
+
+          def call(method, path):
+              req = urllib.request.Request(API + path, method=method, headers=HDR)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return r.status, r.read()
+              except urllib.error.HTTPError as e:
+                  try:
+                      return e.code, e.read()
+                  except Exception:
+                      return e.code, b""
+              except Exception as e:
+                  return 0, str(e).encode()
+
+
+          def list_jobs():
+              jobs = []
+              for page in range(1, 11):
+                  st, body = call("GET", f"/repos/{REPO}/actions/runs/{RUN_ID}/jobs?per_page=100&page={page}&filter=latest")
+                  if st != 200:
+                      break
+                  batch = json.loads(body).get("jobs", [])
+                  jobs += batch
+                  if len(batch) < 100:
+                      break
+              return jobs
+
+
+          def is_device_job(job):
+              return any((s.get("name") or "").startswith(DEVICE_MARKER) for s in job.get("steps", []))
+
+
+          def failed_step(job):
+              for s in job.get("steps", []):
+                  if s.get("conclusion") == "failure" and not (s.get("name") or "").startswith(GUARD_STEP):
+                      return s.get("name")
+              return None
+
+
+          say("=" * 72)
+          say(f" FAILURE GUARD  |  job: {ME}  |  threshold: {TH} device jobs failing on the SAME step")
+          say("=" * 72)
+
+          my_step = None
+          by_step = {}
+          for attempt in range(4):
+              time.sleep(4 if attempt == 0 else 6)       # let step conclusions propagate in the API
+              jobs = list_jobs()
+              devices = [j for j in jobs if is_device_job(j)]
+              mine = next((j for j in devices if j.get("name") == ME), None)
+              my_step = failed_step(mine) if mine else None
+              by_step = {}
+              for j in devices:
+                  fs = failed_step(j)
+                  if fs and (j.get("conclusion") == "failure" or j.get("status") == "in_progress"):
+                      by_step.setdefault(fs, []).append(j.get("name"))
+              if my_step:
+                  break
+
+          if not my_step:
+              say("[Guard] Could not determine which step failed for this job (API lag?). Not cancelling.")
+              sys.exit(0)
+
+          counts = Counter({k: len(v) for k, v in by_step.items()})
+          say(f"[Guard] This job failed at step: '{my_step}'")
+          for step, names in sorted(by_step.items(), key=lambda kv: -len(kv[1])):
+              say(f"[Guard]   {len(names):>3} device job(s) failed at '{step}': {', '.join(names[:8])}{' ...' if len(names) > 8 else ''}")
+
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if counts[my_step] >= TH:
+              say("")
+              say("!" * 72)
+              say(f"::error title=Run cancelled by Failure Guard::{counts[my_step]} device jobs failed at the same step '{my_step}' - cancelling the whole run.")
+              say("!" * 72)
+              st, body = call("POST", f"/repos/{REPO}/actions/runs/{RUN_ID}/cancel")
+              say(f"[Guard] Cancel request sent -> HTTP {st}")
+              if summary:
+                  with open(summary, "a", encoding="utf-8") as fh:
+                      fh.write(f"## Run cancelled by Failure Guard\n{counts[my_step]} device jobs failed at the same step: **{my_step}**\n\n"
+                               + "\n".join(f"- {n}" for n in by_step[my_step]) + "\n")
+          else:
+              say(f"[Guard] {counts[my_step]}/{TH} failures at this step so far - run continues.")
+              if summary:
+                  with open(summary, "a", encoding="utf-8") as fh:
+                      fh.write(f"Failure Guard: {counts[my_step]}/{TH} device jobs failed at `{my_step}` - run continues.\n")
+
+
       - name: Keep Runner Alive
         if: always() && matrix.action_mode == 'install' && env.SOFTWARE_DOWNLOADED == 'true'
         shell: pwsh
@@ -7430,3 +7844,74 @@ jobs:
 
           Write-Host "Leaving runner online for $durationMins minutes ($durationSecs seconds)..." -ForegroundColor Cyan
           Start-Sleep -Seconds $durationSecs
+
+  ip_claims_cleanup:
+    name: "Unique IP - Report & Cleanup"
+    needs: [prepare_matrix, remote_session]
+    if: ${{ always() && inputs.unique_ip == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Report claimed IPs and delete claim refs"
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          import os, json, urllib.request, urllib.error
+
+          REPO = os.environ["REPO"]
+          RUN = f"{os.environ['RUN_ID']}-{os.environ.get('RUN_ATTEMPT', '1')}"
+          API = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+          HDR = {"Authorization": f"Bearer {os.environ.get('GH_TOKEN', '')}", "Accept": "application/vnd.github+json",
+                 "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ip-claims-cleanup"}
+
+
+          def call(method, path):
+              req = urllib.request.Request(API + path, method=method, headers=HDR)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return r.status, r.read()
+              except urllib.error.HTTPError as e:
+                  try:
+                      return e.code, e.read()
+                  except Exception:
+                      return e.code, b""
+              except Exception as e:
+                  return 0, str(e).encode()
+
+
+          refs = []
+          for prefix in (f"ipclaims/{RUN}/", f"tags/ipclaim-{RUN}-"):
+              st, body = call("GET", f"/repos/{REPO}/git/matching-refs/{prefix}")
+              if st == 200:
+                  try:
+                      refs += [r["ref"] for r in json.loads(body)]
+                  except Exception:
+                      pass
+
+          ips = []
+          for ref in refs:
+              tail = ref.split(f"ipclaims/{RUN}/", 1)[1] if f"ipclaims/{RUN}/" in ref else ref.split(f"ipclaim-{RUN}-", 1)[-1]
+              ips.append(tail)
+
+          print("=" * 60)
+          print(f" UNIQUE-IP RECORDS FOR THIS RUN: {len(ips)} unique exit IP(s) were used")
+          print("=" * 60)
+          for ip in sorted(ips):
+              print(f"  {ip}")
+
+          summ = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summ:
+              with open(summ, "a", encoding="utf-8") as fh:
+                  fh.write(f"## Unique IP records\n**{len(ips)}** distinct exit IPs were claimed by devices in this run.\n\n")
+                  if ips:
+                      fh.write("```\n" + "\n".join(sorted(ips)) + "\n```\n")
+
+          deleted = 0
+          for ref in refs:
+              st, _ = call("DELETE", f"/repos/{REPO}/git/{ref}")
+              if st in (200, 204):
+                  deleted += 1
+          print(f"Cleaned up {deleted}/{len(refs)} claim refs.")
