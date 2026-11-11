@@ -115,7 +115,7 @@ on:
         description: 'Apply Fingerprint Masking'
         required: true
         type: boolean
-        default: true
+        default: false
       scrapeops_api_key:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
