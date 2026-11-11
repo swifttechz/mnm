@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjQxZWQ2MjU0ZWI1MzZiNjlkMmFkZCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNDFlZDYyNTRlYjUzNmI2OWQyYWNmIn0.7AeznA8QDwS7nlZmrr6eKg2-g972oBknUTk6A5JQ_-8'
+        default: 'geolocation://UbqrRPTcGOvoLP4g:S7qWj1pVFQiVuZ6E@geo.floppydata.com:10080:1-FR-oyhgug geolocation://JSCU65GskDDhtEuu:DfjNDM3j2yjgdLYZ@geo.floppydata.com:10080:2-FR-vcpvvt geolocation://ApTrJ5Bv3bo7JcRm:Cs9F4gRoLFXBx6D4@geo.floppydata.com:10080:3-FR-xmumfz geolocation://n7W0MysQq0XVlSjA:T8a08FAOC0wKYxWj@geo.floppydata.com:10080:4-FR-yrnepa geolocation://YrqbHfeI95VLxyAB:NYTN8LbHs8EcI9fD@geo.floppydata.com:10080:5-FR-dtwgke geolocation://KczzYH2Txifv6mmB:E50AUyYtVgFUbzbC@geo.floppydata.com:10080:6-FR-djdyjh geolocation://LL3KVxKpsrqhkjwc:iNOghtaytV5gnlrL@geo.floppydata.com:10080:7-FR-zcfgvt geolocation://kF1u3bljebRxn3yz:QdMdqS1ZAXep5UMB@geo.floppydata.com:10080:8-FR-ijlsmy geolocation://nTziLPFlXfuz6ed0:iCVeeftUBXV3E91j@geo.floppydata.com:10080:9-FR-ukrrao geolocation://ess6q9GAFYfoiIYz:KKbBLH5uvGDBUq4l@geo.floppydata.com:10080:10-FR-klijbf geolocation://hIIA17UNzsdBC2Pj:mJHjNy9QC9aZcXvy@geo.floppydata.com:10080:11-FR-lerzok geolocation://zIxmcgRifVqLu0m5:cWO8FH9uD8fsK5oc@geo.floppydata.com:10080:12-FR-xjbxfe geolocation://gAhu6rNowtdil28L:2u3aoSt51gvb2mbj@geo.floppydata.com:10080:1-FR-jqgljm geolocation://byxnrZ4gRiyjbr86:mGJCR1Vsz30yGXnr@geo.floppydata.com:10080:2-FR-mprfvm'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
