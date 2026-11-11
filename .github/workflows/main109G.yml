@@ -2641,24 +2641,23 @@ jobs:
           mkdir -p "$RUNNER_TEMP/failmark"
           echo "acquire_proxy" > "$RUNNER_TEMP/failmark/step.txt"
           echo "$TASK" > "$RUNNER_TEMP/failmark/task.txt"
-          # Count existing failure markers for this step
           count=0
           page=1
           while [ "$page" -le 10 ]; do
-            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"               "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
-            batch=$(echo "$resp" | python3 -c "import sys,json
-d=json.load(sys.stdin)
-print(sum(1 for a in d.get('artifacts',[]) if str(a.get('name','')).startswith('fail-step-acquire-proxy-')))" 2>/dev/null || echo 0)
+            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
+            batch=$(echo "$resp" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get("artifacts",[]) if str(a.get("name","")).startswith("fail-step-acquire-proxy-")))' 2>/dev/null || echo 0)
             count=$((count + batch))
-            total=$(echo "$resp" | python3 -c "import sys,json; print(int(json.load(sys.stdin).get('total_count') or 0))" 2>/dev/null || echo 0)
+            total=$(echo "$resp" | python3 -c 'import sys,json;print(int(json.load(sys.stdin).get("total_count") or 0))' 2>/dev/null || echo 0)
             if [ $((page * 100)) -ge "$total" ]; then break; fi
             page=$((page + 1))
           done
           count=$((count + 1))
           echo "Acquire Proxy failures (including this device): $count"
           if [ "$count" -ge 3 ]; then
-            echo "::error::3+ devices failed on Acquire Proxy — cancelling entire workflow run ${RUN_ID}"
-            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"               "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
+            echo "::error::3+ devices failed on Acquire Proxy - cancelling entire workflow run ${RUN_ID}"
+            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
           fi
           exit 0
 
@@ -3784,20 +3783,20 @@ print(sum(1 for a in d.get('artifacts',[]) if str(a.get('name','')).startswith('
           count=0
           page=1
           while [ "$page" -le 10 ]; do
-            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"               "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
-            batch=$(echo "$resp" | python3 -c "import sys,json
-d=json.load(sys.stdin)
-print(sum(1 for a in d.get('artifacts',[]) if str(a.get('name','')).startswith('fail-step-runner-proxy-')))" 2>/dev/null || echo 0)
+            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
+            batch=$(echo "$resp" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get("artifacts",[]) if str(a.get("name","")).startswith("fail-step-runner-proxy-")))' 2>/dev/null || echo 0)
             count=$((count + batch))
-            total=$(echo "$resp" | python3 -c "import sys,json; print(int(json.load(sys.stdin).get('total_count') or 0))" 2>/dev/null || echo 0)
+            total=$(echo "$resp" | python3 -c 'import sys,json;print(int(json.load(sys.stdin).get("total_count") or 0))' 2>/dev/null || echo 0)
             if [ $((page * 100)) -ge "$total" ]; then break; fi
             page=$((page + 1))
           done
           count=$((count + 1))
           echo "Runner Proxy failures (including this device): $count"
           if [ "$count" -ge 3 ]; then
-            echo "::error::3+ devices failed on Runner Proxy & Identity — cancelling workflow run ${RUN_ID}"
-            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"               "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
+            echo "::error::3+ devices failed on Runner Proxy - cancelling workflow run ${RUN_ID}"
+            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
           fi
           exit 0
 
