@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '3'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -62,17 +62,17 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '0'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '200'
+        default: '10'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '50'
+        default: '0'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -120,7 +120,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjNmNjMyNTBkOWU4OGZmY2M0OTQwZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmM2Y2MzI1MGQ5ZTg4ZmZjYzQ5NDA4In0.pyMJcC_q92VZxBvDSkEFyUbWIVscXkTwkinEIZdOtRI'
+        default: 'geolocation://jgxaM4I0Ui5raZb4:ReNKnl3rexQJYOAt@geo.floppydata.com:10080:1-ES-dtshmj geolocation://e8T52uhC9rLkqsFw:e3tcuXZAYRcfMnVE@geo.floppydata.com:10080:2-ES-lglthr geolocation://98Pjj1XLBeDiVTFB:Xv0e4XJ7gV17xoVk@geo.floppydata.com:10080:3-ES-kvyoar geolocation://RTeTPNreoC8gFSHO:VEhRsbCdoFWCT20s@geo.floppydata.com:10080:4-ES-eabrdd geolocation://ByHpRsN5RDLFR4v5:QTAw5SShdrzw5sFU@geo.floppydata.com:10080:5-ES-fqdtue geolocation://TnLLuLJuFXnzpU31:bBEXHq4z4YBTFBGP@geo.floppydata.com:10080:6-ES-keludm geolocation://1ZDwQ3pzVu2UiyRO:AkTSn2Of9uFBRkJ8@geo.floppydata.com:10080:7-ES-bsrztb geolocation://ADPj9b80vyo3u3Ur:1BfYxAJ8l4DtwoAr@geo.floppydata.com:10080:8-ES-uafwim geolocation://e2PCdaLqlY2HgolP:0qUA68EM81G1K5gv@geo.floppydata.com:10080:9-ES-gphdxn geolocation://mPmzm2w2xBuHThKn:3tAqJefSr5fCaytM@geo.floppydata.com:10080:10-ES-lgtaox geolocation://iDPhfKvnPzDfKJxs:hO0fXzUfYFiZDpOp@geo.floppydata.com:10080:11-ES-wposrd geolocation://ovEKRqcH3mJv6p7H:QHRukHXyjsaRoNsI@geo.floppydata.com:10080:12-ES-maapli geolocation://W1P8lGaoiqUCDUaf:Fri4jzahtvqeEnE6@geo.floppydata.com:10080:13-ES-jtjkis geolocation://u3ZrSGVGkdYbmsBk:LXOmporI3C4Meccb@geo.floppydata.com:10080:14-ES-athetq geolocation://qIYApF3dnIEeaQrd:gH23U63FjVBITSwg@geo.floppydata.com:10080:15-ES-wopogq geolocation://VrfphnsFIK2GY6qy:XHW0cLbG5mwcfu07@geo.floppydata.com:10080:16-ES-ledycx geolocation://QhXOuPIK2608ab6h:aaZiIninDZltoPx7@geo.floppydata.com:10080:17-ES-lzumsw geolocation://CF6Cg9VxvMj7wERs:3u8uot1wYq1w5sH2@geo.floppydata.com:10080:18-ES-tarpbz geolocation://YAcr7KjlmEK8TbkF:GASFHDWvgRYgebdH@geo.floppydata.com:10080:19-ES-mieecp geolocation://qgZ5vbYQfZKfwBqF:078536rk4tLJHg3u@geo.floppydata.com:10080:20-ES-fpsgdu geolocation://jbbNV0eHJQ2ebzs7:l40aYvAZsQncOMDW@geo.floppydata.com:10080:21-ES-ewfupm geolocation://nP5PysMcaHDdg92u:CQAExZ7Akd7LN6cy@geo.floppydata.com:10080:22-ES-vgefhr geolocation://u4o12czQZmvyaNlz:uQTGF1douJp8URbA@geo.floppydata.com:10080:23-ES-ittreq'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -146,7 +146,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'Spain'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -168,7 +168,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'No Fallback'
+        default: 'Spain'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
@@ -198,7 +198,7 @@ on:
         description: 'Reuse Proxies (when pool is exhausted, wrap from #1 again)'
         required: true
         type: boolean
-        default: true
+        default: false
       unique_ip:
         description: 'Unique IP (each device must get an IP not used by another device this run)'
         required: true
@@ -2225,8 +2225,6 @@ jobs:
           INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
           CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
           POOL_WAIT_MINUTES: ${{ needs.prepare_matrix.outputs.pool_wait_minutes || '2' }}
-          REUSE_PROXIES: ${{ inputs.reuse_proxies }}
-          UNIQUE_IP: ${{ inputs.unique_ip }}
         run: |
           import os, sys, json, time, io, zipfile, subprocess
           import urllib.request, urllib.error
@@ -2526,13 +2524,6 @@ jobs:
               else:
                   say(f"[Pool] Device #{TASK} targets pool proxy #{primary_seq} (chunk {chunk_for(primary_seq)})")
 
-              # Stagger unique-IP claims so parallel devices don't race on the same IP
-              if UNIQUE:
-                  stagger = min(12, (TASK % 7) * 0.35)
-                  if stagger > 0:
-                      say(f"[UniqueIP] Stagger {stagger:.1f}s before claim to reduce parallel races")
-                      time.sleep(stagger)
-
               chosen, origin = None, ""
               claimed = list_claimed_ips() if UNIQUE else set()
               if UNIQUE:
@@ -2562,13 +2553,10 @@ jobs:
                       continue
                   p = dict(p)
                   p["ip"] = live_ip
-                  if UNIQUE:
-                      # Refresh claims right before accept (other devices may have claimed mid-loop)
-                      claimed = list_claimed_ips()
-                      if live_ip in claimed:
-                          say(f"[UniqueIP] IP {live_ip} already used by another device — skipping proxy #{seq}.")
-                          continue
-                  chosen, origin = p, (f"reuse->{seq}" if (REUSE and seq != primary_seq) or seq != TASK else ("primary" if seq == primary_seq else f"alt #{seq}"))
+                  if UNIQUE and live_ip in claimed:
+                      say(f"[UniqueIP] IP {live_ip} already used by another device — skipping proxy #{seq}.")
+                      continue
+                  chosen, origin = p, (f"reuse->{seq}" if seq != TASK else ("primary" if seq == primary_seq else f"alt #{seq}"))
                   say(f"[Pool] Selected proxy #{seq} with LIVE IP {live_ip}")
                   break
 
@@ -2640,16 +2628,38 @@ jobs:
           if-no-files-found: ignore
           overwrite: true
 
-      - name: Mark Acquire Proxy failure
+      - name: Handle Acquire Proxy failure (marker + cancel if 3+)
         if: failure()
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
           TASK: ${{ matrix.task_index }}
         run: |
+          set +e
           mkdir -p "$RUNNER_TEMP/failmark"
           echo "acquire_proxy" > "$RUNNER_TEMP/failmark/step.txt"
           echo "$TASK" > "$RUNNER_TEMP/failmark/task.txt"
-          echo "marked"
+          count=0
+          page=1
+          while [ "$page" -le 10 ]; do
+            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
+            batch=$(echo "$resp" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get("artifacts",[]) if str(a.get("name","")).startswith("fail-step-acquire-proxy-")))' 2>/dev/null || echo 0)
+            count=$((count + batch))
+            total=$(echo "$resp" | python3 -c 'import sys,json;print(int(json.load(sys.stdin).get("total_count") or 0))' 2>/dev/null || echo 0)
+            if [ $((page * 100)) -ge "$total" ]; then break; fi
+            page=$((page + 1))
+          done
+          count=$((count + 1))
+          echo "Acquire Proxy failures (including this device): $count"
+          if [ "$count" -ge 3 ]; then
+            echo "::error::3+ devices failed on Acquire Proxy - cancelling entire workflow run ${RUN_ID}"
+            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
+          fi
+          exit 0
 
       - name: Upload Acquire-Proxy failure marker
         if: failure()
@@ -2660,33 +2670,6 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
           overwrite: true
-
-      - name: Cancel run if 3+ Acquire Proxy failures
-        if: failure()
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-        run: |
-          set +e
-          sleep 5
-          count=0
-          page=1
-          while [ "$page" -le 15 ]; do
-            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
-            batch=$(echo "$resp" | python3 -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get('artifacts',[]) if str(a.get('name','')).startswith('fail-step-acquire-proxy-')))" 2>/dev/null || echo 0)
-            count=$((count + batch))
-            total=$(echo "$resp" | python3 -c "import sys,json;print(int(json.load(sys.stdin).get('total_count') or 0))" 2>/dev/null || echo 0)
-            if [ $((page * 100)) -ge "$total" ]; then break; fi
-            page=$((page + 1))
-          done
-          echo "Acquire Proxy failures so far: $count"
-          if [ "$count" -ge 3 ]; then
-            echo "::error::3+ devices failed on Acquire Proxy - cancelling entire workflow run ${RUN_ID}"
-            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
-          fi
-          exit 0
 
       - name: Runner Proxy & Identity Provisioning
         shell: python
@@ -2719,11 +2702,6 @@ jobs:
           PRE_TZ_IANA: ${{ matrix.timezone_iana }}
           PRE_LOCALE: ${{ matrix.windows_locale }}
           PRE_KB: ${{ matrix.windows_keyboard }}
-          UNIQUE_IP: ${{ inputs.unique_ip }}
-          REUSE_PROXIES: ${{ inputs.reuse_proxies }}
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
         run: |
           import os, time, sys, uuid, json, re, random
 
@@ -3789,15 +3767,38 @@ jobs:
           if-no-files-found: ignore
           overwrite: true
 
-      - name: Mark Runner-Proxy failure
+      - name: Handle Runner-Proxy failure (marker + cancel if 3+)
         if: failure()
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
           TASK: ${{ matrix.task_index }}
         run: |
+          set +e
           mkdir -p "$RUNNER_TEMP/failmark-proxy"
           echo "runner_proxy" > "$RUNNER_TEMP/failmark-proxy/step.txt"
           echo "$TASK" > "$RUNNER_TEMP/failmark-proxy/task.txt"
+          count=0
+          page=1
+          while [ "$page" -le 10 ]; do
+            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
+            batch=$(echo "$resp" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get("artifacts",[]) if str(a.get("name","")).startswith("fail-step-runner-proxy-")))' 2>/dev/null || echo 0)
+            count=$((count + batch))
+            total=$(echo "$resp" | python3 -c 'import sys,json;print(int(json.load(sys.stdin).get("total_count") or 0))' 2>/dev/null || echo 0)
+            if [ $((page * 100)) -ge "$total" ]; then break; fi
+            page=$((page + 1))
+          done
+          count=$((count + 1))
+          echo "Runner Proxy failures (including this device): $count"
+          if [ "$count" -ge 3 ]; then
+            echo "::error::3+ devices failed on Runner Proxy - cancelling workflow run ${RUN_ID}"
+            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
+          fi
+          exit 0
 
       - name: Upload Runner-Proxy failure marker
         if: failure()
@@ -3808,33 +3809,6 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
           overwrite: true
-
-      - name: Cancel run if 3+ Runner-Proxy failures
-        if: failure()
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-        run: |
-          set +e
-          sleep 5
-          count=0
-          page=1
-          while [ "$page" -le 15 ]; do
-            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
-            batch=$(echo "$resp" | python3 -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get('artifacts',[]) if str(a.get('name','')).startswith('fail-step-runner-proxy-')))" 2>/dev/null || echo 0)
-            count=$((count + batch))
-            total=$(echo "$resp" | python3 -c "import sys,json;print(int(json.load(sys.stdin).get('total_count') or 0))" 2>/dev/null || echo 0)
-            if [ $((page * 100)) -ge "$total" ]; then break; fi
-            page=$((page + 1))
-          done
-          echo "Runner Proxy failures so far: $count"
-          if [ "$count" -ge 3 ]; then
-            echo "::error::3+ devices failed on Runner Proxy & Identity - cancelling workflow run ${RUN_ID}"
-            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
-          fi
-          exit 0
 
       - name: Setup Auto-Downloader, Surfer & Software Installation
         shell: pwsh
@@ -6777,53 +6751,6 @@ jobs:
               Write-Host "[Runtime] Click pathway exiting cleanly." -ForegroundColor Magenta
               exit 0
           }
-
-      - name: Mark Setup failure
-        if: failure()
-        shell: bash
-        env:
-          TASK: ${{ matrix.task_index }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/failmark-setup"
-          echo "setup" > "$RUNNER_TEMP/failmark-setup/step.txt"
-          echo "$TASK" > "$RUNNER_TEMP/failmark-setup/task.txt"
-
-      - name: Upload Setup failure marker
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fail-step-setup-${{ matrix.task_index }}
-          path: ${{ runner.temp }}/failmark-setup
-          retention-days: 1
-          if-no-files-found: ignore
-          overwrite: true
-
-      - name: Cancel run if 3+ Setup failures
-        if: failure()
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-        run: |
-          set +e
-          sleep 5
-          count=0
-          page=1
-          while [ "$page" -le 15 ]; do
-            resp=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100&page=${page}") || break
-            batch=$(echo "$resp" | python3 -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for a in d.get('artifacts',[]) if str(a.get('name','')).startswith('fail-step-setup-')))" 2>/dev/null || echo 0)
-            count=$((count + batch))
-            total=$(echo "$resp" | python3 -c "import sys,json;print(int(json.load(sys.stdin).get('total_count') or 0))" 2>/dev/null || echo 0)
-            if [ $((page * 100)) -ge "$total" ]; then break; fi
-            page=$((page + 1))
-          done
-          echo "Setup failures so far: $count"
-          if [ "$count" -ge 3 ]; then
-            echo "::error::3+ devices failed on Setup Auto-Downloader - cancelling workflow run ${RUN_ID}"
-            curl -sS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/cancel" || true
-          fi
-          exit 0
 
       - name: Keep Runner Alive
         if: always() && matrix.action_mode == 'install' && env.SOFTWARE_DOWNLOADED == 'true'
