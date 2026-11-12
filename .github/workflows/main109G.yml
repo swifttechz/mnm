@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '5'
+        default: '10'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '5'
+        default: '200'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -77,7 +77,7 @@ on:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
         type: boolean
-        default: false
+        default: true
       enable_surf:
         description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
@@ -120,7 +120,7 @@ on:
           - '07. Opera - Peggy'
           - '08. Opera - Tufayl'
           
-        default: '06. Opera - Fahmad'
+        default: '01. Opera - Harrari'
       manual_software_url:
         description: 'Manual URL'
         required: false
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'geolocation://cL1jPXW4bRZgxGau:7DUtPgKhYQE0h2Br@geo.floppydata.com:10080:1-FR-btnsvd geolocation://V29ozSXQHmdyha3n:v2HYBL4ocJBYQSre@geo.floppydata.com:10080:2-FR-gchhqd geolocation://CO5X66p6FfNsvDxt:3Q0iySwRUVevt68w@geo.floppydata.com:10080:3-FR-hfrirp geolocation://9HWnQW8awfqWe2uO:ys5hT2sQ3ypp1w7h@geo.floppydata.com:10080:4-FR-gdidpk geolocation://4BTfRLBjJJg6TFr1:c7TrtKzLVQuSeTWd@geo.floppydata.com:10080:5-FR-ytpqca geolocation://WIJ6xT0IV6hR0U4f:1MozXDKct5LfsRDM@geo.floppydata.com:10080:6-FR-phhalj geolocation://IX6uJ9eFWEy7es8N:5F7H0mnJrdnuprqL@geo.floppydata.com:10080:7-FR-xmgbwp geolocation://RW1iIR7JNASZorze:ErnwT8UvIWP6CVCu@geo.floppydata.com:10080:8-FR-wwkevz geolocation://RciKELMv1gUjdG6q:Kw3M5vZKSnLsAxIN@geo.floppydata.com:10080:9-FR-vlwgqh geolocation://UO92dU0EMAN3Vkf9:eLjodA9ntEzDhhYW@geo.floppydata.com:10080:10-FR-komcjk'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjVjYzgzMzVlYjYxYTBmOGMxYTMyZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNWNjODMzNWViNjFhMGY4YzFhMzJhIn0.bnA1n7-ET9ReXvFf1E6chvRjJ2p5rb4A6DfmQFXMu0o'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -188,7 +188,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Canada'
+        default: 'Germany'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
