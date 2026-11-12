@@ -1,4 +1,4 @@
-name: Parallel mx10.9
+name: Parallel mx10.9C
 
 on:
   workflow_dispatch:
@@ -247,7 +247,7 @@ jobs:
         run: |
           import os, re, glob
 
-          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.9")
+          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.9C")
           workflow_dir = ".github/workflows"
           target_file = None
 
@@ -2918,7 +2918,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
           POOL_ENABLED: ${{ inputs.generate_all_proxies == true && inputs.use_without_proxy != true && 'true' || 'false' }}
           TASK_INDEX: ${{ matrix.task_index }}
           TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
@@ -2927,6 +2926,7 @@ jobs:
           CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
           POOL_MODE: fetch
           POOL_WAIT_MINUTES: '12'
+          RUN_ATTEMPT: ${{ github.run_attempt }}
           REUSE_PROXIES: ${{ inputs.reuse_proxies }}
           UNIQUE_IP: ${{ inputs.unique_ip }}
         run: |
@@ -7135,6 +7135,248 @@ jobs:
                   write_surf_flag("surf_done.flag", "done")
                   log_msg("Scroll", f"SCROLL SESSION COMPLETE: {actual:.1f}s of {clock.total}s | down={downs} up={ups} pauses={pauses} keyboard={keys} errors={errors}")
 
+          def opera_one_post_install_sequence(opera_window, software_type="opera_one"):
+              log_msg("PostInstall-OP1", "=== Opera One Post-Install Sequence Starting ===")
+              desktop = Desktop(backend="uia")
+
+              log_msg("PostInstall-OP1", "STEP 1: Waiting 25 seconds for Opera One to initialize...")
+              for s in range(1, 26):
+                  log_msg("PostInstall-OP1", f"  Init wait: {s}/25s...")
+                  time.sleep(1)
+
+              log_msg("PostInstall-OP1", "STEP 2: Locating Opera One window and maximizing...")
+              desktop = Desktop(backend="uia")
+              opera_window = robust_maximize_opera_window(desktop, software_type, label="step2")
+              if opera_window is None:
+                  log_msg("PostInstall-OP1", "STEP 2 WARNING: Could not find Opera window. Proceeding anyway...")
+
+              log_msg("PostInstall-OP1", "STEP 3: Waiting 5 seconds after maximize...")
+              for s in range(1, 6):
+                  time.sleep(1)
+
+              log_msg("PostInstall-OP1", "STEP 4: Settle wait (5 seconds)...")
+              for s in range(1, 6):
+                  time.sleep(1)
+
+              sw, sh = pyautogui.size()
+              cx, cy = sw // 2, sh // 2
+              log_msg("PostInstall-OP1", f"STEP 5: Clicking center screen at ({cx}, {cy})...")
+              desktop = Desktop(backend="uia")
+              opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label="step5")
+              try:
+                  pyautogui.moveTo(cx, cy, duration=0.3); time.sleep(0.2)
+                  pyautogui.click(cx, cy)
+              except Exception as e:
+                  log_msg("PostInstall-OP1", f"STEP 5 ERROR: {e}")
+
+              log_msg("PostInstall-OP1", "STEP 6: Waiting 5 seconds...")
+              for s in range(1, 6):
+                  time.sleep(1)
+
+              log_msg("PostInstall-OP1", "STEP 7: Clicking 'Next' 6 times...")
+              for i in range(1, 7):
+                  desktop = Desktop(backend="uia")
+                  opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label=f"step7-NEXT-{i}")
+                  sw_now, sh_now = pyautogui.size()
+                  fallback_next = (int(sw_now * 0.85), int(sh_now * 0.85))
+                  clicked = click_opera_button_multilingual(desktop, opera_window, software_type,
+                      keyword_list=OPERA_NEXT_KEYWORDS, label=f"NEXT-{i}", fallback_coords=fallback_next)
+                  log_msg("PostInstall-OP1", f"  Next {i}/6 {'clicked' if clicked else 'fallback attempted'}.")
+                  time.sleep(0.5)
+
+              log_msg("PostInstall-OP1", "STEP 7b: Clicking 'Done'/'Finish'...")
+              desktop = Desktop(backend="uia")
+              opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label="step7b-DONE")
+              sw_now, sh_now = pyautogui.size()
+              fallback_done = (int(sw_now * 0.85), int(sh_now * 0.85))
+              click_opera_button_multilingual(desktop, opera_window, software_type,
+                  keyword_list=OPERA_DONE_KEYWORDS, label="DONE", fallback_coords=fallback_done)
+
+              log_msg("PostInstall-OP1", "STEP 8: Waiting 5 seconds...")
+              for s in range(1, 6):
+                  time.sleep(1)
+
+              log_msg("PostInstall-OP1", "STEP 8b: Backup keyboard navigation (Right Arrow x2)...")
+              desktop = Desktop(backend="uia")
+              opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label="step8b")
+              send_keys('{RIGHT}'); time.sleep(0.5)
+              send_keys('{RIGHT}'); time.sleep(0.5)
+
+              log_msg("PostInstall-OP1", "STEP 9: Pressing ENTER...")
+              desktop = Desktop(backend="uia")
+              opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label="step9")
+              send_keys('{ENTER}')
+
+              log_msg("PostInstall-OP1", "STEP 10: Waiting 2 seconds...")
+              time.sleep(2)
+
+              log_msg("PostInstall-OP1", "STEP 11: Clicking 'Submit'...")
+              desktop = Desktop(backend="uia")
+              opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label="step11-SUBMIT")
+              sw_now, sh_now = pyautogui.size()
+              fallback_submit = (sw_now // 2, int(sh_now * 0.85))
+              click_opera_button_multilingual(desktop, opera_window, software_type,
+                  keyword_list=OPERA_SUBMIT_KEYWORDS, label="SUBMIT", fallback_coords=fallback_submit)
+
+              log_msg("PostInstall-OP1", "STEP 12: Waiting 5 seconds...")
+              for s in range(1, 6):
+                  time.sleep(1)
+
+              log_msg("PostInstall-OP1", "STEP 13: Starting TAB cycle sequence (10 cycles, start=6)...")
+              tab_count = 6
+              for cycle in range(1, 11):
+                  log_msg("PostInstall-OP1", f"--- TAB CYCLE {cycle}/10: {tab_count} TAB presses ---")
+                  desktop = Desktop(backend="uia")
+                  opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label=f"cycle-CtrlT-{cycle}")
+                  send_keys('^t')
+                  log_msg("PostInstall-OP1", f"  Ctrl+T sent. Waiting 5 seconds...")
+                  for s in range(1, 6): time.sleep(1)
+
+                  log_msg("PostInstall-OP1", f"  Pressing TAB {tab_count} times...")
+                  for i in range(1, tab_count + 1):
+                      desktop = Desktop(backend="uia")
+                      opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label=f"cycle-TAB-{cycle}-{i}")
+                      send_keys('{TAB}')
+                      time.sleep(1)
+
+                  desktop = Desktop(backend="uia")
+                  opera_window = force_maximize_and_focus_target(desktop, opera_window, software_type, label=f"cycle-ENTER-{cycle}")
+                  send_keys('{ENTER}')
+
+                  step = random.choices([1, 2], weights=[0.6, 0.4], k=1)[0]
+                  tab_count += step
+
+                  if cycle < 10:
+                      log_msg("PostInstall-OP1", f"  Waiting 5 seconds before next cycle...")
+                      for s in range(1, 6): time.sleep(1)
+
+              log_msg("PostInstall-OP1", "=== Opera One Post-Install Sequence Completed ===")
+
+
+          def opera_gx_post_install_sequence(opera_window):
+              log_msg("PostInstall-OPGX", "=== Opera GX Post-Install Sequence Starting ===")
+              desktop = Desktop(backend="uia")
+
+              opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label="init")
+              time.sleep(0.5)
+
+              sw, sh = pyautogui.size()
+              cx, cy = sw // 2, sh // 2
+
+              try:
+                  opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label="pre-dblclick")
+                  pyautogui.click(cx, cy); time.sleep(0.15)
+                  pyautogui.click(cx, cy)
+                  log_msg("PostInstall-OPGX", f"Double-click at ({cx}, {cy}) executed.")
+              except Exception as e:
+                  log_msg("PostInstall-OPGX", f"Double-click failed: {e}")
+
+              time.sleep(random.uniform(2.0, 3.0))
+
+              log_msg("PostInstall-OPGX", "Pressing TAB key 4 times...")
+              for i in range(1, 5):
+                  opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"TAB4-{i}")
+                  send_keys('{TAB}')
+                  time.sleep(random.uniform(1.0, 2.0))
+
+              log_msg("PostInstall-OPGX", "Pressing ENTER key 8 times...")
+              for i in range(1, 9):
+                  opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"ENTER8-{i}")
+                  send_keys('{ENTER}')
+                  time.sleep(random.uniform(1.0, 2.0))
+
+              time.sleep(random.uniform(2.0, 3.0))
+
+              log_msg("PostInstall-OPGX", "Pressing TAB key 6 times...")
+              for i in range(1, 7):
+                  opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"TAB6-{i}")
+                  send_keys('{TAB}')
+                  time.sleep(random.uniform(1.0, 2.0))
+
+              opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label="post-TAB6-ENTER")
+              send_keys('{ENTER}')
+              log_msg("PostInstall-OPGX", "Waiting 5 seconds...")
+              for s in range(1, 6):
+                  if s % 2 == 0:
+                      opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"wait5-{s}")
+                  time.sleep(1)
+
+              log_msg("PostInstall-OPGX", "Starting TAB cycle sequence (10 cycles, start=5)...")
+              tab_count = 5
+              for cycle in range(1, 11):
+                  opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"pre-CtrlT-{cycle}")
+                  log_msg("PostInstall-OPGX", f"--- TAB CYCLE {cycle}/10: {tab_count} TAB presses ---")
+                  send_keys('^t')
+                  for i in range(1, tab_count + 1):
+                      opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"TAB{tab_count}-{i}")
+                      send_keys('{TAB}')
+                      time.sleep(random.uniform(1.0, 2.0))
+
+                  opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"ENTER-{cycle}")
+                  send_keys('{ENTER}')
+                  step = random.choices([1, 2], weights=[0.6, 0.4], k=1)[0]
+                  tab_count += step
+
+                  if cycle < 10:
+                      for s in range(1, 6):
+                          if s % 2 == 0:
+                              opera_window = force_maximize_and_focus_target(desktop, opera_window, "opera_gx", label=f"wait-{cycle}-{s}")
+                          time.sleep(1)
+
+              log_msg("PostInstall-OPGX", "=== Opera GX Post-Install Sequence Completed ===")
+
+
+          def avg_post_install_sequence(avg_window):
+              log_msg("PostInstall-AVG", "=== AVG Post-Install Sequence Starting ===")
+              desktop = Desktop(backend="uia")
+
+              avg_window = force_maximize_and_focus_target(desktop, avg_window, "avg", label="init")
+              time.sleep(0.5)
+
+              sw, sh = pyautogui.size()
+              cx, cy = sw // 2, sh // 2
+
+              try:
+                  avg_window = force_maximize_and_focus_target(desktop, avg_window, "avg", label="pre-dblclick")
+                  pyautogui.click(cx, cy); time.sleep(0.15)
+                  pyautogui.click(cx, cy)
+              except Exception as e:
+                  log_msg("PostInstall-AVG", f"Double-click failed: {e}")
+
+              log_msg("PostInstall-AVG", "Waiting 5 seconds...")
+              for s in range(1, 6):
+                  if s % 2 == 0:
+                      avg_window = force_maximize_and_focus_target(desktop, avg_window, "avg", label=f"init-wait-{s}")
+                  time.sleep(1)
+
+              tab_count = 6
+              tab_ceiling = 17
+
+              while tab_count <= tab_ceiling:
+                  log_msg("PostInstall-AVG", f"--- Cycle: {tab_count} TAB presses ---")
+                  avg_window = force_maximize_and_focus_target(desktop, avg_window, "avg", label=f"pre-CtrlT-{tab_count}")
+                  send_keys('^t')
+
+                  for i in range(1, tab_count + 1):
+                      avg_window = force_maximize_and_focus_target(desktop, avg_window, "avg", label=f"TAB{tab_count}-{i}")
+                      send_keys('{TAB}')
+                      time.sleep(random.uniform(1.0, 2.0))
+
+                  avg_window = force_maximize_and_focus_target(desktop, avg_window, "avg", label=f"ENTER-{tab_count}")
+                  send_keys('{ENTER}')
+
+                  step = random.randint(1, 2)
+                  tab_count += step
+
+                  if tab_count <= tab_ceiling:
+                      for s in range(1, 6):
+                          if s % 2 == 0:
+                              avg_window = force_maximize_and_focus_target(desktop, avg_window, "avg", label=f"cycle-wait-{tab_count}-{s}")
+                          time.sleep(1)
+
+              log_msg("PostInstall-AVG", "=== AVG Post-Install Sequence Completed ===")
+
+
           def handle_automation(software_type, action_mode, profile_tag="P1", timeout=450):
               desktop = Desktop(backend="uia")
               start_time = time.time()
@@ -7171,6 +7413,13 @@ jobs:
 
               actual_software = software_type
               sentinel_read_done = False
+
+              opera_one_installer_executed_time = None
+              opera_one_post_install_done = False
+              opera_gx_installer_executed_time = None
+              opera_gx_post_install_done = False
+              avg_installer_executed_time = None
+              avg_post_install_done = False
 
               last_interference_sweep = 0
               INTERFERENCE_SWEEP_INTERVAL = 2
@@ -7334,6 +7583,44 @@ jobs:
                           download_started = True
                           edge_window = None
 
+                      if not sentinel_read_done and os.path.exists(installer_executed_sentinel):
+                          try:
+                              with open(installer_executed_sentinel, "r") as f:
+                                  flag_content = f.read().strip()
+                                  if flag_content in ["opera_one", "opera_gx", "avg"]:
+                                      actual_software = flag_content
+                                      log_msg("UI-Engine", f"Actual software resolved from sentinel: {actual_software}")
+                          except Exception: pass
+                          sentinel_read_done = True
+
+                      if action_mode == "install":
+                          if actual_software == "opera_one" and not opera_one_post_install_done:
+                              if opera_one_installer_executed_time is None and sentinel_read_done:
+                                  opera_one_installer_executed_time = time.time()
+                                  log_msg("PostInstall-OP1", "Installer sentinel detected. Post-install fires in 25s.")
+                              elif opera_one_installer_executed_time is not None and (time.time() - opera_one_installer_executed_time) >= 25:
+                                  log_msg("PostInstall-OP1", "25s threshold reached. Launching Opera One post-install.")
+                                  opera_one_post_install_sequence(opera_window, software_type=actual_software)
+                                  opera_one_post_install_done = True
+
+                          if actual_software == "opera_gx" and not opera_gx_post_install_done:
+                              if opera_gx_installer_executed_time is None and sentinel_read_done:
+                                  opera_gx_installer_executed_time = time.time()
+                                  log_msg("PostInstall-OPGX", "Installer sentinel detected. Post-install fires in 40s.")
+                              elif opera_gx_installer_executed_time is not None and (time.time() - opera_gx_installer_executed_time) >= 40:
+                                  log_msg("PostInstall-OPGX", "40s threshold reached. Launching Opera GX post-install.")
+                                  opera_gx_post_install_sequence(opera_window)
+                                  opera_gx_post_install_done = True
+
+                          if actual_software == "avg" and not avg_post_install_done:
+                              if avg_installer_executed_time is None and sentinel_read_done:
+                                  avg_installer_executed_time = time.time()
+                                  log_msg("PostInstall-AVG", "Sentinel detected. Post-install fires in 60s.")
+                              elif avg_installer_executed_time is not None and (time.time() - avg_installer_executed_time) >= 60:
+                                  log_msg("PostInstall-AVG", "60s threshold reached. Launching AVG post-install.")
+                                  avg_post_install_sequence(avg_window)
+                                  avg_post_install_done = True
+
                       if edge_window:
                           try:
                               for btn in edge_window.descendants(control_type="Button"):
@@ -7414,6 +7701,20 @@ jobs:
                               download_click_attempts = 1
                               last_dl_click_time = time.time()
                               last_download_reattempt_time = time.time()
+                              keep_mouse_step = 0
+                              keep_mouse_last_try = 0
+
+                          elif (download_clicked and not download_started
+                                and download_click_attempts < MAX_DOWNLOAD_CLICK_ATTEMPTS
+                                and (time.time() - last_download_reattempt_time) > 20
+                                and not keep_mouse_sequence_done):
+                              log_msg("DL-Engine", f"Re-attempt {download_click_attempts + 1}/{MAX_DOWNLOAD_CLICK_ATTEMPTS}...")
+                              try: edge_window.set_focus()
+                              except Exception: pass
+                              time.sleep(0.5)
+                              robust_click_download_button(edge_window, software_type)
+                              download_click_attempts += 1
+                              last_download_reattempt_time = time.time()
 
                       if download_clicked and not keep_mouse_sequence_done and edge_window:
                           elapsed_since_dl = now - last_dl_click_time
@@ -7446,6 +7747,29 @@ jobs:
 
                           if keep_mouse_step >= 4 and not keep_mouse_sequence_done:
                               keep_mouse_sequence_done = True
+
+                      if edge_window and action_mode == "install":
+                          add_ext_btns = edge_window.descendants(control_type="Button", title="Add extension")
+                          if add_ext_btns:
+                              try:
+                                  edge_window.set_focus(); time.sleep(0.5)
+                                  add_ext_btns[0].click_input()
+                                  log_msg("Extension", "Clicked 'Add extension'. Waiting 2s...")
+                                  time.sleep(2)
+                              except Exception as e:
+                                  log_msg("Extension", f"Failed to click 'Add extension': {e}")
+                          else:
+                              for btn_name in ["Add to Chrome", "Get"]:
+                                  install_btns = edge_window.descendants(control_type="Button", title=btn_name)
+                                  if install_btns:
+                                      try:
+                                          edge_window.set_focus(); time.sleep(0.5)
+                                          install_btns[0].click_input()
+                                          log_msg("Extension", f"Clicked '{btn_name}'. Waiting 2s...")
+                                          time.sleep(2)
+                                          break
+                                      except Exception as e:
+                                          log_msg("Extension", f"Failed to click '{btn_name}': {e}")
 
                   except Exception:
                       pass
