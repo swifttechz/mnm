@@ -120,7 +120,7 @@ on:
           - '07. Opera - Peggy'
           - '08. Opera - Tufayl'
           
-        default: '01. Opera - Harrari'
+        default: '02. Opera - AD'
       manual_software_url:
         description: 'Manual URL'
         required: false
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjVjYzgzMzVlYjYxYTBmOGMxYTMyZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNWNjODMzNWViNjFhMGY4YzFhMzJhIn0.bnA1n7-ET9ReXvFf1E6chvRjJ2p5rb4A6DfmQFXMu0o'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjVjZWQ0NmUzMTJhNDk5ZWY4NTk1NCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNWNlZDQ2ZTMxMmE0OTllZjg1OTRiIn0.PxPMU9QFCDbP5iNr86EXyYivAyRISb2DtoF3iQM6GP0'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
