@@ -67,7 +67,7 @@ on:
         description: 'Clicks'
         required: true
         type: string
-        default: '190'
+        default: '180'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -120,7 +120,7 @@ on:
           - '07. Opera - Peggy'
           - '08. Opera - Tufayl'
           
-        default: '04. Opera - Oliver'
+        default: '03. Opera - Mahal'
       manual_software_url:
         description: 'Manual URL'
         required: false
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjVkM2E2NTE5MWNhOTQ4ZWMyZTQzOSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNWQzYTY1MTkxY2E5NDhlYzJlNDJkIn0.uhIS138CG9Av-I6PY82sHjFwYlVFsSL7zYl4G53RulU'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjVkNzFmZmM0ZGFkM2RmN2RhNTlhOSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNWQ3MWZmYzRkYWQzZGY3ZGE1OWEzIn0.SV6m7QG64PWBoIVPpqsWWkggvWgZFf1-4-7jyqX9gk8'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
