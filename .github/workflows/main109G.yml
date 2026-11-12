@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '3'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -62,17 +62,17 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '0'
+        default: '10'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '200'
+        default: '0'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '50'
+        default: '0'
       enable_scroll:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
@@ -82,7 +82,7 @@ on:
         description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
         type: boolean
-        default: true
+        default: false
       reuse_proxies:
         description: 'Reuse Proxies (once every pool proxy has been used, wrap back around to #1, #2, ...)'
         required: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjU0MjJmMDRkOGMxYjZlOTdhYjI4YSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNTQyMmYwNGQ4YzFiNmU5N2FiMjdjIn0.RWR6PK7AUmbW-j9E9bQn--g8pDDQ8utJYOfG_VpGA10'
+        default: 'geolocation://iVy0SxrpNxgiSSDU:3541WkrO24axJqkM@geo.floppydata.com:10080:FRANCE geolocation://lrGeCg0KslPK1sME:pGkLuIg09f5rk8Tg@geo.floppydata.com:10080:France http://4msFJuEKbQsm3hGk:q9J48V6SWthInQTC@geo.floppydata.com:10080:France http://lyp1eWEfr68zb19u:1DtSIypNhG11Cw56@geo.floppydata.com:10080:France http://qdJz0UzaNN9zFZSA:QB3BW3gt4fuhOyA3@geo.floppydata.com:10080:France http://9mQlIZR3Sgvj1gow:IXCCYLTrmXga5yG1@geo.floppydata.com:10080:France http://gk529JNWh2qSvm9Q:t5wqu5SMfuUO9xF8@geo.floppydata.com:10080:France http://6jfhlF0YbGfrjf5q:b5ecUZiwUrY3I1ec@geo.floppydata.com:10080:France http://HJunzbuhf0fBSVYX:ZvjTlsIDIbPgYGfA@geo.floppydata.com:10080:France'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -166,7 +166,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'France'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -188,7 +188,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'Canada'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
