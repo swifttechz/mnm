@@ -1,4 +1,4 @@
-name: Parallel mx10.9C
+name: Parallel mx10.9G
 
 on:
   workflow_dispatch:
@@ -247,7 +247,7 @@ jobs:
         run: |
           import os, re, glob
 
-          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.9C")
+          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.9G")
           workflow_dir = ".github/workflows"
           target_file = None
 
