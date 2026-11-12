@@ -5011,17 +5011,6 @@ jobs:
 
               return clicked
 
-          # ============================================================
-# PATCH: mx10.9C - Fix download button on non-English pages
-# 
-# LOCATION: Inside $handlerPy heredoc in
-#           "Setup Auto-Downloader, Surfer & Software Installation" step
-#
-# FIND the entire existing robust_click_download_button function
-# (it currently has ONLY Pass 1 and Pass 2, no Pass 3/4)
-# and REPLACE it with the two functions below.
-# ============================================================
-
           def dismiss_cookie_popups_before_download(edge_window, software_type):
               """
               Dedicated pre-download cookie dismissal.
@@ -5060,6 +5049,7 @@ jobs:
                   log_msg("PreDLCookies", "Cookie overlay dismissed. Waiting 2s for page to settle...")
                   time.sleep(2)
               return clicked_any
+
 
           def robust_click_download_button(edge_window, software_type):
               sw, sh = pyautogui.size()
@@ -5159,6 +5149,69 @@ jobs:
 
               log_msg("DL-Engine", "All 4 passes exhausted. Returning False.")
               return False
+
+          def _is_address_bar_control(ctrl):
+              try:
+                  wt  = (ctrl.window_text() or "").lower().strip()
+                  aid = ""
+                  cls = ""
+                  try: aid = (ctrl.element_info.automation_id or "").lower()
+                  except Exception: pass
+                  try: cls = (ctrl.element_info.class_name or "").lower()
+                  except Exception: pass
+                  for name in ADDRESS_BAR_NAMES:
+                      if name in wt or name in aid:
+                          return True
+                  for aid_kw in ADDRESS_BAR_AUTOMATION_IDS:
+                      if aid_kw.lower() in aid:
+                          return True
+                  if "omnibox" in cls or "addressbar" in cls:
+                      return True
+              except Exception:
+                  pass
+              return False
+
+          _FOLD_SPECIAL_MAP = str.maketrans({
+              'ł': 'l', 'Ł': 'L', 'đ': 'd', 'Đ': 'D', 'ø': 'o', 'Ø': 'O',
+              'ß': 'ss', 'æ': 'ae', 'Æ': 'AE', 'œ': 'oe', 'Œ': 'OE', 'ı': 'i',
+          })
+
+          def _fold(text):
+              """Lowercase + strip diacritics (accents, tildes, cedillas, etc.) so
+              keyword matching is language-robust: 'sesion' matches 'sesión',
+              'contrasena' matches 'contraseña', 'hasło' matches 'hasło'/'haslo', and so
+              on, regardless of which accented/unaccented form is hardcoded in a list.
+              A handful of letters (ł, đ, ø, ß...) don't decompose under NFKD, so they
+              are mapped explicitly first."""
+              if not text:
+                  return ""
+              pre = text.translate(_FOLD_SPECIAL_MAP)
+              nfkd = unicodedata.normalize('NFKD', pre)
+              stripped = ''.join(ch for ch in nfkd if not unicodedata.combining(ch))
+              return stripped.lower().strip()
+
+          def _matches_any(text, keyword_list):
+              if not text: return False
+              tl = _fold(text)
+              return any(_fold(kw) in tl for kw in keyword_list)
+
+          def _proxy_host_hint():
+              srv = (PROXY_SERVER or "").replace("http://", "").replace("https://", "")
+              host = srv.split("@")[-1].split(":")[0].strip()
+              return host if len(host) >= 4 else ""
+
+          _PROXY_HOST_HINT = ""  # resolved lazily on first use, after USE_PROXY/PROXY_SERVER are loaded
+
+          def _window_mentions_proxy_host(text):
+              global _PROXY_HOST_HINT
+              if not text: return False
+              if not _PROXY_HOST_HINT:
+                  _PROXY_HOST_HINT = _proxy_host_hint()
+              return bool(_PROXY_HOST_HINT) and _PROXY_HOST_HINT.lower() in text.lower()
+
+          def _is_proxy_auth_dialog(window_text):
+              if not window_text: return False
+              return _matches_any(window_text, PROXY_AUTH_TITLE_KEYWORDS) or _window_mentions_proxy_host(window_text)
 
           # ---------------------------------------------------------------------------
           # PROXY AUTH: ONE-SHOT STATE + WEB-PAGE PROTECTION
