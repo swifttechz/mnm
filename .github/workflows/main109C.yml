@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '2'
+        default: '1'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -62,37 +62,37 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '10'
+        default: '0'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '0'
+        default: '200'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '0'
+        default: '50'
       enable_scroll:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
         type: boolean
-        default: false
+        default: true
       enable_surf:
         description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
         type: boolean
-        default: false
+        default: true
       reuse_proxies:
         description: 'Reuse Proxies (once every pool proxy has been used, wrap back around to #1, #2, ...)'
         required: true
         type: boolean
-        default: false
+        default: true
       unique_ip:
         description: 'Unique IP (re-check each proxy exit IP on the device; reject it if another device already used that IP)'
         required: true
         type: boolean
-        default: false
+        default: true
       software_choice:
         description: 'Software & Link'
         required: true
@@ -135,12 +135,12 @@ on:
         description: 'Apply Fingerprint Masking'
         required: true
         type: boolean
-        default: false
+        default: true
       scrapeops_api_key:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjUzYjIxZmM0ZGFkM2RmN2RkMDY3YyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNTNiMjFmYzRkYWQzZGY3ZGQwNjZhIn0.6bW4ToPLekngePGP4kJxsOCXHTCgcpz901R6EfGDCJg'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjU0MjJmMDRkOGMxYjZlOTdhYjI4YSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNTQyMmYwNGQ4YzFiNmU5N2FiMjdjIn0.RWR6PK7AUmbW-j9E9bQn--g8pDDQ8utJYOfG_VpGA10'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -166,7 +166,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'France'
+        default: 'USA'
       fallback_country:
         description: 'Fallback Country'
         required: true
