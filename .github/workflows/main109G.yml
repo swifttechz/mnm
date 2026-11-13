@@ -120,7 +120,7 @@ on:
           - '07. Opera - Peggy'
           - '08. Opera - Tufayl'
           
-        default: '03. Opera - Mahal'
+        default: '04. Opera - Oliver'
       manual_software_url:
         description: 'Manual URL'
         required: false
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'geolocation://ZNZaR0ow5nqGhnGX:qAL24OWKrep5VONC@geo.floppydata.com:10080:2-FR-sitwpi geolocation://hIJCXxWxsp67MgO1:uibmuhOyRLqz2mWU@geo.floppydata.com:10080:3-FR-gembmt geolocation://o0PJAoZEJAsv8nrM:jIaL21aC8JH5gTer@geo.floppydata.com:10080:4-FR-tlzsug'
+        default: 'geolocation://9qkZKxVlAAzxRsYL:80ylZVi69mwE0uKz@geo.floppydata.com:10080:5-FR-snoosa geolocation://79a9F9UaCsJCp2Yg:h2vKMrNpFd3iWbkl@geo.floppydata.com:10080:6-FR-dpinuh'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
