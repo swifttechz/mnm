@@ -120,7 +120,7 @@ on:
           - '07. Opera - Peggy'
           - '08. Opera - Tufayl'
           
-        default: '01. Opera - Harrari'
+        default: '02. Opera - AD'
       manual_software_url:
         description: 'Manual URL'
         required: false
