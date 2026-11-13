@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '3'
+        default: '1'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -44,7 +44,7 @@ on:
           - '3-6 minutes'
           - '4-8 minutes'
           - '5-10 minutes'
-        default: '0 minutes'
+        default: '5-10 minutes'
       keep_alive_duration:
         description: 'Timeout / Keep Runner Alive'
         required: true
@@ -57,7 +57,7 @@ on:
           - '10 minutes'
           - '11 minutes'
           - '12 minutes'
-        default: '8 minutes'
+        default: '10 minutes'
       num_installs:
         description: 'Installs'
         required: true
@@ -120,7 +120,7 @@ on:
           - '07. Opera - Peggy'
           - '08. Opera - Tufayl'
           
-        default: '06. Opera - Fahmad'
+        default: '01. Opera - Harrari'
       manual_software_url:
         description: 'Manual URL'
         required: false
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjZiZTdhMDBiNmFhNDgwYTJkNDU3MiIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNmJlN2EwMGI2YWE0ODBhMmQ0NTY5In0.uf2R41fVqvLyWvdF5KTglj7VNOeF9StFULVJh5JeLpk'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjcxNjRiOWE3ZTYwZTcxZjgyNWQzMyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNzE2NGI5YTdlNjBlNzFmODI1ZDJmIn0.l94ZnX-hzJFTOtfDBRaTxQxsY1DCRXpFpJP_0FcdqfI'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -166,7 +166,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Australia'
+        default: 'France'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -188,7 +188,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'France'
+        default: 'Australia'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
