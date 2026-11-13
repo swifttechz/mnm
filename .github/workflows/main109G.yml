@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '2'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '10'
+        default: '2'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '90'
+        default: '0'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -120,7 +120,7 @@ on:
           - '07. Opera - Peggy'
           - '08. Opera - Tufayl'
           
-        default: '02. Opera - AD'
+        default: '03. Opera - Mahal'
       manual_software_url:
         description: 'Manual URL'
         required: false
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjZhYThjMzNiMzI4NmJiZTlkNGQxYSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNmFhOGMzM2IzMjg2YmJlOWQ0ZDE2In0.1pAMA58cqrPOjjElKo-A8fdUcoeqwNxjm40U0aVf6Gg'
+        default: 'geolocation://ZNZaR0ow5nqGhnGX:qAL24OWKrep5VONC@geo.floppydata.com:10080:2-FR-sitwpi geolocation://hIJCXxWxsp67MgO1:uibmuhOyRLqz2mWU@geo.floppydata.com:10080:3-FR-gembmt geolocation://o0PJAoZEJAsv8nrM:jIaL21aC8JH5gTer@geo.floppydata.com:10080:4-FR-tlzsug'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -188,7 +188,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'UK'
+        default: 'Australia'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
@@ -203,7 +203,7 @@ on:
         description: 'Proxy Pool Mode (5% pool first, then keeps feeding devices)'
         required: true
         type: boolean
-        default: true
+        default: false
 
 permissions:
   actions: write
