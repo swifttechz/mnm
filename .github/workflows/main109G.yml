@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '2'
+        default: '3'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -62,7 +62,7 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '5'
+        default: '10'
       num_clicks:
         description: 'Clicks'
         required: true
@@ -120,7 +120,7 @@ on:
           - '07. Opera - Peggy'
           - '08. Opera - Tufayl'
           
-        default: '05. Opera - Mobeen'
+        default: '06. Opera - Fahmad'
       manual_software_url:
         description: 'Manual URL'
         required: false
@@ -166,7 +166,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'France'
+        default: 'Australia'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -188,7 +188,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Australia'
+        default: 'France'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
