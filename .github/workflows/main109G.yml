@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjY3ZWRmMjVlZjk5N2ViNDc4MTdkNSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNjdlZGYyNWVmOTk3ZWI0NzgxN2QwIn0.OgDSGAQ7IbK-ZNIoRGYPJGXlonHhrx_Rva-oSe4zN2A'
+        default: 'geolocation://38guwv3IeAvmsZWG:T6NZRcZ4KcTS5h3x@geo.floppydata.com:10080:1-AU-yfisxe geolocation://Nzz6PBx2X1yweBvy:IWpZrjXxyQLYuO7I@geo.floppydata.com:10080:2-AU-yaoujw geolocation://3WKXcV3SgRQa5Oeu:YUNvZp60u4EFuXEW@geo.floppydata.com:10080:3-AU-ybirtp geolocation://Y8TV53Bh2msznML9:hVw0Ixjqnztju19K@geo.floppydata.com:10080:4-AU-febemi'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -203,7 +203,7 @@ on:
         description: 'Proxy Pool Mode (5% pool first, then keeps feeding devices)'
         required: true
         type: boolean
-        default: true
+        default: false
 
 permissions:
   actions: write
