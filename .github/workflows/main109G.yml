@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '2'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '10'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '100'
+        default: '0'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -120,7 +120,7 @@ on:
           - '07. Opera - Peggy'
           - '08. Opera - Tufayl'
           
-        default: '04. Opera - Oliver'
+        default: '08. Opera - Tufayl'
       manual_software_url:
         description: 'Manual URL'
         required: false
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjZiMDFmMzNiMzI4NmJiZWEzN2M0ZiIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNmIwMWYzM2IzMjg2YmJlYTM3YzRiIn0.0MXrTbmEQhQVs_FcE8dd4tpkgJmDZFzPIYSurPgLHbU'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjZiZTdhMDBiNmFhNDgwYTJkNDU3MiIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNmJlN2EwMGI2YWE0ODBhMmQ0NTY5In0.uf2R41fVqvLyWvdF5KTglj7VNOeF9StFULVJh5JeLpk'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
