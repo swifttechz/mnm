@@ -32,7 +32,7 @@ on:
           - '8'
           - '9'
           - '10'
-        default: '1'
+        default: '2'
       delay_between_devices:
         description: 'Delay Between Devices'
         required: true
@@ -44,7 +44,7 @@ on:
           - '3-6 minutes'
           - '4-8 minutes'
           - '5-10 minutes'
-        default: '5-10 minutes'
+        default: '0 minutes'
       keep_alive_duration:
         description: 'Timeout / Keep Runner Alive'
         required: true
@@ -57,17 +57,17 @@ on:
           - '10 minutes'
           - '11 minutes'
           - '12 minutes'
-        default: '10 minutes'
+        default: '6 minutes'
       num_installs:
         description: 'Installs'
         required: true
         type: string
-        default: '5'
+        default: '0'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '0'
+        default: '250'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -141,7 +141,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'geolocation://aOgC7haAjPGo9lM2:sYPrRpY1ctKX4CBY@geo.floppydata.com:10080:25-FR-tebfxg geolocation://wC53IdnwRgBiaTNm:DuJvUCpXOhz6aXeC@geo.floppydata.com:10080:26-FR-msbkmx geolocation://Vbrpm4HbRyLREhsR:9ztUFgX9t8aYf88h@geo.floppydata.com:10080:27-FR-vbbotf geolocation://3DVK24shqUGXADVv:mWAODUtbQMgR5FvX@geo.floppydata.com:10080:28-FR-ktpdnb geolocation://Dxlu9nfkAo1FYIpo:7mp9JvIDICqCCMGj@geo.floppydata.com:10080:29-FR-gexlzw'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjg1MDg4ZWM1Y2ZiZTU4OTc2YTY2NSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmODUwODhlYzVjZmJlNTg5NzZhNjYxIn0.91WkrHX-1bTe7AMnGCatvyVvBnNJO67npILKC9VPwlU'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -204,7 +204,7 @@ on:
         description: 'Proxy Pool Mode (5% pool first, then keeps feeding devices)'
         required: true
         type: boolean
-        default: false
+        default: true
 
 permissions:
   actions: write
