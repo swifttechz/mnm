@@ -77,12 +77,12 @@ on:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
         type: boolean
-        default: false
+        default: true
       enable_surf:
         description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
         type: boolean
-        default: false
+        default: true
       reuse_proxies:
         description: 'Reuse Proxies (once every pool proxy has been used, wrap back around to #1, #2, ...)'
         required: true
@@ -141,7 +141,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjdmYjY0NDFlMDYyYzdlNTFiMzAzNyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmN2ZiNjQ0MWUwNjJjN2U1MWIzMDJkIn0.MCqbJToOTJ5mkr0YFhKP_Z6XZR_lPYSz6M0Di8VVdrY'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjgwYzE3MzA4ZmQ4MjlhZjFkYjk5MyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmODBjMTczMDhmZDgyOWFmMWRiOThjIn0.jPXi44Kos_PxltAWS5l0kCfxfIEoiQ-RnXrH84wPNPM'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
