@@ -16,7 +16,7 @@ on:
         description: 'Getscreen.me Account Email'
         required: true
         type: string
-        default: 'dramatic.skink.kvck@hidingpost.com'
+        default: 'techx@ccmail.online'
       num_devices:
         description: 'Number of Devices'
         required: true
@@ -62,7 +62,7 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '0'
+        default: '10'
       num_clicks:
         description: 'Clicks'
         required: true
@@ -72,7 +72,7 @@ on:
         description: 'Surfs'
         required: true
         type: string
-        default: '50'
+        default: '0'
       enable_scroll:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
@@ -121,7 +121,7 @@ on:
           - '08. Opera - Peggy'
           - '09. Opera - Tufayl'
           
-        default: '03. Opera - Mark'
+        default: '01. Opera - Harrari'
       manual_software_url:
         description: 'Manual URL'
         required: false
@@ -136,12 +136,12 @@ on:
         description: 'Apply Fingerprint Masking'
         required: true
         type: boolean
-        default: true
+        default: false
       scrapeops_api_key:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjdlMWYwNDE5OGNlZGMzOTMyMWM4MCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmN2UxZjA0MTk4Y2VkYzM5MzIxYzczIn0.-yQCZzCT_KGwctoeb8vnXoLWhmwHZAhyPqIGMLlWoHA'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjdlN2M0MzA4ZmQ4MjlhZmUzNjFmYSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmN2U3YzQzMDhmZDgyOWFmZTM2MWYxIn0.J-bXA3jshBOLzE6o0q0NmNhRG46WBMUmj4SNVFdy81o'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -167,7 +167,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'France'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -189,7 +189,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'Australia'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
