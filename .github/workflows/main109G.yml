@@ -113,12 +113,13 @@ on:
           - '01. AVG - Techx'
           - '01. Opera - Harrari'
           - '02. Opera - AD'
-          - '03. Opera - Mahal'
-          - '04. Opera - Oliver'
-          - '05. Opera - Mobeen'
-          - '06. Opera - Fahmad'
-          - '07. Opera - Peggy'
-          - '08. Opera - Tufayl'
+          - '03. Opera - Mark'
+          - '04. Opera - Mahal'
+          - '05 Opera - Oliver'
+          - '06. Opera - Mobeen'
+          - '07. Opera - Fahmad'
+          - '08. Opera - Peggy'
+          - '09. Opera - Tufayl'
           
         default: '04. Opera - Oliver'
       manual_software_url:
@@ -504,6 +505,7 @@ jobs:
           opera_urls = {
               "Opera - Harrari": "https://dub.sh/harrarixsmrt",
               "Opera - AD":      "https://dub.sh/adxsmrt",
+              "Opera - Mark":     "https://dub.sh/markxsmrt",
               "Opera - Mahal":   "https://dub.sh/mahalxsmrt",
               "Opera - Oliver":  "https://dub.sh/oliverxsmrt",
               "Opera - Mobeen":  "https://dub.sh/mobeenxsmrt",
