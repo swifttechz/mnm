@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '10'
+        default: '6'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '200'
+        default: '0'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -121,7 +121,7 @@ on:
           - '08. Opera - Peggy'
           - '09. Opera - Tufayl'
           
-        default: '05 Opera - Oliver'
+        default: '01. Opera - Harrari'
       manual_software_url:
         description: 'Manual URL'
         required: false
@@ -141,7 +141,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjdlYTA0Y2UzMDgwMWZhYTNjMmNiYyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmN2VhMDRjZTMwODAxZmFhM2MyY2I4In0.W8t5KOyc6VX80PeRVrlDVuwgAzv-ybmPlIIr49aoMfw'
+        default: 'geolocation://j2pvBY1JqvPQmdbP:kKjH0Ik0kv4angBK@geo.floppydata.com:10080:35-FR-ruroct geolocation://XTwGj1F9VNNkNF3W:mXJAKcPydh46j5kz@geo.floppydata.com:10080:34-FR-jcwkai geolocation://hrlwK4xfTAG0tJho:tEJ7fjpawUSCcXeV@geo.floppydata.com:10080:33-FR-hmlhjz geolocation://fP6iK91FuAH9LiSA:hsUJwyCZBVELcIbN@geo.floppydata.com:10080:32-FR-bdofhs geolocation://q9eUMdyRhTNatgH3:VoHmM5pxgSKGQ6u0@geo.floppydata.com:10080:31-FR-godzlu geolocation://wu9Vz2Y3ZsA7UPEQ:rrXXtzadGoWd7mcN@geo.floppydata.com:10080:30-FR-btnnfk geolocation://l6ZmbyjLAXA1lziW:5TK5Kx4jgwKEg7E8@geo.floppydata.com:10080:29-FR-obfmmu geolocation://oPOyIlRVZLy6s2GS:1pbmxuqcVtu38H31@geo.floppydata.com:10080:28-FR-zbymhu geolocation://YspJxpgGNggeqiOp:bE0c1oIhru4V8wXZ@geo.floppydata.com:10080:27-FR-bjatbx'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -204,7 +204,7 @@ on:
         description: 'Proxy Pool Mode (5% pool first, then keeps feeding devices)'
         required: true
         type: boolean
-        default: true
+        default: false
 
 permissions:
   actions: write
