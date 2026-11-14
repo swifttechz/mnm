@@ -62,7 +62,7 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '10'
+        default: '3'
       num_clicks:
         description: 'Clicks'
         required: true
@@ -121,7 +121,7 @@ on:
           - '08. Opera - Peggy'
           - '09. Opera - Tufayl'
           
-        default: '04. Opera - Oliver'
+        default: '03. Opera - Mark'
       manual_software_url:
         description: 'Manual URL'
         required: false
@@ -141,7 +141,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjcxODU1NTRlZTg3ZjYwY2EyZGY1OSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmNzE4NTU1NGVlODdmNjBjYTJkZjA3In0.jq7YiTKznkrSmWA-t4Qm-Wn6NTZRRvMwfj5m3p0mBq0'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjdkZDBhY2UzMDgwMWZhYTI0MWQ3NSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmN2RkMGFjZTMwODAxZmFhMjQxZDcxIn0.TvkbDpVLQJ3WgqwU6_UEFc0l-U2udFyOEW-k1CNGHAk'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -189,7 +189,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Australia'
+        default: 'Germany'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
