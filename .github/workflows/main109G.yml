@@ -62,7 +62,7 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '3'
+        default: '0'
       num_clicks:
         description: 'Clicks'
         required: true
@@ -72,12 +72,12 @@ on:
         description: 'Surfs'
         required: true
         type: string
-        default: '0'
+        default: '50'
       enable_scroll:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
         type: boolean
-        default: false
+        default: true
       enable_surf:
         description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
@@ -136,12 +136,12 @@ on:
         description: 'Apply Fingerprint Masking'
         required: true
         type: boolean
-        default: false
+        default: true
       scrapeops_api_key:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjdkZDBhY2UzMDgwMWZhYTI0MWQ3NSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmN2RkMGFjZTMwODAxZmFhMjQxZDcxIn0.TvkbDpVLQJ3WgqwU6_UEFc0l-U2udFyOEW-k1CNGHAk'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjdkZmU4NzBhNTc4MDliYTE2NGQzZCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmN2RmZTg3MGE1NzgwOWJhMTY0ZDMyIn0.CyC7zNBRCVC5cD_nsC9UU6WRLFgRTlGR7Q_ZxihQQIQ'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -167,7 +167,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'France'
+        default: 'USA'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -189,7 +189,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Germany'
+        default: 'USA'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
