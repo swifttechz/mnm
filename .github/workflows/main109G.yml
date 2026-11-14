@@ -77,7 +77,7 @@ on:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
         type: boolean
-        default: true
+        default: false
       enable_surf:
         description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
@@ -141,7 +141,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjdkZmU4NzBhNTc4MDliYTE2NGQzZCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmN2RmZTg3MGE1NzgwOWJhMTY0ZDMyIn0.CyC7zNBRCVC5cD_nsC9UU6WRLFgRTlGR7Q_ZxihQQIQ'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjdlMWYwNDE5OGNlZGMzOTMyMWM4MCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmN2UxZjA0MTk4Y2VkYzM5MzIxYzczIn0.-yQCZzCT_KGwctoeb8vnXoLWhmwHZAhyPqIGMLlWoHA'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
