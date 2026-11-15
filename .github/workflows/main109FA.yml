@@ -7786,51 +7786,31 @@ jobs:
                               if not surf_simulation_executed and elapsed_surf > 6 and edge_window:
                                   # -------------------------------------------------------
                                   # PRE-SURF STABILISATION
-                                  # Wait for the page to fully load and the URL to settle,
-                                  # THEN hold an extra 10-20 seconds so the page is truly
-                                  # idle before any mouse input is sent.  This prevents the
-                                  # first click from hitting a still-loading header / overlay
-                                  # that can redirect outside the target subdomain.
+                                  # Reuse the existing get_current_url() helper to wait for
+                                  # the URL to fully settle (redirect resolved, same host
+                                  # read twice), then hold a 10-20 s idle dwell so JS/CSS
+                                  # finish rendering before any mouse input is sent.
+                                  # This stops the first click from hitting a still-loading
+                                  # header or overlay that could navigate outside the domain.
                                   # -------------------------------------------------------
                                   log_msg("UI-Engine", "Pre-surf: waiting for full page load and URL stabilisation...")
-                                  page_ready = False
                                   url_stable_host = None
                                   page_wait_start = time.time()
-                                  page_wait_max = 30   # hard ceiling for pre-surf wait
+                                  page_wait_max = 30
                                   while (time.time() - page_wait_start) < page_wait_max:
                                       try:
-                                          wt = (edge_window.window_text() or "").strip().lower()
-                                          if wt not in ["microsoft edge", "edge", "new tab", "about:blank", ""]:
-                                              raw_url = None
-                                              try:
-                                                  import pywinauto
-                                                  for ed in edge_window.descendants(control_type="Edit"):
-                                                      try:
-                                                          aid = (ed.element_info.automation_id or "").lower()
-                                                      except Exception:
-                                                          aid = ""
-                                                      if "addresseditbox" in aid or "addressfield" in aid or "locationbar" in aid:
-                                                          for getter in (lambda c: c.get_value(), lambda c: c.iface_value.CurrentValue, lambda c: c.window_text()):
-                                                              try:
-                                                                  v = getter(ed)
-                                                                  if v: raw_url = str(v).strip(); break
-                                                              except Exception: pass
-                                                          if raw_url: break
-                                              except Exception: pass
-                                              if raw_url:
-                                                  import re as _re
-                                                  m = _re.match(r"^([a-zA-Z][a-zA-Z0-9+.\-]*)://([^/?#]+)", raw_url)
-                                                  if m:
-                                                      raw_host = m.group(2).split(":")[0].lower().lstrip("www.")
-                                                      if raw_host == url_stable_host:
-                                                          page_ready = True
-                                                          break
-                                                      url_stable_host = raw_host
-                                      except Exception: pass
+                                          raw_url = get_current_url(edge_window)
+                                          if raw_url:
+                                              h, _ = parse_url_host(raw_url)
+                                              if h and h != "__internal__":
+                                                  if h == url_stable_host:
+                                                      break
+                                                  url_stable_host = h
+                                      except Exception:
+                                          pass
                                       time.sleep(1.5)
-                                  # Additional idle dwell: 10-20 s random, ensures JS/CSS finish
                                   idle_dwell = random.randint(10, 20)
-                                  log_msg("UI-Engine", f"Pre-surf: page stable (host={url_stable_host or 'unknown'}). Idle dwell {idle_dwell}s before first input...")
+                                  log_msg("UI-Engine", "Pre-surf: page stable (host=" + str(url_stable_host or "unknown") + "). Idle dwell " + str(idle_dwell) + "s before first input...")
                                   time.sleep(idle_dwell)
                                   # -------------------------------------------------------
                                   surf_simulation_executed = True
