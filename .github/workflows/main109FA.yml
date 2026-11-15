@@ -16,7 +16,7 @@ on:
         description: 'Getscreen.me Account Email'
         required: true
         type: string
-        default: 'techx@ccmail.online'
+        default: 'dramatic.skink.kvck@hidingpost.com'
       num_devices:
         description: 'Number of Devices'
         required: true
@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '10'
+        default: '2'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '200'
+        default: '0'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjk5OWUwMzA4ZmQ4MjlhZjUxZTZjOCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmOTk5ZTAzMDhmZDgyOWFmNTFlNmI1In0.jSwM_zcvM9Y7LbzQ4xo38qytla6EfT3I30Gxu8lPp2Q'
+        default: 'geolocation://HNiNNvntxIonkARm:0OlgBUNrvyt2RwQT@geo.floppydata.com:10080:45-FR-umxgbk geolocation://gADwPmpDVNA8HSau:EDP04phAJxoFNtvQ@geo.floppydata.com:10080:46-FR-izaivj geolocation://XuC6goge8W5OaD2u:8YNVOLSrJ8hvhFC2@geo.floppydata.com:10080:47-FR-wvhsqx geolocation://NWMVSNoFwd3zlS6u:kn7km0Yera8O3Mhf@geo.floppydata.com:10080:48-FR-bunshs geolocation://EMUUDGP5BheNho5d:N8MGDo6yFMk2L0Hp@geo.floppydata.com:10080:49-FR-pymmac'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -203,7 +203,7 @@ on:
         description: 'Proxy Pool Mode (5% pool first, then keeps feeding devices)'
         required: true
         type: boolean
-        default: true
+        default: false
 
 permissions:
   actions: write
