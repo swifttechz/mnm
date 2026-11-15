@@ -2629,25 +2629,24 @@ jobs:
 
 
           def gh_json(url):
+              # Retry on all transient GitHub API errors (403/404 can be transient during
+              # runner spin-up when the artifact namespace isn't visible yet).
               last = None
-              delays = [2, 6, 15, 30, 60]
               for i in range(5):
                   try:
                       with urllib.request.urlopen(urllib.request.Request(url, headers=HDR), timeout=30) as r:
                           return json.loads(r.read())
                   except urllib.error.HTTPError as e:
                       last = e
-                      # Rate-limit (403/429) or transient server errors: back off and retry
-                      if e.code in (403, 429, 500, 502, 503, 504) and i < 4:
-                          wait = delays[min(i, len(delays) - 1)]
-                          say(f"[API] HTTP {e.code} on attempt {i+1}/5 -> backing off {wait}s before retry...")
-                          time.sleep(wait)
+                      if e.code in (403, 404, 429, 500, 502, 503, 504) and i < 4:
+                          time.sleep(4 + i * 3)
                           continue
                       raise
                   except Exception as e:
                       last = e
-                      wait = delays[min(i, len(delays) - 1)]
-                      time.sleep(wait)
+                      if i < 4:
+                          time.sleep(4 + i * 3)
+                          continue
               raise last
 
 
@@ -2792,48 +2791,32 @@ jobs:
               return None
 
 
-          _gate_consec_errors = {"n": 0}
-
-
           def run_gate():
               wait_s = GATE_WAIT_MIN * 60
               t0 = time.time()
               last_log = 0.0
               say("[Gate] Runner is up. Holding here until the initial 5% proxy pool (chunk 0) has been uploaded...")
               while True:
-                  api_error = False
                   try:
                       if list_artifacts("proxy-chunk-000"):
                           say(f"[Gate] Initial pool is READY after {int(time.time() - t0)}s -> device may proceed.")
                           return
-                      _gate_consec_errors["n"] = 0
-                  except urllib.error.HTTPError as e:
-                      api_error = True
-                      _gate_consec_errors["n"] += 1
-                      say(f"[Gate] artifact check HTTP {e.code} error (attempt {_gate_consec_errors['n']}) - will retry (pool may still be ready)")
                   except Exception as e:
-                      api_error = True
-                      _gate_consec_errors["n"] += 1
-                      say(f"[Gate] artifact check error: {type(e).__name__} (attempt {_gate_consec_errors['n']}) - will retry")
-
-                  if not api_error:
-                      try:
-                          st = chunk_job_state(0)
-                      except Exception:
-                          st = "unknown"
-                      if st == "finished":
-                          time.sleep(5)
-                          try:
-                              if list_artifacts("proxy-chunk-000"):
-                                  say("[Gate] Initial pool is READY -> device may proceed.")
-                                  return
-                          except Exception:
-                              pass
-                          say("[Gate] Pool job finished WITHOUT an initial chunk -> continuing; this device will use the API-key fallback.")
-                          return
-                  else:
+                      say(f"[Gate] artifact check error: {type(e).__name__}")
+                  try:
+                      st = chunk_job_state(0)
+                  except Exception:
                       st = "unknown"
-
+                  if st == "finished":
+                      time.sleep(5)
+                      try:
+                          if list_artifacts("proxy-chunk-000"):
+                              say("[Gate] Initial pool is READY -> device may proceed.")
+                              return
+                      except Exception:
+                          pass
+                      say("[Gate] Pool job finished WITHOUT an initial chunk -> continuing; this device will use the API-key fallback.")
+                      return
                   now = time.time()
                   if now - t0 >= wait_s:
                       say(f"::warning title=Gate::Initial pool not ready after {GATE_WAIT_MIN} min -> continuing (API-key fallback).")
@@ -2841,9 +2824,7 @@ jobs:
                   if now - last_log >= 30:
                       last_log = now
                       say(f"[Gate] ...still generating the initial 5% (pool job state: {st}) - waited {int(now - t0)}s of max {GATE_WAIT_MIN * 60}s")
-                  # Back off longer when hitting repeated API errors (rate-limit protection)
-                  sleep_s = min(30, 10 + _gate_consec_errors["n"] * 5) if api_error else 10
-                  time.sleep(sleep_s)
+                  time.sleep(10)
 
 
           if MODE == "gate":
@@ -3233,25 +3214,24 @@ jobs:
 
 
           def gh_json(url):
+              # Retry on all transient GitHub API errors (403/404 can be transient during
+              # runner spin-up when the artifact namespace isn't visible yet).
               last = None
-              delays = [2, 6, 15, 30, 60]
               for i in range(5):
                   try:
                       with urllib.request.urlopen(urllib.request.Request(url, headers=HDR), timeout=30) as r:
                           return json.loads(r.read())
                   except urllib.error.HTTPError as e:
                       last = e
-                      # Rate-limit (403/429) or transient server errors: back off and retry
-                      if e.code in (403, 429, 500, 502, 503, 504) and i < 4:
-                          wait = delays[min(i, len(delays) - 1)]
-                          say(f"[API] HTTP {e.code} on attempt {i+1}/5 -> backing off {wait}s before retry...")
-                          time.sleep(wait)
+                      if e.code in (403, 404, 429, 500, 502, 503, 504) and i < 4:
+                          time.sleep(4 + i * 3)
                           continue
                       raise
                   except Exception as e:
                       last = e
-                      wait = delays[min(i, len(delays) - 1)]
-                      time.sleep(wait)
+                      if i < 4:
+                          time.sleep(4 + i * 3)
+                          continue
               raise last
 
 
@@ -3396,48 +3376,32 @@ jobs:
               return None
 
 
-          _gate_consec_errors = {"n": 0}
-
-
           def run_gate():
               wait_s = GATE_WAIT_MIN * 60
               t0 = time.time()
               last_log = 0.0
               say("[Gate] Runner is up. Holding here until the initial 5% proxy pool (chunk 0) has been uploaded...")
               while True:
-                  api_error = False
                   try:
                       if list_artifacts("proxy-chunk-000"):
                           say(f"[Gate] Initial pool is READY after {int(time.time() - t0)}s -> device may proceed.")
                           return
-                      _gate_consec_errors["n"] = 0
-                  except urllib.error.HTTPError as e:
-                      api_error = True
-                      _gate_consec_errors["n"] += 1
-                      say(f"[Gate] artifact check HTTP {e.code} error (attempt {_gate_consec_errors['n']}) - will retry (pool may still be ready)")
                   except Exception as e:
-                      api_error = True
-                      _gate_consec_errors["n"] += 1
-                      say(f"[Gate] artifact check error: {type(e).__name__} (attempt {_gate_consec_errors['n']}) - will retry")
-
-                  if not api_error:
-                      try:
-                          st = chunk_job_state(0)
-                      except Exception:
-                          st = "unknown"
-                      if st == "finished":
-                          time.sleep(5)
-                          try:
-                              if list_artifacts("proxy-chunk-000"):
-                                  say("[Gate] Initial pool is READY -> device may proceed.")
-                                  return
-                          except Exception:
-                              pass
-                          say("[Gate] Pool job finished WITHOUT an initial chunk -> continuing; this device will use the API-key fallback.")
-                          return
-                  else:
+                      say(f"[Gate] artifact check error: {type(e).__name__}")
+                  try:
+                      st = chunk_job_state(0)
+                  except Exception:
                       st = "unknown"
-
+                  if st == "finished":
+                      time.sleep(5)
+                      try:
+                          if list_artifacts("proxy-chunk-000"):
+                              say("[Gate] Initial pool is READY -> device may proceed.")
+                              return
+                      except Exception:
+                          pass
+                      say("[Gate] Pool job finished WITHOUT an initial chunk -> continuing; this device will use the API-key fallback.")
+                      return
                   now = time.time()
                   if now - t0 >= wait_s:
                       say(f"::warning title=Gate::Initial pool not ready after {GATE_WAIT_MIN} min -> continuing (API-key fallback).")
@@ -3445,9 +3409,7 @@ jobs:
                   if now - last_log >= 30:
                       last_log = now
                       say(f"[Gate] ...still generating the initial 5% (pool job state: {st}) - waited {int(now - t0)}s of max {GATE_WAIT_MIN * 60}s")
-                  # Back off longer when hitting repeated API errors (rate-limit protection)
-                  sleep_s = min(30, 10 + _gate_consec_errors["n"] * 5) if api_error else 10
-                  time.sleep(sleep_s)
+                  time.sleep(10)
 
 
           if MODE == "gate":
@@ -6675,6 +6637,9 @@ jobs:
                       else:
                           last, last_full, stable = host, full, 1
                       moved = (short_host is None) or (host != short_host)
+                      # Require 4 consecutive identical-host reads (~4s) before
+                      # locking, so the site-lock survives short-link redirects that
+                      # settle quickly but transiently.
                       if stable >= 4 and (moved or (time.time() - t0) > 12):
                           break
                   else:
@@ -7001,7 +6966,9 @@ jobs:
               ovs = profile["overshoot_prob"]
 
               # ---- page load + site lock (counts against the 180s cap) ----
-              wait_for_page_to_fully_load(edge_window, timeout=25)
+              # Generous timeouts: pre-surf dwell already settled the initial page;
+              # these cover subpage navigations mid-session which can be slower.
+              wait_for_page_to_fully_load(edge_window, timeout=30)
               lock_site(edge_window, globals().get("TARGET_URL", ""), max_wait=25)
               link_allowed = _SITE["locked"] and _SITE["readable"]
 
@@ -7233,11 +7200,22 @@ jobs:
               log_msg("Scroll", "============================================================")
               downs = ups = pauses = keys = errors = 0
               try:
-                  wait_for_page_to_fully_load(edge_window, timeout=20)
+                  wait_for_page_to_fully_load(edge_window, timeout=30)
+                  # Lock the site host for scroll sessions too so the sentinel can
+                  # catch and recover from any accidental navigation outside the domain.
+                  lock_site(edge_window, globals().get("TARGET_URL", ""), max_wait=20)
                   human_reading_pause(min_s=random.uniform(1.0, 2.0), max_s=random.uniform(2.5, 4.5), parked_prob=0.3)
+                  next_sentinel_scroll = time.time() + random.uniform(8, 14)
                   while surf_remaining() > 1.0:
                       frac = clock.elapsed() / clock.total
                       try:
+                          # Periodic site sentinel: catch off-site drift during scroll sessions
+                          if time.time() >= next_sentinel_scroll and surf_remaining() > 5:
+                              next_sentinel_scroll = time.time() + random.uniform(8, 14)
+                              try:
+                                  site_sentinel(edge_window, "ScrollSentinel")
+                              except Exception as _se:
+                                  log_msg("Scroll", f"Sentinel error: {_se}")
                           try:
                               edge_window.set_focus()
                           except Exception:
@@ -7805,21 +7783,56 @@ jobs:
 
                           if POST_BEHAVIOR in ("surf", "scroll"):
                               elapsed_surf = time.time() - proxy_auth_time
-                              # Wait at least 30s for the page to settle before starting surf/scroll.
-                              # Then do an explicit page-load check + a 10-20s settle delay so the
-                              # first action lands on the actual content, not the browser UI / header.
-                              if not surf_simulation_executed and elapsed_surf > 30 and edge_window:
-                                  # Additional page-load + settle guard before we begin
-                                  log_msg("UI-Engine", f"Pre-surf/scroll: waiting for page to fully load ({elapsed_surf:.0f}s since proxy auth)...")
-                                  wait_for_page_to_fully_load(edge_window, timeout=25)
-                                  settle_delay = random.randint(10, 20)
-                                  log_msg("UI-Engine", f"Pre-surf/scroll: settle delay {settle_delay}s to let JS/ads finish rendering...")
-                                  time.sleep(settle_delay)
-                                  # Confirm the edge window is still alive and focused on content
-                                  try:
-                                      edge_window.set_focus()
-                                  except Exception:
-                                      edge_window = refresh_edge_window(desktop, edge_window) if edge_window else edge_window
+                              if not surf_simulation_executed and elapsed_surf > 6 and edge_window:
+                                  # -------------------------------------------------------
+                                  # PRE-SURF STABILISATION
+                                  # Wait for the page to fully load and the URL to settle,
+                                  # THEN hold an extra 10-20 seconds so the page is truly
+                                  # idle before any mouse input is sent.  This prevents the
+                                  # first click from hitting a still-loading header / overlay
+                                  # that can redirect outside the target subdomain.
+                                  # -------------------------------------------------------
+                                  log_msg("UI-Engine", "Pre-surf: waiting for full page load and URL stabilisation...")
+                                  page_ready = False
+                                  url_stable_host = None
+                                  page_wait_start = time.time()
+                                  page_wait_max = 30   # hard ceiling for pre-surf wait
+                                  while (time.time() - page_wait_start) < page_wait_max:
+                                      try:
+                                          wt = (edge_window.window_text() or "").strip().lower()
+                                          if wt not in ["microsoft edge", "edge", "new tab", "about:blank", ""]:
+                                              raw_url = None
+                                              try:
+                                                  import pywinauto
+                                                  for ed in edge_window.descendants(control_type="Edit"):
+                                                      try:
+                                                          aid = (ed.element_info.automation_id or "").lower()
+                                                      except Exception:
+                                                          aid = ""
+                                                      if "addresseditbox" in aid or "addressfield" in aid or "locationbar" in aid:
+                                                          for getter in (lambda c: c.get_value(), lambda c: c.iface_value.CurrentValue, lambda c: c.window_text()):
+                                                              try:
+                                                                  v = getter(ed)
+                                                                  if v: raw_url = str(v).strip(); break
+                                                              except Exception: pass
+                                                          if raw_url: break
+                                              except Exception: pass
+                                              if raw_url:
+                                                  import re as _re
+                                                  m = _re.match(r"^([a-zA-Z][a-zA-Z0-9+.\-]*)://([^/?#]+)", raw_url)
+                                                  if m:
+                                                      raw_host = m.group(2).split(":")[0].lower().lstrip("www.")
+                                                      if raw_host == url_stable_host:
+                                                          page_ready = True
+                                                          break
+                                                      url_stable_host = raw_host
+                                      except Exception: pass
+                                      time.sleep(1.5)
+                                  # Additional idle dwell: 10-20 s random, ensures JS/CSS finish
+                                  idle_dwell = random.randint(10, 20)
+                                  log_msg("UI-Engine", f"Pre-surf: page stable (host={url_stable_host or 'unknown'}). Idle dwell {idle_dwell}s before first input...")
+                                  time.sleep(idle_dwell)
+                                  # -------------------------------------------------------
                                   surf_simulation_executed = True
                                   if POST_BEHAVIOR == "surf":
                                       log_msg("UI-Engine", f"Post-load behaviour: SURF ({action_mode} pathway) - domain-locked surfing.")
