@@ -4430,7 +4430,7 @@ jobs:
                   }
               }
           } else {
-              Write-Host "[Locale] Timezone is UTC or unset â€” skipping." -ForegroundColor DarkGray
+              Write-Host "[Locale] Timezone is UTC or unset — skipping." -ForegroundColor DarkGray
           }
 
           try {
@@ -4468,7 +4468,7 @@ jobs:
                   Write-Host "[Locale] WARNING: Set-WinHomeLocation failed: $_" -ForegroundColor Yellow
               }
           } else {
-              Write-Host "[Locale] No GeoID mapping found for '$country' â€” skipping home location." -ForegroundColor DarkGray
+              Write-Host "[Locale] No GeoID mapping found for '$country' — skipping home location." -ForegroundColor DarkGray
           }
 
           try {
@@ -4859,7 +4859,7 @@ jobs:
                   primary = resolved_lang.split('-')[0].lower()
                   resolved_accept = accept_lang or f"{resolved_lang},{primary};q=0.9"
                   if primary not in resolved_accept.lower():
-                      log_msg("EdgeLaunch", f"WARNING: accept_lang '{accept_lang}' doesn't match lang_code '{resolved_lang}' â€” correcting for fingerprint consistency.")
+                      log_msg("EdgeLaunch", f"WARNING: accept_lang '{accept_lang}' doesn't match lang_code '{resolved_lang}' — correcting for fingerprint consistency.")
                       resolved_accept = f"{resolved_lang},{primary};q=0.9"
                   cmd_parts.append(f'--lang={resolved_lang}')
                   cmd_parts.append(f'--accept-lang="{resolved_accept}"')
@@ -5039,7 +5039,7 @@ jobs:
                           if not btn_txt or len(btn_txt) > 60:
                               continue
                           if _matches_any(btn_txt, COOKIE_CONSENT_KEYWORDS):
-                              log_msg("PreDLCookies", f"Cookie btn (attempt {_attempt+1}): '{btn_txt}' â€” clicking...")
+                              log_msg("PreDLCookies", f"Cookie btn (attempt {_attempt+1}): '{btn_txt}' — clicking...")
                               try:
                                   btn.click_input()
                                   found_this_pass = True
@@ -5122,7 +5122,7 @@ jobs:
               except Exception as e:
                   log_msg("DL-Engine", f"Pass 3 failed: {e}")
 
-              log_msg("DL-Engine", f"Pass 4: Visual region scan â€” large hero-area buttons (language-independent)...")
+              log_msg("DL-Engine", f"Pass 4: Visual region scan — large hero-area buttons (language-independent)...")
               try:
                   candidate_buttons = []
                   for el in edge_window.descendants(control_type="Button"):
@@ -5180,16 +5180,16 @@ jobs:
               return False
 
           _FOLD_SPECIAL_MAP = str.maketrans({
-              'Å‚': 'l', 'Å': 'L', 'Ä‘': 'd', 'Ä': 'D', 'Ã¸': 'o', 'Ã˜': 'O',
-              'ÃŸ': 'ss', 'Ã¦': 'ae', 'Ã†': 'AE', 'Å“': 'oe', 'Å’': 'OE', 'Ä±': 'i',
+              'ł': 'l', 'Ł': 'L', 'đ': 'd', 'Đ': 'D', 'ø': 'o', 'Ø': 'O',
+              'ß': 'ss', 'æ': 'ae', 'Æ': 'AE', 'œ': 'oe', 'Œ': 'OE', 'ı': 'i',
           })
 
           def _fold(text):
               """Lowercase + strip diacritics (accents, tildes, cedillas, etc.) so
-              keyword matching is language-robust: 'sesion' matches 'sesiÃ³n',
-              'contrasena' matches 'contraseÃ±a', 'hasÅ‚o' matches 'hasÅ‚o'/'haslo', and so
+              keyword matching is language-robust: 'sesion' matches 'sesión',
+              'contrasena' matches 'contraseña', 'hasło' matches 'hasło'/'haslo', and so
               on, regardless of which accented/unaccented form is hardcoded in a list.
-              A handful of letters (Å‚, Ä‘, Ã¸, ÃŸ...) don't decompose under NFKD, so they
+              A handful of letters (ł, đ, ø, ß...) don't decompose under NFKD, so they
               are mapped explicitly first."""
               if not text:
                   return ""
@@ -5764,7 +5764,7 @@ jobs:
 
               if fallback_coords:
                   fx, fy = fallback_coords
-                  log_msg("MLBtn", f"[{label}] All passes failed â€” fallback at ({fx}, {fy}).")
+                  log_msg("MLBtn", f"[{label}] All passes failed — fallback at ({fx}, {fy}).")
                   try:
                       pyautogui.moveTo(fx, fy, duration=0.2)
                       pyautogui.click(fx, fy)
@@ -5853,7 +5853,7 @@ jobs:
               except Exception:
                   wt0 = ""
               if not _opera_window_looks_like_onboarding(wt0):
-                  log_msg(label, f"Window '{wt0}' does not look like onboarding â€” already on homepage.")
+                  log_msg(label, f"Window '{wt0}' does not look like onboarding — already on homepage.")
                   return True
 
               log_msg(label, f"Onboarding wizard detected: '{wt0}'. Beginning verified bypass sequence...")
@@ -5868,11 +5868,11 @@ jobs:
 
                   try:
                       if not win.is_visible():
-                          log_msg(label, "Window no longer visible â€” treating as dismissed.")
+                          log_msg(label, "Window no longer visible — treating as dismissed.")
                           return True
                       cur_wt = win.window_text() or ""
                   except Exception:
-                      log_msg(label, "Window handle invalid (likely closed) â€” treating as dismissed.")
+                      log_msg(label, "Window handle invalid (likely closed) — treating as dismissed.")
                       return True
 
                   if not _opera_window_looks_like_onboarding(cur_wt):
@@ -5906,13 +5906,13 @@ jobs:
                           pyautogui.moveTo(fx, fy, duration=0.25)
                           pyautogui.click()
                           acted = True
-                          log_msg(label, f"[{attempt}/{max_attempts}] No accessible button found â€” proportional coordinate click ({action_name}) at ({fx}, {fy}).")
+                          log_msg(label, f"[{attempt}/{max_attempts}] No accessible button found — proportional coordinate click ({action_name}) at ({fx}, {fy}).")
                       except Exception as e:
                           log_msg(label, f"Coordinate fallback failed: {e}")
 
                   if not acted and stuck_count >= 3:
                       tabs = min(2 + stuck_count, 8)
-                      log_msg(label, f"[{attempt}/{max_attempts}] UI automation + coordinate guesses stuck â€” keyboard fallback: {tabs}x TAB then ENTER.")
+                      log_msg(label, f"[{attempt}/{max_attempts}] UI automation + coordinate guesses stuck — keyboard fallback: {tabs}x TAB then ENTER.")
                       try:
                           win.set_focus()
                           time.sleep(0.3)
@@ -5968,10 +5968,10 @@ jobs:
                           if other:
                               if user_fields and not pass_fields:
                                   pass_fields = [other[0]]
-                                  log_msg("ProxyAuth", f"[{label}] Password field had no locale match â€” inferred as the other field in this 2-field dialog.")
+                                  log_msg("ProxyAuth", f"[{label}] Password field had no locale match — inferred as the other field in this 2-field dialog.")
                               else:
                                   user_fields = [other[0]]
-                                  log_msg("ProxyAuth", f"[{label}] Username field had no locale match â€” inferred as the other field in this 2-field dialog.")
+                                  log_msg("ProxyAuth", f"[{label}] Username field had no locale match — inferred as the other field in this 2-field dialog.")
 
                   if not user_fields or not pass_fields:
                       u_struct, p_struct = _is_auth_dialog_by_structure(window)
@@ -5982,7 +5982,7 @@ jobs:
 
                   if user_fields and pass_fields:
                       if _is_address_bar_control(user_fields[0]) or _is_address_bar_control(pass_fields[0]):
-                          log_msg("ProxyAuth", f"[{label}] BLOCKED â€” fields are address bars. Skipping.")
+                          log_msg("ProxyAuth", f"[{label}] BLOCKED — fields are address bars. Skipping.")
                           return False
 
                       log_msg("ProxyAuth", f"[{label}] Injecting {PROXY_TYPE} credentials. User={PROXY_USER[:25]}...")
@@ -6044,7 +6044,7 @@ jobs:
                       if has_doc:
                           log_msg("ProxyAuth", f"[{label}] Refusing blind keyboard typing: this window contains web page content.")
                           return False
-                      log_msg("ProxyAuth", f"[{label}] No Edit fields â€” trying keyboard Tab injection.")
+                      log_msg("ProxyAuth", f"[{label}] No Edit fields — trying keyboard Tab injection.")
                       window.set_focus(); time.sleep(0.5)
                       send_keys('^a{DELETE}'); time.sleep(0.1)
                       for ch in PROXY_USER:
@@ -6419,7 +6419,7 @@ jobs:
 
 
           def describe_scroll_params(p):
-              return (f"{p['direction'].upper()} {p['intensity']} | ticks={p['ticks']} step={p['step']}Â±{p['step_jitter']:.0%} "
+              return (f"{p['direction'].upper()} {p['intensity']} | ticks={p['ticks']} step={p['step']}±{p['step_jitter']:.0%} "
                       f"ease={p['ease']:.2f} mom={p['momentum']:+.2f} delay={p['tick_delay'][0]:.2f}-{p['tick_delay'][1]:.2f}s "
                       f"hes={p['hesitate_prob']:.0%} ovs={p['overshoot_prob']:.0%}")
 
