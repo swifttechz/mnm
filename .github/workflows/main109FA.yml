@@ -2630,19 +2630,24 @@ jobs:
 
           def gh_json(url):
               last = None
-              for i in range(3):
+              delays = [2, 6, 15, 30, 60]
+              for i in range(5):
                   try:
                       with urllib.request.urlopen(urllib.request.Request(url, headers=HDR), timeout=30) as r:
                           return json.loads(r.read())
                   except urllib.error.HTTPError as e:
                       last = e
-                      if e.code in (500, 502, 503, 504) and i < 2:
-                          time.sleep(2)
+                      # Rate-limit (403/429) or transient server errors: back off and retry
+                      if e.code in (403, 429, 500, 502, 503, 504) and i < 4:
+                          wait = delays[min(i, len(delays) - 1)]
+                          say(f"[API] HTTP {e.code} on attempt {i+1}/5 -> backing off {wait}s before retry...")
+                          time.sleep(wait)
                           continue
                       raise
                   except Exception as e:
                       last = e
-                      time.sleep(2)
+                      wait = delays[min(i, len(delays) - 1)]
+                      time.sleep(wait)
               raise last
 
 
@@ -2787,32 +2792,48 @@ jobs:
               return None
 
 
+          _gate_consec_errors = {"n": 0}
+
+
           def run_gate():
               wait_s = GATE_WAIT_MIN * 60
               t0 = time.time()
               last_log = 0.0
               say("[Gate] Runner is up. Holding here until the initial 5% proxy pool (chunk 0) has been uploaded...")
               while True:
+                  api_error = False
                   try:
                       if list_artifacts("proxy-chunk-000"):
                           say(f"[Gate] Initial pool is READY after {int(time.time() - t0)}s -> device may proceed.")
                           return
+                      _gate_consec_errors["n"] = 0
+                  except urllib.error.HTTPError as e:
+                      api_error = True
+                      _gate_consec_errors["n"] += 1
+                      say(f"[Gate] artifact check HTTP {e.code} error (attempt {_gate_consec_errors['n']}) - will retry (pool may still be ready)")
                   except Exception as e:
-                      say(f"[Gate] artifact check error: {type(e).__name__}")
-                  try:
-                      st = chunk_job_state(0)
-                  except Exception:
-                      st = "unknown"
-                  if st == "finished":
-                      time.sleep(5)
+                      api_error = True
+                      _gate_consec_errors["n"] += 1
+                      say(f"[Gate] artifact check error: {type(e).__name__} (attempt {_gate_consec_errors['n']}) - will retry")
+
+                  if not api_error:
                       try:
-                          if list_artifacts("proxy-chunk-000"):
-                              say("[Gate] Initial pool is READY -> device may proceed.")
-                              return
+                          st = chunk_job_state(0)
                       except Exception:
-                          pass
-                      say("[Gate] Pool job finished WITHOUT an initial chunk -> continuing; this device will use the API-key fallback.")
-                      return
+                          st = "unknown"
+                      if st == "finished":
+                          time.sleep(5)
+                          try:
+                              if list_artifacts("proxy-chunk-000"):
+                                  say("[Gate] Initial pool is READY -> device may proceed.")
+                                  return
+                          except Exception:
+                              pass
+                          say("[Gate] Pool job finished WITHOUT an initial chunk -> continuing; this device will use the API-key fallback.")
+                          return
+                  else:
+                      st = "unknown"
+
                   now = time.time()
                   if now - t0 >= wait_s:
                       say(f"::warning title=Gate::Initial pool not ready after {GATE_WAIT_MIN} min -> continuing (API-key fallback).")
@@ -2820,7 +2841,9 @@ jobs:
                   if now - last_log >= 30:
                       last_log = now
                       say(f"[Gate] ...still generating the initial 5% (pool job state: {st}) - waited {int(now - t0)}s of max {GATE_WAIT_MIN * 60}s")
-                  time.sleep(10)
+                  # Back off longer when hitting repeated API errors (rate-limit protection)
+                  sleep_s = min(30, 10 + _gate_consec_errors["n"] * 5) if api_error else 10
+                  time.sleep(sleep_s)
 
 
           if MODE == "gate":
@@ -3211,19 +3234,24 @@ jobs:
 
           def gh_json(url):
               last = None
-              for i in range(3):
+              delays = [2, 6, 15, 30, 60]
+              for i in range(5):
                   try:
                       with urllib.request.urlopen(urllib.request.Request(url, headers=HDR), timeout=30) as r:
                           return json.loads(r.read())
                   except urllib.error.HTTPError as e:
                       last = e
-                      if e.code in (500, 502, 503, 504) and i < 2:
-                          time.sleep(2)
+                      # Rate-limit (403/429) or transient server errors: back off and retry
+                      if e.code in (403, 429, 500, 502, 503, 504) and i < 4:
+                          wait = delays[min(i, len(delays) - 1)]
+                          say(f"[API] HTTP {e.code} on attempt {i+1}/5 -> backing off {wait}s before retry...")
+                          time.sleep(wait)
                           continue
                       raise
                   except Exception as e:
                       last = e
-                      time.sleep(2)
+                      wait = delays[min(i, len(delays) - 1)]
+                      time.sleep(wait)
               raise last
 
 
@@ -3368,32 +3396,48 @@ jobs:
               return None
 
 
+          _gate_consec_errors = {"n": 0}
+
+
           def run_gate():
               wait_s = GATE_WAIT_MIN * 60
               t0 = time.time()
               last_log = 0.0
               say("[Gate] Runner is up. Holding here until the initial 5% proxy pool (chunk 0) has been uploaded...")
               while True:
+                  api_error = False
                   try:
                       if list_artifacts("proxy-chunk-000"):
                           say(f"[Gate] Initial pool is READY after {int(time.time() - t0)}s -> device may proceed.")
                           return
+                      _gate_consec_errors["n"] = 0
+                  except urllib.error.HTTPError as e:
+                      api_error = True
+                      _gate_consec_errors["n"] += 1
+                      say(f"[Gate] artifact check HTTP {e.code} error (attempt {_gate_consec_errors['n']}) - will retry (pool may still be ready)")
                   except Exception as e:
-                      say(f"[Gate] artifact check error: {type(e).__name__}")
-                  try:
-                      st = chunk_job_state(0)
-                  except Exception:
-                      st = "unknown"
-                  if st == "finished":
-                      time.sleep(5)
+                      api_error = True
+                      _gate_consec_errors["n"] += 1
+                      say(f"[Gate] artifact check error: {type(e).__name__} (attempt {_gate_consec_errors['n']}) - will retry")
+
+                  if not api_error:
                       try:
-                          if list_artifacts("proxy-chunk-000"):
-                              say("[Gate] Initial pool is READY -> device may proceed.")
-                              return
+                          st = chunk_job_state(0)
                       except Exception:
-                          pass
-                      say("[Gate] Pool job finished WITHOUT an initial chunk -> continuing; this device will use the API-key fallback.")
-                      return
+                          st = "unknown"
+                      if st == "finished":
+                          time.sleep(5)
+                          try:
+                              if list_artifacts("proxy-chunk-000"):
+                                  say("[Gate] Initial pool is READY -> device may proceed.")
+                                  return
+                          except Exception:
+                              pass
+                          say("[Gate] Pool job finished WITHOUT an initial chunk -> continuing; this device will use the API-key fallback.")
+                          return
+                  else:
+                      st = "unknown"
+
                   now = time.time()
                   if now - t0 >= wait_s:
                       say(f"::warning title=Gate::Initial pool not ready after {GATE_WAIT_MIN} min -> continuing (API-key fallback).")
@@ -3401,7 +3445,9 @@ jobs:
                   if now - last_log >= 30:
                       last_log = now
                       say(f"[Gate] ...still generating the initial 5% (pool job state: {st}) - waited {int(now - t0)}s of max {GATE_WAIT_MIN * 60}s")
-                  time.sleep(10)
+                  # Back off longer when hitting repeated API errors (rate-limit protection)
+                  sleep_s = min(30, 10 + _gate_consec_errors["n"] * 5) if api_error else 10
+                  time.sleep(sleep_s)
 
 
           if MODE == "gate":
@@ -4422,7 +4468,7 @@ jobs:
                   }
               }
           } else {
-              Write-Host "[Locale] Timezone is UTC or unset — skipping." -ForegroundColor DarkGray
+              Write-Host "[Locale] Timezone is UTC or unset â€” skipping." -ForegroundColor DarkGray
           }
 
           try {
@@ -4460,7 +4506,7 @@ jobs:
                   Write-Host "[Locale] WARNING: Set-WinHomeLocation failed: $_" -ForegroundColor Yellow
               }
           } else {
-              Write-Host "[Locale] No GeoID mapping found for '$country' — skipping home location." -ForegroundColor DarkGray
+              Write-Host "[Locale] No GeoID mapping found for '$country' â€” skipping home location." -ForegroundColor DarkGray
           }
 
           try {
@@ -4851,7 +4897,7 @@ jobs:
                   primary = resolved_lang.split('-')[0].lower()
                   resolved_accept = accept_lang or f"{resolved_lang},{primary};q=0.9"
                   if primary not in resolved_accept.lower():
-                      log_msg("EdgeLaunch", f"WARNING: accept_lang '{accept_lang}' doesn't match lang_code '{resolved_lang}' — correcting for fingerprint consistency.")
+                      log_msg("EdgeLaunch", f"WARNING: accept_lang '{accept_lang}' doesn't match lang_code '{resolved_lang}' â€” correcting for fingerprint consistency.")
                       resolved_accept = f"{resolved_lang},{primary};q=0.9"
                   cmd_parts.append(f'--lang={resolved_lang}')
                   cmd_parts.append(f'--accept-lang="{resolved_accept}"')
@@ -5031,7 +5077,7 @@ jobs:
                           if not btn_txt or len(btn_txt) > 60:
                               continue
                           if _matches_any(btn_txt, COOKIE_CONSENT_KEYWORDS):
-                              log_msg("PreDLCookies", f"Cookie btn (attempt {_attempt+1}): '{btn_txt}' — clicking...")
+                              log_msg("PreDLCookies", f"Cookie btn (attempt {_attempt+1}): '{btn_txt}' â€” clicking...")
                               try:
                                   btn.click_input()
                                   found_this_pass = True
@@ -5114,7 +5160,7 @@ jobs:
               except Exception as e:
                   log_msg("DL-Engine", f"Pass 3 failed: {e}")
 
-              log_msg("DL-Engine", f"Pass 4: Visual region scan — large hero-area buttons (language-independent)...")
+              log_msg("DL-Engine", f"Pass 4: Visual region scan â€” large hero-area buttons (language-independent)...")
               try:
                   candidate_buttons = []
                   for el in edge_window.descendants(control_type="Button"):
@@ -5172,16 +5218,16 @@ jobs:
               return False
 
           _FOLD_SPECIAL_MAP = str.maketrans({
-              'ł': 'l', 'Ł': 'L', 'đ': 'd', 'Đ': 'D', 'ø': 'o', 'Ø': 'O',
-              'ß': 'ss', 'æ': 'ae', 'Æ': 'AE', 'œ': 'oe', 'Œ': 'OE', 'ı': 'i',
+              'Å‚': 'l', 'Å': 'L', 'Ä‘': 'd', 'Ä': 'D', 'Ã¸': 'o', 'Ã˜': 'O',
+              'ÃŸ': 'ss', 'Ã¦': 'ae', 'Ã†': 'AE', 'Å“': 'oe', 'Å’': 'OE', 'Ä±': 'i',
           })
 
           def _fold(text):
               """Lowercase + strip diacritics (accents, tildes, cedillas, etc.) so
-              keyword matching is language-robust: 'sesion' matches 'sesión',
-              'contrasena' matches 'contraseña', 'hasło' matches 'hasło'/'haslo', and so
+              keyword matching is language-robust: 'sesion' matches 'sesiÃ³n',
+              'contrasena' matches 'contraseÃ±a', 'hasÅ‚o' matches 'hasÅ‚o'/'haslo', and so
               on, regardless of which accented/unaccented form is hardcoded in a list.
-              A handful of letters (ł, đ, ø, ß...) don't decompose under NFKD, so they
+              A handful of letters (Å‚, Ä‘, Ã¸, ÃŸ...) don't decompose under NFKD, so they
               are mapped explicitly first."""
               if not text:
                   return ""
@@ -5756,7 +5802,7 @@ jobs:
 
               if fallback_coords:
                   fx, fy = fallback_coords
-                  log_msg("MLBtn", f"[{label}] All passes failed — fallback at ({fx}, {fy}).")
+                  log_msg("MLBtn", f"[{label}] All passes failed â€” fallback at ({fx}, {fy}).")
                   try:
                       pyautogui.moveTo(fx, fy, duration=0.2)
                       pyautogui.click(fx, fy)
@@ -5845,7 +5891,7 @@ jobs:
               except Exception:
                   wt0 = ""
               if not _opera_window_looks_like_onboarding(wt0):
-                  log_msg(label, f"Window '{wt0}' does not look like onboarding — already on homepage.")
+                  log_msg(label, f"Window '{wt0}' does not look like onboarding â€” already on homepage.")
                   return True
 
               log_msg(label, f"Onboarding wizard detected: '{wt0}'. Beginning verified bypass sequence...")
@@ -5860,11 +5906,11 @@ jobs:
 
                   try:
                       if not win.is_visible():
-                          log_msg(label, "Window no longer visible — treating as dismissed.")
+                          log_msg(label, "Window no longer visible â€” treating as dismissed.")
                           return True
                       cur_wt = win.window_text() or ""
                   except Exception:
-                      log_msg(label, "Window handle invalid (likely closed) — treating as dismissed.")
+                      log_msg(label, "Window handle invalid (likely closed) â€” treating as dismissed.")
                       return True
 
                   if not _opera_window_looks_like_onboarding(cur_wt):
@@ -5898,13 +5944,13 @@ jobs:
                           pyautogui.moveTo(fx, fy, duration=0.25)
                           pyautogui.click()
                           acted = True
-                          log_msg(label, f"[{attempt}/{max_attempts}] No accessible button found — proportional coordinate click ({action_name}) at ({fx}, {fy}).")
+                          log_msg(label, f"[{attempt}/{max_attempts}] No accessible button found â€” proportional coordinate click ({action_name}) at ({fx}, {fy}).")
                       except Exception as e:
                           log_msg(label, f"Coordinate fallback failed: {e}")
 
                   if not acted and stuck_count >= 3:
                       tabs = min(2 + stuck_count, 8)
-                      log_msg(label, f"[{attempt}/{max_attempts}] UI automation + coordinate guesses stuck — keyboard fallback: {tabs}x TAB then ENTER.")
+                      log_msg(label, f"[{attempt}/{max_attempts}] UI automation + coordinate guesses stuck â€” keyboard fallback: {tabs}x TAB then ENTER.")
                       try:
                           win.set_focus()
                           time.sleep(0.3)
@@ -5960,10 +6006,10 @@ jobs:
                           if other:
                               if user_fields and not pass_fields:
                                   pass_fields = [other[0]]
-                                  log_msg("ProxyAuth", f"[{label}] Password field had no locale match — inferred as the other field in this 2-field dialog.")
+                                  log_msg("ProxyAuth", f"[{label}] Password field had no locale match â€” inferred as the other field in this 2-field dialog.")
                               else:
                                   user_fields = [other[0]]
-                                  log_msg("ProxyAuth", f"[{label}] Username field had no locale match — inferred as the other field in this 2-field dialog.")
+                                  log_msg("ProxyAuth", f"[{label}] Username field had no locale match â€” inferred as the other field in this 2-field dialog.")
 
                   if not user_fields or not pass_fields:
                       u_struct, p_struct = _is_auth_dialog_by_structure(window)
@@ -5974,7 +6020,7 @@ jobs:
 
                   if user_fields and pass_fields:
                       if _is_address_bar_control(user_fields[0]) or _is_address_bar_control(pass_fields[0]):
-                          log_msg("ProxyAuth", f"[{label}] BLOCKED — fields are address bars. Skipping.")
+                          log_msg("ProxyAuth", f"[{label}] BLOCKED â€” fields are address bars. Skipping.")
                           return False
 
                       log_msg("ProxyAuth", f"[{label}] Injecting {PROXY_TYPE} credentials. User={PROXY_USER[:25]}...")
@@ -6036,7 +6082,7 @@ jobs:
                       if has_doc:
                           log_msg("ProxyAuth", f"[{label}] Refusing blind keyboard typing: this window contains web page content.")
                           return False
-                      log_msg("ProxyAuth", f"[{label}] No Edit fields — trying keyboard Tab injection.")
+                      log_msg("ProxyAuth", f"[{label}] No Edit fields â€” trying keyboard Tab injection.")
                       window.set_focus(); time.sleep(0.5)
                       send_keys('^a{DELETE}'); time.sleep(0.1)
                       for ch in PROXY_USER:
@@ -6411,7 +6457,7 @@ jobs:
 
 
           def describe_scroll_params(p):
-              return (f"{p['direction'].upper()} {p['intensity']} | ticks={p['ticks']} step={p['step']}±{p['step_jitter']:.0%} "
+              return (f"{p['direction'].upper()} {p['intensity']} | ticks={p['ticks']} step={p['step']}Â±{p['step_jitter']:.0%} "
                       f"ease={p['ease']:.2f} mom={p['momentum']:+.2f} delay={p['tick_delay'][0]:.2f}-{p['tick_delay'][1]:.2f}s "
                       f"hes={p['hesitate_prob']:.0%} ovs={p['overshoot_prob']:.0%}")
 
@@ -6629,7 +6675,7 @@ jobs:
                       else:
                           last, last_full, stable = host, full, 1
                       moved = (short_host is None) or (host != short_host)
-                      if stable >= 3 and (moved or (time.time() - t0) > 10):
+                      if stable >= 4 and (moved or (time.time() - t0) > 12):
                           break
                   else:
                       stable = 0
@@ -6955,8 +7001,8 @@ jobs:
               ovs = profile["overshoot_prob"]
 
               # ---- page load + site lock (counts against the 180s cap) ----
-              wait_for_page_to_fully_load(edge_window, timeout=18)
-              lock_site(edge_window, globals().get("TARGET_URL", ""), max_wait=18)
+              wait_for_page_to_fully_load(edge_window, timeout=25)
+              lock_site(edge_window, globals().get("TARGET_URL", ""), max_wait=25)
               link_allowed = _SITE["locked"] and _SITE["readable"]
 
               log_msg("HumanSurf", "Initial landing glance. User observing top content...")
@@ -7759,7 +7805,21 @@ jobs:
 
                           if POST_BEHAVIOR in ("surf", "scroll"):
                               elapsed_surf = time.time() - proxy_auth_time
-                              if not surf_simulation_executed and elapsed_surf > 6 and edge_window:
+                              # Wait at least 30s for the page to settle before starting surf/scroll.
+                              # Then do an explicit page-load check + a 10-20s settle delay so the
+                              # first action lands on the actual content, not the browser UI / header.
+                              if not surf_simulation_executed and elapsed_surf > 30 and edge_window:
+                                  # Additional page-load + settle guard before we begin
+                                  log_msg("UI-Engine", f"Pre-surf/scroll: waiting for page to fully load ({elapsed_surf:.0f}s since proxy auth)...")
+                                  wait_for_page_to_fully_load(edge_window, timeout=25)
+                                  settle_delay = random.randint(10, 20)
+                                  log_msg("UI-Engine", f"Pre-surf/scroll: settle delay {settle_delay}s to let JS/ads finish rendering...")
+                                  time.sleep(settle_delay)
+                                  # Confirm the edge window is still alive and focused on content
+                                  try:
+                                      edge_window.set_focus()
+                                  except Exception:
+                                      edge_window = refresh_edge_window(desktop, edge_window) if edge_window else edge_window
                                   surf_simulation_executed = True
                                   if POST_BEHAVIOR == "surf":
                                       log_msg("UI-Engine", f"Post-load behaviour: SURF ({action_mode} pathway) - domain-locked surfing.")
