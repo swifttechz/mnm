@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '6'
+        default: '10'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '0'
+        default: '200'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'geolocation://2wRURHsLtTD9T7HN:4LURdynvWS9PBmC9@geo.floppydata.com:10080:90-FR-kpxeyf geolocation://OCaF3RcKAHaLdDIn:R8ruwjyQwfCWzaJN@geo.floppydata.com:10080:89-FR-xlqxkh geolocation://OquYFQikZ4WNaCUo:sbKoeLNEkFlk1dbY@geo.floppydata.com:10080:88-FR-goqacu geolocation://47lO48LTuRjBJpWl:94mKiT6dar3dZHzS@geo.floppydata.com:10080:87-FR-qpgpxw geolocation://1XF3l5Zy0dFJZ565:6Ly09nAU6qXfMsCT@geo.floppydata.com:10080:86-FR-pizbsa geolocation://RPvTwYovuVgPr0cj:RxKLeymdigTVdB2c@geo.floppydata.com:10080:85-FR-buqbgf geolocation://65QBtuWVpKEUAJEB:EUIMVJk9cfcfeHfb@geo.floppydata.com:10080:84-FR-yadhfw'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjkzMWI2Y2UzMDgwMWZhYTJjMTFmYiIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmOTMxYjZjZTMwODAxZmFhMmMxMWY3In0.CcGYLK4DG1IcLcZBa-RZ3IolcfcWnIc9Ig9XxZPB8yc'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -203,7 +203,7 @@ on:
         description: 'Proxy Pool Mode (5% pool first, then keeps feeding devices)'
         required: true
         type: boolean
-        default: false
+        default: true
 
 permissions:
   actions: write
