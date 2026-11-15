@@ -62,17 +62,17 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '2'
+        default: '0'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '0'
+        default: '200'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '0'
+        default: '50'
       enable_scroll:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'geolocation://HNiNNvntxIonkARm:0OlgBUNrvyt2RwQT@geo.floppydata.com:10080:45-FR-umxgbk geolocation://gADwPmpDVNA8HSau:EDP04phAJxoFNtvQ@geo.floppydata.com:10080:46-FR-izaivj geolocation://XuC6goge8W5OaD2u:8YNVOLSrJ8hvhFC2@geo.floppydata.com:10080:47-FR-wvhsqx geolocation://NWMVSNoFwd3zlS6u:kn7km0Yera8O3Mhf@geo.floppydata.com:10080:48-FR-bunshs geolocation://EMUUDGP5BheNho5d:N8MGDo6yFMk2L0Hp@geo.floppydata.com:10080:49-FR-pymmac'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZjk5ZjY4NGZhY2JhM2E5YzM2OTJjZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmOTlmNjg0ZmFjYmEzYTljMzY5MmNhIn0.E86Le31Rzfrkpvk3ztpu8XX4Ab5sf8OreIOM_Lw7DD8'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
