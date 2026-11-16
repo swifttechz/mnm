@@ -67,7 +67,7 @@ on:
         description: 'Clicks'
         required: true
         type: string
-        default: '200'
+        default: '20'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -1025,37 +1025,140 @@ jobs:
 
 
           def make_gologin(seq, cc, name, tries):
+              """Create a GoLogin *profile* first, then attach a high-quality
+              Gologin proxy to that profile and extract the credentials.
+              This avoids the standalone ~100-proxy creation limit because
+              proxies bound to profiles are not counted the same way."""
               key = gologin_keys[(seq // 15 + tries) % len(gologin_keys)]
-              say(f"      - GoLogin API key ...{key[-6:]} -> creating proxy named '{name}' (country={cc}, mobile={mobile})")
+              hdrs = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+              say(f"      - GoLogin API key ...{key[-6:]} -> PROFILE-based proxy '{name}' (country={cc}, mobile={mobile})")
+
+              # 1) Create a lightweight browser profile
+              profile_id = None
               try:
+                  pr = requests.post(
+                      f"{GOLOGIN_API}/browser/quick",
+                      headers=hdrs,
+                      json={"os": "win", "name": name, "osSpec": "win11"},
+                      timeout=30, verify=False,
+                  )
+                  if pr.status_code == 429:
+                      say("      - GoLogin rate limit (429) on profile create -> backing off 12s")
+                      time.sleep(12)
+                      return None, "rate limited (429) on profile create"
+                  if pr.status_code not in (200, 201):
+                      return None, f"profile create HTTP {pr.status_code}: {pr.text[:180]}"
+                  pdata = pr.json()
+                  profile_id = pdata.get("id") or pdata.get("_id")
+                  if not profile_id:
+                      return None, f"profile create returned no id: {str(pdata)[:160]}"
+                  say(f"      - Profile created: {profile_id} (name='{name}')")
+              except Exception as e:
+                  return None, f"profile create error {type(e).__name__}: {e}"
+
+              # 2) Attach a Gologin high-quality proxy to the profile
+              try:
+                  body = {
+                      "countryCode": cc.lower(),
+                      "isMobile": bool(mobile),
+                      "isDC": False,
+                      "customName": name,
+                      "profileIdToLink": profile_id,
+                  }
                   r = requests.post(
                       f"{GOLOGIN_API}/users-proxies/mobile-proxy",
-                      headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                      json={"countryCode": cc.lower(), "isMobile": mobile, "isDC": False, "customName": name},
-                      timeout=25, verify=False,
+                      headers=hdrs,
+                      json=body,
+                      timeout=30, verify=False,
                   )
               except Exception as e:
-                  return None, f"request error {type(e).__name__}: {e}"
+                  return None, f"proxy-attach request error {type(e).__name__}: {e}"
+
               if r.status_code == 429:
-                  say("      - GoLogin rate limit (429) -> backing off 12s")
+                  say("      - GoLogin rate limit (429) on proxy attach -> backing off 12s")
                   time.sleep(12)
-                  return None, "rate limited (429)"
+                  return None, "rate limited (429) on proxy attach"
               if r.status_code not in (200, 201):
-                  return None, f"HTTP {r.status_code}: {r.text[:160]}"
+                  # still try to read credentials from the profile in case partial success
+                  say(f"      - proxy-attach HTTP {r.status_code}: {r.text[:140]} (will try to read profile anyway)")
+
+              # 3) Read the profile to obtain the actual proxy credentials
+              host = port = user = pwd = pid = None
               try:
-                  d = r.json()
+                  time.sleep(0.8)  # brief settle
+                  gr = requests.get(
+                      f"{GOLOGIN_API}/browser/{profile_id}",
+                      headers=hdrs,
+                      timeout=25, verify=False,
+                  )
+                  if gr.status_code == 200:
+                      g = gr.json()
+                      # Prefer the structured proxy object
+                      px = g.get("proxy") or {}
+                      if isinstance(px, dict) and px.get("host"):
+                          host = px.get("host")
+                          port = px.get("port") or 80
+                          user = px.get("username") or px.get("user") or ""
+                          pwd  = px.get("password") or px.get("pass") or ""
+                          pid  = px.get("id") or px.get("_id") or ""
+                      # Fallback: autoProxy* fields used by Gologin built-in proxies
+                      if not host:
+                          auto = g.get("autoProxyServer") or ""
+                          # formats seen: http://user:pass@host:port  OR  host:port
+                          if "://" in auto:
+                              auto = auto.split("://", 1)[-1]
+                          if "@" in auto:
+                              cred, rest = auto.rsplit("@", 1)
+                              if ":" in cred:
+                                  user, pwd = cred.split(":", 1)
+                              hostport = rest
+                          else:
+                              hostport = auto
+                          if ":" in hostport:
+                              host, port_s = hostport.rsplit(":", 1)
+                              try:
+                                  port = int(port_s)
+                              except Exception:
+                                  port = 80
+                          else:
+                              host = hostport or None
+                          user = user or g.get("autoProxyUsername") or ""
+                          pwd  = pwd  or g.get("autoProxyPassword") or ""
+                      if not _logged_gologin_shape["done"]:
+                          say(f"      - Profile proxy fields sample: proxy.keys={list((g.get('proxy') or {}).keys())} autoProxyServer={str(g.get('autoProxyServer'))[:60]}")
+                          _logged_gologin_shape["done"] = True
+              except Exception as e:
+                  say(f"      - profile GET error: {type(e).__name__}: {e}")
+
+              # 4) Last-resort: parse the mobile-proxy response itself
+              if not host:
+                  try:
+                      d = r.json() if r is not None else {}
+                      host = d.get("host") or d.get("ip") or d.get("server")
+                      port = d.get("port") or d.get("httpPort") or 8080
+                      user = d.get("username") or d.get("user") or d.get("login") or ""
+                      pwd  = d.get("password") or d.get("pass") or ""
+                      pid  = d.get("id") or d.get("_id") or d.get("proxyId") or ""
+                  except Exception:
+                      pass
+
+              if not host:
+                  return None, f"could not extract proxy credentials from profile {profile_id}"
+
+              try:
+                  port = int(port)
               except Exception:
-                  return None, "non-JSON response"
-              if not _logged_gologin_shape["done"]:
-                  say(f"      - GoLogin response fields: {sorted(d.keys()) if isinstance(d, dict) else type(d).__name__}")
-                  _logged_gologin_shape["done"] = True
-              host = d.get("host") or d.get("ip") or d.get("server") or "proxy.gologin.com"
-              port = d.get("port") or d.get("httpPort") or 8080
-              user = d.get("username") or d.get("user") or d.get("login") or ""
-              pwd = d.get("password") or d.get("pass") or ""
-              pid = d.get("id") or d.get("_id") or d.get("proxyId") or ""
-              say(f"      - CREATED in GoLogin account as '{name}' (id={pid or 'n/a'}) -> visible at app.gologin.com/proxy")
-              return {"username": user, "password": pwd, "host": host, "port": int(port), "gologin_id": pid}, ""
+                  port = 8080
+
+              say(f"      - PROFILE-PROXY READY '{name}' (profile={profile_id}, proxy_id={pid or 'n/a'}) -> {host}:{port}")
+              return {
+                  "username": user or "",
+                  "password": pwd or "",
+                  "host": host,
+                  "port": port,
+                  "gologin_id": pid or "",
+                  "gologin_profile_id": profile_id,
+              }, ""
 
 
           def make_bytesflow(seq, cc, name, tries):
