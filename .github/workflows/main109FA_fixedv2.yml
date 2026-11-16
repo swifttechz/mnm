@@ -57,32 +57,32 @@ on:
           - '10 minutes'
           - '11 minutes'
           - '12 minutes'
-        default: '8 minutes'
+        default: '6 minutes'
       num_installs:
         description: 'Installs'
         required: true
         type: string
-        default: '10'
+        default: '0'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '250'
+        default: '20'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '0'
+        default: '50'
       enable_scroll:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
         type: boolean
-        default: false
+        default: true
       enable_surf:
         description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
         type: boolean
-        default: false
+        default: true
       reuse_proxies:
         description: 'Reuse Proxies (once every pool proxy has been used, wrap back around to #1, #2, ...)'
         required: true
@@ -135,12 +135,12 @@ on:
         description: 'Apply Fingerprint Masking'
         required: true
         type: boolean
-        default: false
+        default: true
       scrapeops_api_key:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmE5YjE1MzA4ZmQ4MjlhZmE4NmZhMyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmYTliMTUzMDhmZDgyOWFmYTg2Zjk4In0.gz9EhpxH-SAnrESnkZGJGT-6Lve5gLyk5ThgJbVyS_0'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmFhMWVjNzBhNTc4MDliYWUxNGUzYyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmYWExZWM3MGE1NzgwOWJhZTE0ZTMzIn0.hSpG7avrsP1-dGP_Etcnc1iuxvJzDEZAC77oh8jw7V8'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -166,7 +166,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'France'
+        default: 'USA'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -188,7 +188,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Australia'
+        default: 'USA'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
