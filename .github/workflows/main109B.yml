@@ -99,11 +99,6 @@ on:
         required: true
         type: string
         default: '1'
-      batch_id:
-        description: 'Batch ID (optional; set by Cloudflare Worker for tracking / edit continuity)'
-        required: false
-        type: string
-        default: ''
       proxy_mode:
         description: 'Proxy Mode for this run / future batch edit'
         required: true
@@ -265,7 +260,6 @@ jobs:
           IN_REUSE: ${{ inputs.reuse_proxies }}
           IN_UNIQUE_IP: ${{ inputs.unique_ip }}
           IN_BATCH_SIZE: ${{ inputs.batch_size }}
-          IN_BATCH_ID: ${{ inputs.batch_id }}
           IN_PROXY_MODE: ${{ inputs.proxy_mode }}
         run: |
           import os, re, glob
@@ -314,7 +308,6 @@ jobs:
               "reuse_proxies": os.getenv("IN_REUSE"),
               "unique_ip": os.getenv("IN_UNIQUE_IP"),
               "batch_size": os.getenv("IN_BATCH_SIZE", "1"),
-              "batch_id": os.getenv("IN_BATCH_ID", ""),
               "proxy_mode": os.getenv("IN_PROXY_MODE", "generate_new")
           }
 
