@@ -1,4 +1,4 @@
-name: Parallel mx10.9F
+name: Parallel mx10.9FB
 
 # ─────────────────────────────────────────────────────────────
 #  CLOUDFLARE WORKER BATCH INTEGRATION
@@ -275,7 +275,7 @@ jobs:
         run: |
           import os, re, glob
 
-          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.9F")
+          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.9FB")
           workflow_dir = ".github/workflows"
           target_file = None
 
