@@ -88,27 +88,27 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '0'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '20'
+        default: '245'
       num_surfs:
         description: 'Surfs'
         required: true
         type: string
-        default: '50'
+        default: '0'
       enable_scroll:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
         type: boolean
-        default: true
+        default: false
       enable_surf:
         description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
         type: boolean
-        default: true
+        default: false
       reuse_proxies:
         description: 'Reuse Proxies (once every pool proxy has been used, wrap back around to #1, #2, ...)'
         required: true
@@ -160,12 +160,12 @@ on:
         description: 'Apply Fingerprint Masking'
         required: true
         type: boolean
-        default: true
+        default: false
       scrapeops_api_key:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmFhMWVjNzBhNTc4MDliYWUxNGUzYyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmYWExZWM3MGE1NzgwOWJhZTE0ZTMzIn0.hSpG7avrsP1-dGP_Etcnc1iuxvJzDEZAC77oh8jw7V8'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmI2ZTNjNGM5NjhhMTYyNGM0OGM4NyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmYjZlM2M0Yzk2OGExNjI0YzQ4YzMyIn0.-UvJQh2gUZjG3pi0hLk7VsEWoWcQEtoBc3Pz67DqpB8'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -191,7 +191,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'France'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -213,7 +213,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'Australia'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
