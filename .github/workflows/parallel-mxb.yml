@@ -165,7 +165,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmI2ZTNjNGM5NjhhMTYyNGM0OGM4NyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmYjZlM2M0Yzk2OGExNjI0YzQ4YzMyIn0.-UvJQh2gUZjG3pi0hLk7VsEWoWcQEtoBc3Pz67DqpB8'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmI3OTNhMjVkZDg4NWNkODQ4NTg3MSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmYjc5M2EyNWRkODg1Y2Q4NDg1ODYxIn0.CTyEfHL829AUefzqhwac7qajwm7cmTnQZo47GwzEDpE'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -218,7 +218,7 @@ on:
         description: 'Use Mobile Proxies'
         required: true
         type: boolean
-        default: false
+        default: true
       sticky_sessions:
         description: 'Enable Sticky Sessions'
         required: true
