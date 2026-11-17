@@ -32,7 +32,7 @@ on:
         description: "Windows runner to use"
         required: true
         type: choice
-        default: windows-latest
+        default: 'windows-latest'
         options:
           - windows-latest
           - windows-2025
@@ -41,12 +41,12 @@ on:
         description: "How many GoLogin accounts to create (1-250)"
         required: true
         type: string
-        default: "1"
+        default: '1'
       concurrency:
         description: "How many devices run at the same time"
         required: true
         type: choice
-        default: "1"
+        default: '1'
         options: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
       use_cloudflare_warp:
         description: "Install + connect Cloudflare WARP (1.1.1.1) before opening Edge"
@@ -62,7 +62,7 @@ on:
         description: "ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual — space-separated proxy tokens or strings"
         required: false
         type: string
-        default: ''
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmM0MDMxNTU5M2MyYmZlNzVhZDBiYyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmYzQwMzE1NTkzYzJiZmU3NWFkMGE3In0.ymxBwNs-8XoQ_TduVeo2WdZ0vdRLFVwhJq7ml0vgckE'
       use_without_proxy:
         description: "Use Without Proxy (skip all proxy injection)"
         required: false
@@ -72,7 +72,7 @@ on:
         description: "Proxy country (applies to GoLogin, ScrapeOps, Floppy, Redscrape API-key proxies)"
         required: false
         type: choice
-        default: "us"
+        default: 'us'
         options:
           - us
           - gb
@@ -88,7 +88,7 @@ on:
         description: "Proxy type for GoLogin built-in proxies (Residential / Mobile / Datacenter)"
         required: false
         type: choice
-        default: "residential"
+        default: 'residential'
         options:
           - residential
           - mobile
@@ -97,17 +97,17 @@ on:
         description: "Getscreen.me account email. Blank = Getscreen disabled."
         required: false
         type: string
-        default: ''
+        default: 'dramatic.skink.kvck@hidingpost.com'
       getscreen_wait_minutes:
         description: "Pause N minutes after Getscreen connects (0-120)"
         required: false
         type: string
-        default: "0"
+        default: '0'
       keep_alive_minutes:
         description: "Keep each device alive N minutes AFTER it finishes/fails (0-120)"
         required: false
         type: string
-        default: "0"
+        default: '0'
 
 permissions:
   actions: write
