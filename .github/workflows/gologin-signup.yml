@@ -53,7 +53,7 @@ on:
         description: "ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual — space-separated proxy tokens or strings"
         required: false
         type: string
-        default: ''
+        default: 'geolocation://user-FhFSG0FbqydiOQf1-type-residential-session-I900VcAvr5yD-country-US:aAYAG0i8NUE6mLqs@geo.floppydata.com:10080:UNITED STATES'
       use_without_proxy:
         description: "Use Without Proxy (skip all proxy injection)"
         required: false
@@ -63,7 +63,7 @@ on:
         description: "Getscreen.me account email. Blank = Getscreen disabled."
         required: false
         type: string
-        default: ''
+        default: 'dramatic.skink.kvck@hidingpost.com'
       getscreen_wait_minutes:
         description: "Pause N minutes after Getscreen connects (0-120)"
         required: false
