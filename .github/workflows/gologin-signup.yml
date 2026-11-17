@@ -1,29 +1,26 @@
 # Save as: .github/workflows/gologin-signup.yml
 # USE A PRIVATE REPO — inputs, logs and artifacts contain the password and API keys.
-# Requires repo secret: GH_PAT  (fine-grained: Variables read+write, Actions read)
+# Requires repo secret: GH_PAT  (fine-grained: Variables read+write, Actions read+write, Contents read+write)
 
 name: GoLogin Signup Automation
 
-run-name: "GoLogin signup | saved=${{ inputs.use_saved_inputs }} | warp=${{ inputs.use_cloudflare_warp }} | devices=${{ inputs.account_count }}"
+run-name: "GoLogin signup | warp=${{ inputs.use_cloudflare_warp }} | devices=${{ inputs.account_count }}"
 
 on:
   workflow_dispatch:
     inputs:
-      use_saved_inputs:
-        description: "Load ALL values from the last saved run (ignores the fields below)"
-        required: false
-        type: boolean
-        default: false
       gologin_email:
-        description: "Base GoLogin email (random suffix appended per account). Blank = last saved"
+        description: "Base GoLogin email (random suffix appended per account)"
         required: false
         type: string
+        default: ''
       gologin_password:
-        description: "GoLogin password for every account (min 8 chars). Blank = last saved"
+        description: "GoLogin password for every account (min 8 chars)"
         required: false
         type: string
+        default: ''
       runner_image:
-        description: "Windows runner to use (all free-tier GitHub-hosted)"
+        description: "Windows runner to use"
         required: true
         type: choice
         default: windows-latest
@@ -52,12 +49,23 @@ on:
         required: false
         type: boolean
         default: false
-      getscreen_email:
-        description: "Getscreen.me account email. Blank = Getscreen disabled. Runs FIRST on every device"
+      scrapeops_api_key:
+        description: "ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual — space-separated proxy tokens or strings"
         required: false
         type: string
+        default: ''
+      use_without_proxy:
+        description: "Use Without Proxy (skip all proxy injection)"
+        required: false
+        type: boolean
+        default: false
+      getscreen_email:
+        description: "Getscreen.me account email. Blank = Getscreen disabled."
+        required: false
+        type: string
+        default: ''
       getscreen_wait_minutes:
-        description: "Pause N minutes after Getscreen connects so you can inspect the device (0-120)"
+        description: "Pause N minutes after Getscreen connects (0-120)"
         required: false
         type: string
         default: "0"
@@ -68,14 +76,147 @@ on:
         default: "0"
 
 permissions:
-  contents: read
+  actions: write
+  contents: write
 
 # =============================================================================
-# JOB 1 — PREPARE: resolve inputs, build matrix
+# JOB 1 — AUTO-SAVE: rewrite YAML defaults so last inputs are pre-filled next run
 # =============================================================================
 jobs:
+  save_inputs:
+    name: Auto-Save Last Inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          ref: ${{ github.ref }}
+
+      - name: Update YAML Defaults
+        shell: python
+        env:
+          GITHUB_WORKFLOW_NAME: ${{ github.workflow }}
+          IN_RUNNER:    ${{ inputs.runner_image }}
+          IN_COUNT:     ${{ inputs.account_count }}
+          IN_CONC:      ${{ inputs.concurrency }}
+          IN_WARP:      ${{ inputs.use_cloudflare_warp }}
+          IN_WARPC:     ${{ inputs.continue_if_warp_fails }}
+          IN_PROXY:     ${{ inputs.scrapeops_api_key }}
+          IN_NOPROXY:   ${{ inputs.use_without_proxy }}
+          IN_GS:        ${{ inputs.getscreen_email }}
+          IN_GSW:       ${{ inputs.getscreen_wait_minutes }}
+          IN_KEEP:      ${{ inputs.keep_alive_minutes }}
+          # NOTE: gologin_email and gologin_password are intentionally NOT saved
+          # to avoid storing credentials in the repo. They must be re-entered each run,
+          # or leave blank to fall back to whatever was saved in an earlier explicit run.
+        run: |
+          import os, re, glob
+
+          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "GoLogin Signup Automation")
+          workflow_dir  = ".github/workflows"
+          target_file   = None
+
+          for filepath in glob.glob(os.path.join(workflow_dir, "*.yml")) + \
+                          glob.glob(os.path.join(workflow_dir, "*.yaml")):
+              try:
+                  with open(filepath, "r", encoding="utf-8") as f:
+                      content = f.read()
+                  if re.search(
+                      r"^name:\s*['\"]?" + re.escape(workflow_name) + r"['\"]?\s*$",
+                      content, re.MULTILINE
+                  ):
+                      target_file = filepath
+                      break
+              except Exception:
+                  continue
+
+          if not target_file:
+              print(f"Could not find workflow file for '{workflow_name}' — skipping save.")
+              exit(0)
+
+          print(f"Saving inputs to: {target_file}")
+
+          bool_keys = ["use_cloudflare_warp", "continue_if_warp_fails",
+                       "use_without_proxy"]
+
+          updates = {
+              "runner_image":           os.getenv("IN_RUNNER",   "windows-latest"),
+              "account_count":          os.getenv("IN_COUNT",    "1"),
+              "concurrency":            os.getenv("IN_CONC",     "1"),
+              "use_cloudflare_warp":    os.getenv("IN_WARP",     "false"),
+              "continue_if_warp_fails": os.getenv("IN_WARPC",    "false"),
+              "scrapeops_api_key":      os.getenv("IN_PROXY",    ""),
+              "use_without_proxy":      os.getenv("IN_NOPROXY",  "false"),
+              "getscreen_email":        os.getenv("IN_GS",       ""),
+              "getscreen_wait_minutes": os.getenv("IN_GSW",      "0"),
+              "keep_alive_minutes":     os.getenv("IN_KEEP",     "0"),
+          }
+
+          with open(target_file, "r", encoding="utf-8") as f:
+              lines = f.readlines()
+
+          out_lines       = []
+          current_input   = None
+          input_indent    = 0
+          in_inputs       = False
+
+          input_key_re = re.compile(r"^([ \t]*)([a-zA-Z0-9_]+):\s*$")
+          default_re   = re.compile(r"^([ \t]+)default:\s*(.*)$")
+
+          for line in lines:
+              if re.match(r"^[ \t]*inputs:\s*$", line):
+                  in_inputs = True
+              if in_inputs and re.match(r"^[ \t]*(permissions|jobs|env):\s*$", line):
+                  in_inputs = False
+
+              if in_inputs:
+                  m = input_key_re.match(line)
+                  if m:
+                      indent = len(m.group(1))
+                      key    = m.group(2)
+                      if key in updates:
+                          current_input = key
+                          input_indent  = indent
+                      elif current_input and indent <= input_indent:
+                          current_input = None
+
+                  if current_input:
+                      dm = default_re.match(line)
+                      if dm:
+                          val = updates[current_input]
+                          if val is None:
+                              val = ""
+                          if current_input in bool_keys:
+                              rep = "true" if str(val).lower() in ("true", "1", "yes") else "false"
+                          elif current_input == "concurrency":
+                              # keep as bare number (it's a choice input)
+                              rep = f"'{val}'"
+                          else:
+                              safe = str(val).replace("'", "''")
+                              rep  = f"'{safe}'"
+                          line = f"{dm.group(1)}default: {rep}\n"
+                          current_input = None
+
+              out_lines.append(line)
+
+          with open(target_file, "w", encoding="utf-8") as f:
+              f.writelines(out_lines)
+          print("YAML defaults updated.")
+
+      - name: Commit and Push Changes
+        run: |
+          git config user.name  "github-actions"
+          git config user.email "github-actions@github.com"
+          git add .github/workflows/
+          git diff --cached --quiet || git commit -m "Auto-save GoLogin Signup inputs from last run"
+          git push origin HEAD || echo "Push skipped (no changes or permission issue)"
+
+# =============================================================================
+# JOB 2 — PREPARE: resolve inputs, build matrix
+# =============================================================================
   prepare:
-    name: "Prepare (inputs, saved state, matrix)"
+    name: "Prepare (validate inputs, build matrix)"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -87,113 +228,37 @@ jobs:
       WF_NAME: ${{ github.workflow }}
     steps:
 
-      # ---- identify the storage variable name ----
-      - name: "[1/4] Identify workflow storage key"
-        id: ident
-        run: |
-          set -uo pipefail
-          api() { curl -sS -H "Authorization: Bearer $GH_PAT" \
-                       -H "Accept: application/vnd.github+json" \
-                       -H "X-GitHub-Api-Version: 2022-11-28" "$@"; }
-
-          slug=$(printf '%s' "$WF_NAME" | tr '[:lower:]' '[:upper:]' \
-                 | sed -E 's/[^A-Z0-9]+/_/g; s/^_+|_+$//g')
-          [[ -n "$slug" ]] || slug="DEFAULT"
-          [[ "$slug" =~ ^[0-9] ]] && slug="W_${slug}"
-          VAR="LAST_INPUTS_${slug}"
-          echo "Storage variable: $VAR"
-          echo "var_name=$VAR" >> "$GITHUB_OUTPUT"
-
-          persist=false
-          if [[ -z "${GH_PAT:-}" ]]; then
-            echo "::warning::GH_PAT not set — inputs will not be saved/loaded."
-          else
-            who=$(api https://api.github.com/user | jq -r '.login // empty')
-            if [[ -z "$who" ]]; then
-              echo "::warning::GH_PAT rejected by GitHub API — inputs will not be saved/loaded."
-            else
-              echo "GH_PAT authenticates as: $who"
-              persist=true
-            fi
-          fi
-          echo "persist=$persist" >> "$GITHUB_OUTPUT"
-
-      # ---- load saved state, merge, validate, build matrix ----
-      - name: "[2/4] Load saved inputs, merge, validate, build matrix"
+      - name: "[1/2] Resolve inputs and build matrix"
         id: resolve
         env:
-          PERSIST:    ${{ steps.ident.outputs.persist }}
-          VAR:        ${{ steps.ident.outputs.var_name }}
-          USE_SAVED:  ${{ inputs.use_saved_inputs }}
-          IN_EMAIL:   ${{ inputs.gologin_email }}
+          IN_EMAIL:    ${{ inputs.gologin_email }}
           IN_PASSWORD: ${{ inputs.gologin_password }}
-          IN_RUNNER:  ${{ inputs.runner_image }}
-          IN_COUNT:   ${{ inputs.account_count }}
-          IN_CONC:    ${{ inputs.concurrency }}
-          IN_WARP:    ${{ inputs.use_cloudflare_warp }}
-          IN_WARPC:   ${{ inputs.continue_if_warp_fails }}
-          IN_GS:      ${{ inputs.getscreen_email }}
-          IN_GSW:     ${{ inputs.getscreen_wait_minutes }}
-          IN_KEEP:    ${{ inputs.keep_alive_minutes }}
+          IN_RUNNER:   ${{ inputs.runner_image }}
+          IN_COUNT:    ${{ inputs.account_count }}
+          IN_CONC:     ${{ inputs.concurrency }}
+          IN_WARP:     ${{ inputs.use_cloudflare_warp }}
+          IN_WARPC:    ${{ inputs.continue_if_warp_fails }}
+          IN_PROXY:    ${{ inputs.scrapeops_api_key }}
+          IN_NOPROXY:  ${{ inputs.use_without_proxy }}
+          IN_GS:       ${{ inputs.getscreen_email }}
+          IN_GSW:      ${{ inputs.getscreen_wait_minutes }}
+          IN_KEEP:     ${{ inputs.keep_alive_minutes }}
         run: |
           set -euo pipefail
           fail() { echo "::error::$1"; exit 1; }
-          api()  { curl -sS -H "Authorization: Bearer $GH_PAT" \
-                        -H "Accept: application/vnd.github+json" \
-                        -H "X-GitHub-Api-Version: 2022-11-28" "$@"; }
 
-          current=$(jq -n \
-            --arg email    "$IN_EMAIL"  --arg pw    "$IN_PASSWORD" \
-            --arg runner   "$IN_RUNNER" --arg count "$IN_COUNT" \
-            --arg conc     "$IN_CONC"   --arg warp  "$IN_WARP" \
-            --arg warpc    "$IN_WARPC"  --arg gs    "$IN_GS" \
-            --arg gsw      "$IN_GSW"    --arg keep  "$IN_KEEP" \
-            '{gologin_email:$email, gologin_password:$pw,
-              runner_image:$runner,  account_count:$count,
-              concurrency:$conc,     use_cloudflare_warp:($warp=="true"),
-              continue_if_warp_fails:($warpc=="true"),
-              getscreen_email:$gs,   getscreen_wait_minutes:$gsw,
-              keep_alive_minutes:$keep}')
+          EMAIL="$IN_EMAIL"
+          PASSWORD="$IN_PASSWORD"
+          COUNT="$IN_COUNT"
+          CONC="$IN_CONC"
+          GS="$IN_GS"
+          GSW="${IN_GSW:-0}"
+          KEEP="${IN_KEEP:-0}"
+          RUNNER="$IN_RUNNER"
 
-          # load saved state
-          saved='{}'
-          if [[ "$PERSIST" == "true" ]]; then
-            resp=$(api "https://api.github.com/repos/$REPO/actions/variables/$VAR")
-            enc=$(jq -r '.value // empty' <<<"$resp")
-            if [[ -n "$enc" ]]; then
-              if dec=$(printf '%s' "$enc" | openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -a -A \
-                       -pass env:GH_PAT 2>/dev/null) && jq -e . >/dev/null 2>&1 <<<"$dec"; then
-                saved="$dec"
-                echo "Loaded saved inputs from $VAR"
-              else
-                echo "::warning::Saved inputs exist but could not be decrypted — ignoring."
-              fi
-            fi
-          fi
-
-          # merge
-          if [[ "$USE_SAVED" == "true" ]]; then
-            [[ "$saved" != "{}" ]] || fail "use_saved_inputs ticked but nothing has been saved yet."
-            effective=$(jq -s '.[0] * .[1]' <<<"$current"$'\n'"$saved")
-            echo "Mode: all values from last saved run"
-          else
-            effective=$(jq -s '.[0] as $s | .[1]
-              | (if .gologin_email==""    then .gologin_email=($s.gologin_email//"")       else . end)
-              | (if .gologin_password=="" then .gologin_password=($s.gologin_password//"") else . end)' \
-              <<<"$saved"$'\n'"$current")
-            echo "Mode: values from form (blank email/pw fall back to saved)"
-          fi
-
-          g() { jq -r --arg k "$1" '.[$k] // ""' <<<"$effective"; }
-          EMAIL=$(g gologin_email); PASSWORD=$(g gologin_password)
-          COUNT=$(g account_count); CONC=$(g concurrency)
-          GS=$(g getscreen_email); GSW=$(g getscreen_wait_minutes)
-          KEEP=$(g keep_alive_minutes); RUNNER=$(g runner_image)
-
-          # validate
-          [[ "$COUNT"    =~ ^[0-9]+$ ]] && (( COUNT >= 1   && COUNT  <= 250 )) || fail "account_count must be 1-250"
-          [[ "$CONC"     =~ ^[0-9]+$ ]] && (( CONC  >= 1   && CONC   <= 10  )) || fail "concurrency must be 1-10"
-          [[ -n "$EMAIL" ]] || fail "gologin_email is empty and nothing is saved"
+          [[ "$COUNT" =~ ^[0-9]+$ ]] && (( COUNT >= 1   && COUNT  <= 250 )) || fail "account_count must be 1-250"
+          [[ "$CONC"  =~ ^[0-9]+$ ]] && (( CONC  >= 1   && CONC   <= 10  )) || fail "concurrency must be 1-10"
+          [[ -n "$EMAIL" ]] || fail "gologin_email is empty — enter it in the form (it is not saved for security)"
           [[ "$EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || fail "gologin_email invalid"
           (( ${#PASSWORD} >= 8 )) || fail "gologin_password must be at least 8 characters"
           [[ "$GSW"  =~ ^[0-9]+$ ]] && (( GSW  <= 120 )) || fail "getscreen_wait_minutes must be 0-120"
@@ -203,16 +268,14 @@ jobs:
           fi
           case "$RUNNER" in windows-*) ;; *) fail "runner_image must be a windows-* runner" ;; esac
 
-          # per-device timeout
+          # per-device timeout: 35 base + waits
           t=$(( 35 + GSW + KEEP )); (( t > 360 )) && t=360
 
-          # build matrix — each account gets a unique random suffix appended to the
-          # local part (before @) so no plus-addressing is needed.
+          # build matrix items
           local_part="${EMAIL%@*}"; domain="${EMAIL#*@}"
           items='[]'
           CHARS='abcdefghijklmnopqrstuvwxyz0123456789'
           for (( i = 1; i <= COUNT; i++ )); do
-            # generate 6 random chars (az09) — pure bash, no pipefail issues
             suffix=""
             for (( j = 0; j < 6; j++ )); do
               suffix+="${CHARS:RANDOM%${#CHARS}:1}"
@@ -221,10 +284,28 @@ jobs:
             items=$(jq -c --argjson i "$i" --arg e "$email" '. + [{index:$i,email:$e}]' <<<"$items")
           done
           matrix=$(jq -c '{include: .}' <<<"$items")
-          config=$(jq -c --argjson t "$t" '. + {job_timeout:$t, concurrency:(.concurrency|tonumber)}' \
-                   <<<"$effective")
 
-          echo "$effective" > "$RUNNER_TEMP/effective.json"
+          config=$(jq -cn \
+            --arg runner   "$RUNNER" \
+            --arg password "$PASSWORD" \
+            --arg warp     "$IN_WARP" \
+            --arg warpc    "$IN_WARPC" \
+            --arg proxy    "$IN_PROXY" \
+            --arg noproxy  "$IN_NOPROXY" \
+            --arg gs       "$GS" \
+            --arg gsw      "$GSW" \
+            --arg keep     "$KEEP" \
+            --argjson t    "$t" \
+            --argjson conc "$CONC" \
+            '{runner_image:$runner, gologin_password:$password,
+              use_cloudflare_warp:($warp=="true"),
+              continue_if_warp_fails:($warpc=="true"),
+              proxy_input:$proxy,
+              use_without_proxy:($noproxy=="true"),
+              getscreen_email:$gs, getscreen_wait_minutes:($gsw|tonumber),
+              keep_alive_minutes:($keep|tonumber),
+              job_timeout:$t, concurrency:$conc}')
+
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "config=$config"  >> "$GITHUB_OUTPUT"
 
@@ -233,12 +314,12 @@ jobs:
             echo "| Setting | Value |"
             echo "|---|---|"
             echo "| Runner | \`$RUNNER\` |"
-            echo "| Accounts | $COUNT |"
-            echo "| Concurrency | $CONC |"
-            echo "| Cloudflare WARP | $(jq -r '.use_cloudflare_warp' <<<"$effective") (continue if fails: $(jq -r '.continue_if_warp_fails' <<<"$effective")) |"
+            echo "| Accounts | $COUNT (concurrency $CONC) |"
+            echo "| Cloudflare WARP | $IN_WARP (continue if fails: $IN_WARPC) |"
+            echo "| Proxy input | $(echo "$IN_PROXY" | wc -w) token(s) / strings |"
+            echo "| Use without proxy | $IN_NOPROXY |"
             echo "| Getscreen.me | ${GS:-disabled} (wait ${GSW}min, keep ${KEEP}min) |"
             echo "| Base email | $EMAIL |"
-            echo "| Password | (hidden, ${#PASSWORD} chars) |"
             echo "| Per-device timeout | ${t}min |"
             echo ""
             echo "### Planned accounts"
@@ -247,44 +328,15 @@ jobs:
             jq -r '.[] | "| \(.index) | \(.email) |"' <<<"$items"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # ---- save inputs ----
-      - name: "[3/4] Save inputs for next time"
-        if: ${{ steps.ident.outputs.persist == 'true' }}
-        env:
-          VAR: ${{ steps.ident.outputs.var_name }}
-        run: |
-          set -uo pipefail
-          api() { curl -sS -H "Authorization: Bearer $GH_PAT" \
-                       -H "Accept: application/vnd.github+json" \
-                       -H "X-GitHub-Api-Version: 2022-11-28" "$@"; }
-          base="https://api.github.com/repos/$REPO/actions/variables"
-          enc=$(jq -c . "$RUNNER_TEMP/effective.json" \
-                | openssl enc -aes-256-cbc -pbkdf2 -md sha256 -salt -a -A -pass env:GH_PAT)
-          body=$(jq -n --arg n "$VAR" --arg v "$enc" '{name:$n,value:$v}')
-          exists=$(api -o /dev/null -w '%{http_code}' "$base/$VAR")
-          if [[ "$exists" == "200" ]]; then
-            code=$(api -X PATCH -o /tmp/save.json -w '%{http_code}' "$base/$VAR" -d "$body")
-            action="updated"
-          else
-            code=$(api -X POST  -o /tmp/save.json -w '%{http_code}' "$base"      -d "$body")
-            action="created"
-          fi
-          if [[ "$code" == "201" || "$code" == "204" ]]; then
-            echo "Saved inputs ($action) in $VAR [HTTP $code] (AES-256 encrypted with GH_PAT)"
-          else
-            echo "::warning::Could not save inputs (HTTP $code): $(cat /tmp/save.json)"
-          fi
-
-      - name: "[4/4] Done — matrix ready"
-        run: echo "Matrix ready. Devices starting (max parallel=$(jq -r .concurrency <<<'${{ steps.resolve.outputs.config }}'))."
-
+      - name: "[2/2] Matrix ready"
+        run: echo "Matrix built. Devices will start (max parallel=${{ fromJSON(steps.resolve.outputs.config).concurrency }})."
 
 # =============================================================================
-# JOB 2 — SIGNUP: one fresh Windows runner per account
+# JOB 3 — SIGNUP: one fresh Windows runner per account
 # =============================================================================
   signup:
     name: "Device ${{ matrix.index }} | ${{ matrix.email }}"
-    needs: prepare
+    needs: [save_inputs, prepare]
     runs-on: ${{ fromJSON(needs.prepare.outputs.config).runner_image }}
     timeout-minutes: ${{ fromJSON(needs.prepare.outputs.config).job_timeout }}
     strategy:
@@ -295,20 +347,22 @@ jobs:
       run:
         shell: bash
     env:
-      ACC_INDEX:  ${{ matrix.index }}
-      ACC_EMAIL:  ${{ matrix.email }}
-      ACC_PASSWORD: ${{ fromJSON(needs.prepare.outputs.config).gologin_password }}
-      WARP_ON:    ${{ fromJSON(needs.prepare.outputs.config).use_cloudflare_warp }}
+      ACC_INDEX:     ${{ matrix.index }}
+      ACC_EMAIL:     ${{ matrix.email }}
+      ACC_PASSWORD:  ${{ fromJSON(needs.prepare.outputs.config).gologin_password }}
+      WARP_ON:       ${{ fromJSON(needs.prepare.outputs.config).use_cloudflare_warp }}
       WARP_CONTINUE: ${{ fromJSON(needs.prepare.outputs.config).continue_if_warp_fails }}
-      GS_EMAIL:   ${{ fromJSON(needs.prepare.outputs.config).getscreen_email }}
-      GS_WAIT:    ${{ fromJSON(needs.prepare.outputs.config).getscreen_wait_minutes }}
-      KEEP_MIN:   ${{ fromJSON(needs.prepare.outputs.config).keep_alive_minutes }}
+      PROXY_INPUT:   ${{ fromJSON(needs.prepare.outputs.config).proxy_input }}
+      USE_WITHOUT_PROXY: ${{ fromJSON(needs.prepare.outputs.config).use_without_proxy }}
+      GS_EMAIL:      ${{ fromJSON(needs.prepare.outputs.config).getscreen_email }}
+      GS_WAIT:       ${{ fromJSON(needs.prepare.outputs.config).getscreen_wait_minutes }}
+      KEEP_MIN:      ${{ fromJSON(needs.prepare.outputs.config).keep_alive_minutes }}
       PLAYWRIGHT_VERSION: "1.55.0"
 
     steps:
 
       # ================================================================
-      # STEP 1 — Getscreen.me (Windows, always first)
+      # STEP 1 — Getscreen.me
       # ================================================================
       - name: "[1/11] Getscreen.me — install and link (Windows)"
         if: ${{ env.GS_EMAIL != '' }}
@@ -337,7 +391,6 @@ jobs:
           $cfg = "name='$name' autostart=true control=true file_transfer=true disable_confirmation=true"
           $installed = $false
 
-          # Method 1: binary with CLI flags
           $exe = Join-Path $dir 'getscreen.exe'
           if (Get-GSFile @('https://getscreen.me/download/getscreen.exe','https://getscreen.me/download/getscreen-x86.exe') $exe) {
             & $exe -config $cfg 2>&1 | Out-Host
@@ -346,7 +399,6 @@ jobs:
             $svc = Get-Service 'Getscreen.me' -ErrorAction SilentlyContinue
             if ($svc -and $svc.Status -eq 'Running') { $installed = $true }
           }
-          # Method 2: MSI fallback
           if (-not $installed) {
             $msi = Join-Path $dir 'getscreen.msi'
             if (Get-GSFile @('https://getscreen.me/download/getscreen.msi') $msi) {
@@ -373,24 +425,19 @@ jobs:
         if: ${{ env.GS_EMAIL != '' && env.GS_WAIT != '0' }}
         run: |
           total=$GS_WAIT
-          echo "Pausing ${total}min. Connect to device gh-${GITHUB_RUN_ID}-dev${ACC_INDEX}-win at https://getscreen.me/panel"
+          echo "Pausing ${total}min. Connect at https://getscreen.me/panel"
           for ((m = total; m > 0; m--)); do echo "  ...${m}min left"; sleep 60; done
 
       # ================================================================
       # STEP 3 — Runner info
       # ================================================================
-      - name: "[3/11] Runner info + public IP (before WARP)"
+      - name: "[3/11] Runner info + public IP"
         run: |
           echo "Runner OS: $RUNNER_OS  Arch: $RUNNER_ARCH  Image: ${ImageOS:-n/a} ${ImageVersion:-}"
           echo "Public IP (before WARP): $(curl -fsS --max-time 15 https://api.ipify.org || echo unknown)"
 
       # ================================================================
-      # STEP 4 — Cloudflare WARP (Windows)
-      # NOTE: WARP is installed and connected BEFORE Edge is opened so
-      #       the new IP is already in place when GoLogin's signup page
-      #       loads, which prevents the Cloudflare "Verify you are human"
-      #       turnstile from appearing (or at least makes it far less
-      #       likely, since WARP gives a clean residential-ish IP).
+      # STEP 4 — Cloudflare WARP
       # ================================================================
       - name: "[4/11] Cloudflare WARP — install and connect (Windows)"
         if: ${{ env.WARP_ON == 'true' }}
@@ -399,8 +446,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           $msi = Join-Path $env:RUNNER_TEMP 'Cloudflare_WARP.msi'
-
-          $ok = $false
+          $ok  = $false
           foreach ($i in 1..3) {
             try {
               Invoke-WebRequest -Uri 'https://downloads.cloudflareclient.com/v1/download/windows/ga' `
@@ -424,11 +470,11 @@ jobs:
 
           function W { param([string[]]$a)
             $o = & $cli '--accept-tos' @a 2>&1 | Out-String
-            Write-Host "warp-cli $($a -join ' ') => exit $LASTEXITCODE"; if ($o.Trim()) { Write-Host $o.Trim() }
+            Write-Host "warp-cli $($a -join ' ') => exit $LASTEXITCODE"
+            if ($o.Trim()) { Write-Host $o.Trim() }
             return $LASTEXITCODE
           }
 
-          # wait for daemon
           $ready = $false
           foreach ($i in 1..30) {
             $o = & $cli '--accept-tos' 'status' 2>&1 | Out-String
@@ -436,16 +482,13 @@ jobs:
             Start-Sleep 2
           }
           Write-Host "WARP daemon ready: $ready"
-
           if ((W @('registration','new')) -ne 0) { [void](W @('register')) }
 
-          # exclude GitHub/runner control channels from the tunnel
           foreach ($h in 'github.com','githubusercontent.com','actions.githubusercontent.com',
-                          'blob.core.windows.net','getscreen.me','*.actions.githubusercontent.com') {
+                          'blob.core.windows.net','getscreen.me') {
             [void](W @('tunnel','host','add',$h))
           }
           foreach ($ip in '168.63.129.16','169.254.169.254') { [void](W @('tunnel','ip','add',$ip)) }
-
           [void](W @('connect'))
 
           foreach ($i in 1..30) {
@@ -480,41 +523,315 @@ jobs:
           fi
 
       # ================================================================
-      # STEP 5 — Node.js + Playwright
+      # STEP 5 — Proxy provisioning (identical parser to mx10.9)
+      # Outputs: PROXY_SERVER, PROXY_USER, PROXY_PASS, PROXY_TYPE, USE_PROXY
+      # ================================================================
+      - name: "[5/11] Proxy provisioning"
+        shell: python
+        env:
+          PROXY_INPUT:       ${{ env.PROXY_INPUT }}
+          USE_WITHOUT_PROXY: ${{ env.USE_WITHOUT_PROXY }}
+          ACC_INDEX:         ${{ matrix.index }}
+        run: |
+          import os, re, sys, time, json, random, string
+
+          try:
+              import requests, urllib3
+          except ImportError:
+              import subprocess
+              subprocess.check_call([sys.executable, "-m", "pip", "install",
+                                     "requests", "urllib3", "--quiet"])
+              import requests, urllib3
+          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+          GH_ENV = os.environ.get("GITHUB_ENV", "")
+          proxy_input = os.environ.get("PROXY_INPUT", "").strip()
+          without_proxy = os.environ.get("USE_WITHOUT_PROXY", "false").lower() == "true"
+          acc_idx = int(os.environ.get("ACC_INDEX", "1")) - 1
+
+          def set_env(k, v):
+              if GH_ENV:
+                  with open(GH_ENV, "a", encoding="utf-8") as f:
+                      f.write(f"{k}={v}\n")
+
+          def say(m=""):
+              print(m, flush=True)
+
+          # ---- no proxy path ----
+          if without_proxy or not proxy_input:
+              say("[Proxy] No proxy configured — using direct connection.")
+              set_env("USE_PROXY", "false")
+              set_env("PROXY_SERVER", "")
+              set_env("PROXY_USER", "")
+              set_env("PROXY_PASS", "")
+              set_env("PROXY_TYPE", "none")
+              sys.exit(0)
+
+          # ---- parse tokens ----
+          SCRAPEOPS_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+          REDSCRAPE_RE = re.compile(r"^[0-9a-f]{32}$", re.I)
+          GOLOGIN_RE   = re.compile(r"^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
+          FLOPPY_RE    = re.compile(r"^[A-Za-z0-9_]{30,80}$")
+
+          gologin_keys, bytesflow_proxies, scrapeops_keys, floppy_keys = [], [], [], []
+          redscrape_keys, manual_proxies = [], []
+
+          for item in proxy_input.split():
+              item = item.strip()
+              if not item:
+                  continue
+              if GOLOGIN_RE.match(item):
+                  gologin_keys.append(item)
+              elif "bytesflows.com" in item.lower():
+                  bytesflow_proxies.append(item)
+              elif REDSCRAPE_RE.match(item):
+                  redscrape_keys.append(item)
+              elif SCRAPEOPS_RE.match(item):
+                  scrapeops_keys.append(item)
+              elif FLOPPY_RE.match(item) and len(item) >= 30:
+                  floppy_keys.append(item)
+              elif (":" in item or "@" in item or "://" in item or "." in item) and len(item) > 5:
+                  manual_proxies.append(item)
+
+          say(f"[Proxy] Tokens found — GoLogin:{len(gologin_keys)} BytesFlow:{len(bytesflow_proxies)} "
+              f"ScrapeOps:{len(scrapeops_keys)} Floppy:{len(floppy_keys)} "
+              f"Redscrape:{len(redscrape_keys)} Manual:{len(manual_proxies)}")
+
+          # ---- parse a generic proxy string ----
+          def parse_generic(proxy_str):
+              s = proxy_str.strip()
+              if not s:
+                  return None
+              protocol, rest = "http", s
+              if "://" in rest:
+                  protocol, rest = rest.split("://", 1)
+                  if protocol.lower() == "geolocation":
+                      protocol = "http"
+              rest = re.sub(r":(\d+):[A-Za-z].*$", r":\1", rest)
+              for pat in [
+                  r"([^:@\s]+):([^:@\s]+)@([^:@\s]+):(\d+)",
+                  r"^([^:@\s]+):(\d+):([^:@\s]+):([^:@\s]+)",
+                  r"^([^:@\s]+):([^:@\s]+):([^:@\s]+):(\d+)",
+              ]:
+                  m = re.search(pat, rest)
+                  if m:
+                      g = m.groups()
+                      if re.match(r"^\d+$", g[1]):
+                          h, p, u, pw = g[0], g[1], g[2], g[3]
+                      else:
+                          u, pw, h, p = g[0], g[1], g[2], g[3]
+                      return {"host": h, "port": int(p), "username": u, "password": pw}
+              m = re.search(r"^([^:@\s]+):(\d+)", rest)
+              if m:
+                  return {"host": m.group(1), "port": int(m.group(2)), "username": "", "password": ""}
+              return None
+
+          # ---- validate proxy by probing ----
+          def validate_proxy(pinfo):
+              auth = f"{pinfo['username']}:{pinfo['password']}@" if pinfo.get("username") else ""
+              url  = f"http://{auth}{pinfo['host']}:{pinfo['port']}"
+              cfg  = {"http": url, "https": url}
+              for ep in ("http://ip-api.com/json/", "https://ipinfo.io/json",
+                         "http://ipwho.is/", "https://api.myip.com"):
+                  try:
+                      r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
+                      if r.status_code == 200:
+                          d = r.json()
+                          ip = d.get("query") or d.get("ip")
+                          if ip:
+                              say(f"  -> validated via {ep.split('/')[2]} — IP {ip}")
+                              return True
+                  except Exception:
+                      pass
+              return False
+
+          MAX_ATTEMPTS = 15
+          active = None
+          proxy_type = "none"
+
+          # ---- GoLogin ----
+          if not active and gologin_keys:
+              GOLOGIN_API = "https://api.gologin.com"
+              for attempt in range(MAX_ATTEMPTS):
+                  key = gologin_keys[(acc_idx // 15 + attempt) % len(gologin_keys)]
+                  name = f"{acc_idx+1}-GL-{''.join(random.choices(string.ascii_lowercase, k=6))}"
+                  say(f"[GoLogin] Attempt {attempt+1}/{MAX_ATTEMPTS} key=...{key[-6:]} name={name}")
+                  try:
+                      r = requests.post(f"{GOLOGIN_API}/users-proxies/mobile-proxy",
+                                        headers={"Authorization": f"Bearer {key}",
+                                                 "Content-Type": "application/json"},
+                                        json={"countryCode": "us", "isMobile": False,
+                                              "isDC": False, "customName": name},
+                                        timeout=25, verify=False)
+                      if r.status_code in (200, 201):
+                          d = r.json()
+                          pinfo = {
+                              "host":     d.get("host") or d.get("ip") or "proxy.gologin.com",
+                              "port":     int(d.get("port") or d.get("httpPort") or 8080),
+                              "username": d.get("username") or d.get("user") or d.get("login") or "",
+                              "password": d.get("password") or d.get("pass") or "",
+                          }
+                          if validate_proxy(pinfo):
+                              active = pinfo
+                              proxy_type = "gologin"
+                              break
+                      elif r.status_code == 429:
+                          say("  -> rate limited (429); backing off 12s")
+                          time.sleep(12)
+                      else:
+                          say(f"  -> HTTP {r.status_code}: {r.text[:120]}")
+                          time.sleep(2)
+                  except Exception as e:
+                      say(f"  -> error: {e}")
+                      time.sleep(2)
+
+          # ---- BytesFlow ----
+          if not active and bytesflow_proxies:
+              for attempt in range(MAX_ATTEMPTS):
+                  raw = bytesflow_proxies[attempt % len(bytesflow_proxies)]
+                  base = parse_generic(raw)
+                  if not base or not base.get("username"):
+                      say(f"[BytesFlow] Could not parse proxy string — skipping")
+                      break
+                  m = re.search(r"^(?:u-)?([A-Za-z0-9]+)", base["username"])
+                  base_user = m.group(1) if m else base["username"].split("-")[0]
+                  user = f"u-{base_user}-loc-US-t-10-s-{''.join(random.choices(string.ascii_lowercase+string.digits, k=8))}"
+                  pinfo = {**base, "username": user}
+                  say(f"[BytesFlow] Attempt {attempt+1}/{MAX_ATTEMPTS}")
+                  if validate_proxy(pinfo):
+                      active = pinfo
+                      proxy_type = "bytesflow"
+                      break
+                  time.sleep(2)
+
+          # ---- ScrapeOps ----
+          if not active and scrapeops_keys:
+              for attempt in range(MAX_ATTEMPTS):
+                  key = scrapeops_keys[(acc_idx // 15 + attempt) % len(scrapeops_keys)]
+                  sess = f"gl{acc_idx+1}p{''.join(random.choices(string.ascii_lowercase, k=4))}"
+                  user = f"scrapeops.country=us.sticky_session={sess}"
+                  pinfo = {"host": "residential-proxy.scrapeops.io", "port": 8181,
+                           "username": user, "password": key}
+                  say(f"[ScrapeOps] Attempt {attempt+1}/{MAX_ATTEMPTS}")
+                  if validate_proxy(pinfo):
+                      active = pinfo
+                      proxy_type = "scrapeops"
+                      break
+                  time.sleep(2)
+
+          # ---- FloppyData ----
+          if not active and floppy_keys:
+              FLOPPY_BASE = "https://api.floppydata.net"
+              for attempt in range(MAX_ATTEMPTS):
+                  key = floppy_keys[(acc_idx // 15 + attempt) % len(floppy_keys)]
+                  say(f"[Floppy] Attempt {attempt+1}/{MAX_ATTEMPTS}")
+                  try:
+                      cr = requests.get(f"{FLOPPY_BASE}/v1/rotating/smartParamsCredentials",
+                                        headers={"X-Api-Key": key}, timeout=12)
+                      br = requests.get(f"{FLOPPY_BASE}/v1/rotating/smartParamsBuilder",
+                                        headers={"X-Api-Key": key},
+                                        params={"type": "residential", "country": "US",
+                                                "protocol": "http", "rotation": "-1"},
+                                        timeout=12)
+                      if cr.status_code == 200 and br.status_code == 200:
+                          cd, bd = cr.json(), br.json()
+                          pinfo = {
+                              "host":     bd.get("host", "geo.g-w.info"),
+                              "port":     int(bd.get("port", 10080)),
+                              "username": bd.get("username", cd.get("username", "")),
+                              "password": bd.get("password", cd.get("password", "")),
+                          }
+                          if validate_proxy(pinfo):
+                              active = pinfo
+                              proxy_type = "floppy"
+                              break
+                  except Exception as e:
+                      say(f"  -> error: {e}")
+                  time.sleep(2)
+
+          # ---- Redscrape ----
+          if not active and redscrape_keys:
+              REDSCRAPE_HOST = "dc0f.redscrape.com"
+              REDSCRAPE_PORT = 7777
+              for attempt in range(MAX_ATTEMPTS):
+                  key = redscrape_keys[(acc_idx // 15 + attempt) % len(redscrape_keys)]
+                  sess_id = random.randint(10000000, 99999999)
+                  user = f"session-300-id-{sess_id}-US"
+                  pinfo = {"host": REDSCRAPE_HOST, "port": REDSCRAPE_PORT,
+                           "username": user, "password": key}
+                  say(f"[Redscrape] Attempt {attempt+1}/{MAX_ATTEMPTS}")
+                  if validate_proxy(pinfo):
+                      active = pinfo
+                      proxy_type = "redscrape"
+                      break
+                  time.sleep(2)
+
+          # ---- Manual ----
+          if not active and manual_proxies:
+              for attempt in range(MAX_ATTEMPTS):
+                  idx = (acc_idx + attempt) % len(manual_proxies)
+                  pinfo = parse_generic(manual_proxies[idx])
+                  if not pinfo:
+                      continue
+                  say(f"[Manual] Attempt {attempt+1}/{MAX_ATTEMPTS}")
+                  if validate_proxy(pinfo):
+                      active = pinfo
+                      proxy_type = "manual"
+                      break
+                  time.sleep(2)
+
+          # ---- result ----
+          if active:
+              auth = f"{active['username']}:{active['password']}@" if active.get("username") else ""
+              server = f"http://{auth}{active['host']}:{active['port']}"
+              server_bare = f"{active['host']}:{active['port']}"
+              if active.get("password") and len(active["password"]) >= 8:
+                  print(f"::add-mask::{active['password']}", flush=True)
+              say(f"[Proxy] ACTIVE — type={proxy_type} server={active['host']}:{active['port']}")
+              set_env("USE_PROXY", "true")
+              set_env("PROXY_SERVER", server)
+              set_env("PROXY_USER",   active.get("username", ""))
+              set_env("PROXY_PASS",   active.get("password", ""))
+              set_env("PROXY_TYPE",   proxy_type)
+          else:
+              say("[Proxy] WARNING: No working proxy found after all attempts — proceeding without proxy.")
+              set_env("USE_PROXY", "false")
+              set_env("PROXY_SERVER", "")
+              set_env("PROXY_USER",   "")
+              set_env("PROXY_PASS",   "")
+              set_env("PROXY_TYPE",   "none")
+
+      # ================================================================
+      # STEP 6 — Node.js + Playwright
       # ================================================================
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: "[5/11] Install Playwright"
+      - name: "[6/11] Install Playwright"
         run: |
           set -euo pipefail
           mkdir -p automation/out
           cd automation
           cat > package.json <<'PKG'
-          {
-            "name": "gologin-signup-automation",
-            "version": "1.0.0",
-            "private": true
-          }
+          {"name":"gologin-signup-automation","version":"1.0.0","private":true}
           PKG
           npm install --no-audit --no-fund "playwright@${PLAYWRIGHT_VERSION}"
           echo "Playwright ${PLAYWRIGHT_VERSION} installed."
 
       # ================================================================
-      # STEP 6 — Disable downloads in Edge + write automation scripts
+      # STEP 7 — Write automation scripts
       # ================================================================
-      - name: "[6/11] Write automation scripts"
+      - name: "[7/11] Write automation scripts"
         run: |
           mkdir -p automation/out
 
-          # ---- probe.mjs: quick sanity-check that Edge launches ----
+          # ---- probe.mjs ----
           cat > automation/probe.mjs <<'EOF'
           import { chromium } from 'playwright';
           try {
             const b = await chromium.launch({
-              channel: 'msedge',
-              headless: true,
+              channel: 'msedge', headless: true,
               args: ['--no-first-run', '--no-default-browser-check']
             });
             console.log('Microsoft Edge OK, version', b.version());
@@ -525,33 +842,37 @@ jobs:
           }
           EOF
 
-          # ---- signup.mjs: main automation ----
+          # ---- signup.mjs ----
           cat > automation/signup.mjs <<'JSEOF'
           /**
            * GoLogin signup automation — Windows / Microsoft Edge
            *
-           * Flow (mirrors the recorded steps):
-           *   1.  Open Edge maximised (Win32 API via PowerShell, then key shortcut fallback)
-           *   2.  Disable downloads bar / automatic downloads via Edge prefs
-           *   3.  Navigate to https://app.gologin.com/sign_up
-           *   4.  Enter email (random-suffixed, supplied via env), tick ToS, click "Try 7 days for Free"
-           *   5.  Enter + confirm password, solve Cloudflare Turnstile if present, click "Create an account"
-           *   6.  Dismiss onboarding popups / quiz
-           *   7.  Close the "All set" / download-installer modal (× top-right)
-           *   8.  Click "Skip recommended setup" (or close any other modal)
-           *   9.  On the dashboard: Run → API control → Copy token
-           *   10. Print + save the API token
+           * Key fixes vs original:
+           *   - viewport:null so the page fills the real window (fixes off-centre layout)
+           *   - launchPersistentContext instead of launch+newContext (required for viewport:null)
+           *   - proxy injected via launchPersistentContext's proxy option (not post-launch)
+           *   - 'os' module imported (was missing, caused crash)
+           *   - all ShowWindow/F11 maximize hacks removed (they fought the window manager)
+           *   - --start-maximized arg retained; window is already full size from launch
            */
 
           import { chromium } from 'playwright';
           import fs   from 'node:fs';
           import path from 'node:path';
-          import { execSync, spawnSync } from 'node:child_process';
+          import os   from 'node:os';
 
           const EMAIL    = process.env.ACC_EMAIL;
           const PASSWORD = process.env.ACC_PASSWORD;
           const IDX      = process.env.ACC_INDEX || '1';
           const OUT      = path.resolve(process.env.OUT_DIR || 'out');
+
+          // Proxy env vars set by step 5
+          const USE_PROXY    = process.env.USE_PROXY    === 'true';
+          const PROXY_SERVER = process.env.PROXY_SERVER || '';
+          const PROXY_USER   = process.env.PROXY_USER   || '';
+          const PROXY_PASS   = process.env.PROXY_PASS   || '';
+          const PROXY_TYPE   = process.env.PROXY_TYPE   || 'none';
+
           fs.mkdirSync(OUT, { recursive: true });
 
           const log    = (...a) => console.log(`[${new Date().toISOString()}][dev${IDX}]`, ...a);
@@ -559,12 +880,8 @@ jobs:
           const sleep  = ms    => new Promise(r => setTimeout(r, ms));
           const rand   = (a,b) => a + Math.floor(Math.random() * (b - a));
 
-          // JWT pattern — GoLogin API tokens are compact JWTs
           const JWT = /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g;
 
-          // ----------------------------------------------------------------
-          // Token candidates
-          // ----------------------------------------------------------------
           const candidates = [];
           const RANK = ['copy-token-click','clipboard','network','settings-new','settings-existing'];
           const rankOf = s => { const i = RANK.findIndex(r => s.startsWith(r)); return i < 0 ? 99 : i; };
@@ -575,9 +892,6 @@ jobs:
             log(`token candidate [${source}] (${token.length} chars)`);
           }
 
-          // ----------------------------------------------------------------
-          // Helpers
-          // ----------------------------------------------------------------
           async function findVisible(page, locs, timeout = 6000) {
             const end = Date.now() + timeout;
             while (Date.now() < end) {
@@ -614,90 +928,33 @@ jobs:
 
           let shotN = 0;
           async function shot(page, label) {
-            try { await page.screenshot({ path: path.join(OUT, `${String(++shotN).padStart(2,'0')}-${label}.png`) }); }
-            catch {}
-          }
-
-          // ----------------------------------------------------------------
-          // Maximise Edge window robustly (Windows-specific)
-          // Uses PowerShell ShowWindow(3) on the hwnd, then WshShell
-          // SendKeys fallback, then page keyboard shortcut as last resort.
-          // ----------------------------------------------------------------
-          async function maximiseEdge(page) {
-            log('maximising Edge window...');
-            // Method 1: PowerShell / Win32 ShowWindow(SW_MAXIMIZE=3)
             try {
-              const ps = `
-                $code = 'using System; using System.Runtime.InteropServices; public class W { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int n); }';
-                Add-Type -TypeDefinition $code;
-                Get-Process msedge -ErrorAction SilentlyContinue | ForEach-Object {
-                  [W]::ShowWindow($_.MainWindowHandle, 3) | Out-Null
-                }
-              `;
-              spawnSync('powershell', ['-NoProfile', '-Command', ps], { timeout: 8000 });
-              log('ShowWindow(3) sent to all msedge windows');
-            } catch (e) { log('ShowWindow approach failed:', e.message); }
-
-            await sleep(600);
-
-            // Method 2: Windows key shortcut via PowerShell WshShell
-            try {
-              const ps2 = `
-                $wsh = New-Object -ComObject WScript.Shell
-                $wsh.AppActivate('Microsoft Edge')
-                Start-Sleep -Milliseconds 400
-                $wsh.SendKeys('%{F4}')
-              `;
-              // Don't actually send Alt+F4 — just activate the window
-              const ps3 = `
-                $wsh = New-Object -ComObject WScript.Shell
-                $wsh.AppActivate('Microsoft Edge')
-              `;
-              spawnSync('powershell', ['-NoProfile', '-Command', ps3], { timeout: 5000 });
+              await page.screenshot({
+                path: path.join(OUT, `${String(++shotN).padStart(2,'0')}-${label}.png`)
+              });
             } catch {}
-
-            // Method 3: page-level keyboard shortcut (Win+Up = maximise, or F11)
-            try { await page.keyboard.press('F11'); await sleep(400); } catch {}
-
-            await sleep(500);
-            log('maximise sequence done');
           }
 
-          // ----------------------------------------------------------------
-          // Tick the ToS checkbox with robust click targeting
-          // ----------------------------------------------------------------
           async function tickTos(page) {
-            // Try the checkbox itself
             const cb = page.locator('input[type="checkbox"]').first();
             if (await cb.count() > 0) {
               if (await cb.isChecked().catch(() => false)) return true;
-              // Click the label text so the hit area is larger
-              await page.getByText(/I agree to the/i).first().click({ position: { x: -20, y: 8 }, force: true }).catch(() => {});
+              await page.getByText(/I agree to the/i).first()
+                .click({ position: { x: -20, y: 8 }, force: true }).catch(() => {});
               await sleep(400);
               if (await cb.isChecked().catch(() => false)) return true;
-              // Direct checkbox click as fallback
               await cb.check({ force: true }).catch(() => {});
               await sleep(300);
             }
             return true;
           }
 
-          // ----------------------------------------------------------------
-          // Cloudflare Turnstile handler
-          // Waits for the widget iframe, clicks the checkbox inside it,
-          // then polls until the token is set (success) or timeout.
-          // Called both BEFORE and AFTER the "Create an account" click.
-          // ----------------------------------------------------------------
           async function solveTurnstile(page, callerLabel = '') {
             const label = callerLabel ? `[${callerLabel}] ` : '';
             log(`${label}checking for Cloudflare Turnstile...`);
-
-            // Is the turnstile present at all?
             const cfFrame = page.frameLocator(
               'iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]'
             ).first();
-
-            // Wait up to 12 s for the iframe to appear
             let iframeVisible = false;
             for (let i = 0; i < 24; i++) {
               try {
@@ -708,84 +965,53 @@ jobs:
               } catch {}
               await sleep(500);
             }
+            if (!iframeVisible) { log(`${label}no Turnstile iframe found — skipping`); return false; }
 
-            if (!iframeVisible) {
-              log(`${label}no Turnstile iframe found — skipping`);
-              return false;
-            }
-
-            log(`${label}Turnstile iframe detected — waiting for checkbox to appear...`);
-
-            // The checkbox inside the Turnstile iframe
+            log(`${label}Turnstile iframe detected...`);
             const cfCheckbox = cfFrame.locator('input[type="checkbox"]');
-
-            // Wait up to 15 s for the checkbox inside the iframe
             let checkboxAppeared = false;
             for (let i = 0; i < 30; i++) {
-              try {
-                if (await cfCheckbox.isVisible()) { checkboxAppeared = true; break; }
-              } catch {}
+              try { if (await cfCheckbox.isVisible()) { checkboxAppeared = true; break; } } catch {}
               await sleep(500);
             }
-
             if (!checkboxAppeared) {
               log(`${label}Turnstile checkbox did not appear in time`);
               await shot(page, `cf-no-checkbox-${callerLabel}`);
               return false;
             }
-
             log(`${label}Turnstile checkbox visible — clicking...`);
             await shot(page, `cf-before-click-${callerLabel}`);
-
-            // Click with retry in case the first attempt misses
             for (let attempt = 1; attempt <= 5; attempt++) {
-              try {
-                await cfCheckbox.click({ timeout: 5000 });
-                log(`${label}clicked Turnstile checkbox (attempt ${attempt})`);
-                break;
-              } catch (e) {
+              try { await cfCheckbox.click({ timeout: 5000 }); break; }
+              catch (e) {
                 log(`${label}checkbox click attempt ${attempt} failed: ${e.message.split('\n')[0]}`);
                 await sleep(1000);
               }
             }
-
-            // Wait for the challenge to succeed (checkmark fully appears)
-            // Success indicators inside the iframe
             log(`${label}waiting for Turnstile to succeed (up to 30 s)...`);
             let solved = false;
             for (let i = 0; i < 60; i++) {
               try {
-                // Cloudflare sets data-cf-turnstile-response attribute on the hidden input
                 const tokenEl = page.locator('[name="cf-turnstile-response"]');
                 if (await tokenEl.count() > 0) {
                   const val = await tokenEl.inputValue().catch(() => '');
                   if (val && val.length > 10) { solved = true; break; }
                 }
-                // Also check if the iframe disappears (another success signal)
                 const count = await page.locator(
                   'iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]'
                 ).count();
                 if (count === 0) { solved = true; break; }
-                // Check for a checkmark / success state inside the iframe
                 const success = cfFrame.locator('[class*="success"], [class*="check"], svg[class*="check"]');
                 if (await success.count() > 0) { solved = true; break; }
               } catch {}
               await sleep(500);
             }
-
             await shot(page, `cf-after-${solved ? 'solved' : 'timeout'}-${callerLabel}`);
             log(`${label}Turnstile result: ${solved ? 'SOLVED ✓' : 'TIMED OUT (continuing anyway)'}`);
-
-            if (solved) {
-              // Brief pause after the checkmark appears before the caller clicks the submit button
-              await sleep(rand(1200, 2000));
-            }
+            if (solved) await sleep(rand(1200, 2000));
             return solved;
           }
 
-          // ----------------------------------------------------------------
-          // Dismiss onboarding overlays
-          // ----------------------------------------------------------------
           async function dismissOverlays(page, rounds = 10) {
             for (let r = 0; r < rounds; r++) {
               let acted = false;
@@ -797,8 +1023,6 @@ jobs:
                 page.locator('[aria-label="Close" i], [aria-label="close" i]'),
                 page.locator('button.close, button[class*="close" i]'),
               ], 800) || acted;
-
-              // "Have you ever used antidetect browser?" quiz
               if (await page.getByText(/have you ever used antidetect/i).first().isVisible().catch(() => false)) {
                 acted = await clickFirst(page, [page.getByText(/no, never used any/i)], 800) || acted;
               }
@@ -814,9 +1038,6 @@ jobs:
             );
           }
 
-          // ----------------------------------------------------------------
-          // Read clipboard / window.__copied for JWT tokens
-          // ----------------------------------------------------------------
           async function readClipboard(page) {
             try { for (const m of ((await page.evaluate(() => navigator.clipboard.readText())) || '').match(JWT) || []) addCandidate(m, 'clipboard'); } catch {}
             try { for (const t of await page.evaluate(() => window.__copied || [])) for (const m of String(t).match(JWT) || []) addCandidate(m, 'copy-token-click'); } catch {}
@@ -840,62 +1061,86 @@ jobs:
           (async () => {
             const result = {
               index: Number(IDX), email: EMAIL, password: PASSWORD,
-              signup: false, token: null, tokenSource: null, restStatus: null, error: null, finishedAt: null,
+              signup: false, token: null, tokenSource: null,
+              restStatus: null, error: null, finishedAt: null,
+              proxy: USE_PROXY ? `${PROXY_TYPE}:${PROXY_SERVER.replace(/:[^:@]*@/, ':***@')}` : 'none',
             };
-            let browser, page;
+            let context, page;
             try {
 
-              // ---- launch Edge ----
-              banner('Launching Microsoft Edge (Windows, headed)');
+              banner('Launching Microsoft Edge (Windows, headed, proxy-aware)');
 
-              // Edge prefs: disable download prompt + download bar
-              const edgePrefs = {
-                download_restrictions: 3,          // block all automatic downloads
-                prompt_for_download: false,
-                safebrowsing: { enabled: true },
-              };
-              const userDataDir = path.join(process.env.RUNNER_TEMP || os.tmpdir(), `edge-profile-${IDX}`);
-              fs.mkdirSync(path.join(userDataDir, 'Default'), { recursive: true });
-              fs.writeFileSync(
-                path.join(userDataDir, 'Default', 'Preferences'),
-                JSON.stringify({ download: edgePrefs })
-              );
+              // Build proxy option for Playwright (before the browser opens)
+              let proxyOption = undefined;
+              if (USE_PROXY && PROXY_SERVER) {
+                // Extract bare host:port from server string which may include auth
+                // e.g. "http://user:pass@host:port" -> server="http://host:port"
+                let serverUrl = PROXY_SERVER;
+                // If auth is embedded in the URL, strip it out for the server field
+                // and pass username/password separately
+                const authMatch = serverUrl.match(/^(https?:\/\/)([^:@]+):([^@]+)@(.+)$/);
+                if (authMatch) {
+                  serverUrl = `${authMatch[1]}${authMatch[4]}`;
+                }
+                proxyOption = {
+                  server:   serverUrl,
+                  username: PROXY_USER || undefined,
+                  password: PROXY_PASS || undefined,
+                };
+                log(`Proxy: ${PROXY_TYPE} -> ${serverUrl}`);
+              } else {
+                log('Proxy: none (direct connection)');
+              }
+
+              const userDataDir = path.join(os.tmpdir(), `edge-profile-${IDX}-${Date.now()}`);
 
               const launchArgs = [
                 '--disable-blink-features=AutomationControlled',
                 '--no-first-run',
                 '--no-default-browser-check',
-                '--start-maximized',           // <-- ask Chromium to start maximised
+                '--start-maximized',
                 '--disable-download-notification',
                 '--safebrowsing-disable-auto-update',
+                '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
               ];
 
+              // launchPersistentContext is used (not launch+newContext) because:
+              //   1. It supports viewport:null correctly on headed browsers.
+              //   2. The proxy option is applied at launch time, before any navigation.
+              //   3. This is the standard Playwright pattern for headed automation with
+              //      a real user data directory.
+              //
+              // viewport: null — CRITICAL: tells Playwright NOT to override the window
+              // size. The window inherits the screen resolution from --start-maximized
+              // so the page loads full-width and centred. The old newContext approach
+              // forced a 1920x1080 canvas inside a smaller physical window, which
+              // pushed all content to the right and clipped the left half.
               try {
-                browser = await chromium.launch({
-                  channel: 'msedge',
+                context = await chromium.launchPersistentContext(userDataDir, {
+                  channel:  'msedge',
                   headless: false,
-                  args: launchArgs,
+                  args:     launchArgs,
+                  proxy:    proxyOption,
+                  viewport: null,           // <-- key fix: follow the real window size
+                  locale:   'en-US',
+                  permissions: ['clipboard-read', 'clipboard-write'],
                   ignoreDefaultArgs: ['--enable-automation'],
                 });
               } catch (e) {
                 log('Headed Edge failed, trying headless:', e.message.split('\n')[0]);
-                browser = await chromium.launch({
-                  channel: 'msedge',
+                context = await chromium.launchPersistentContext(userDataDir, {
+                  channel:  'msedge',
                   headless: true,
-                  args: launchArgs,
+                  args:     launchArgs,
+                  proxy:    proxyOption,
+                  viewport: null,
+                  locale:   'en-US',
+                  permissions: ['clipboard-read', 'clipboard-write'],
                   ignoreDefaultArgs: ['--enable-automation'],
                 });
               }
-              log('Edge version:', browser.version());
 
-              // intercept clipboard writes and network tokens
-              const context = await browser.newContext({
-                viewport: { width: 1920, height: 1080 },
-                locale: 'en-US',
-                permissions: ['clipboard-read', 'clipboard-write'],
-                userDataDir,                   // use the prefs dir we set up
-              });
-
+              // clipboard intercept
               await context.exposeFunction('__gl_copy', t => {
                 for (const m of String(t).match(JWT) || []) addCandidate(m, 'copy-token-click');
               });
@@ -923,10 +1168,7 @@ jobs:
               page = await context.newPage();
               page.setDefaultTimeout(25000);
 
-              // ---- maximise window ----
-              await maximiseEdge(page);
-
-              // ---- also set Edge download policy via CDP to block auto-downloads ----
+              // Block downloads via CDP
               try {
                 const client = await context.newCDPSession(page);
                 await client.send('Browser.setDownloadBehavior', {
@@ -936,38 +1178,32 @@ jobs:
                 log('CDP download behaviour set to deny');
               } catch (e) { log('CDP download deny failed (non-fatal):', e.message.split('\n')[0]); }
 
-              // ================================================================
-              // PHASE 1: Sign-up page — email + ToS + "Try 7 days for Free"
-              // ================================================================
+              // ============================================================
+              // PHASE 1: Sign-up page
+              // ============================================================
               banner('Phase 1 — sign_up page');
               log('navigating to https://app.gologin.com/sign_up');
               await page.goto('https://app.gologin.com/sign_up', {
                 waitUntil: 'domcontentloaded', timeout: 60000,
               });
 
-              // Wait for the email field to be ready
               const emailField = page.getByPlaceholder(/your email/i).first();
               await emailField.waitFor({ state: 'visible', timeout: 30000 });
-              await sleep(rand(1500, 2500));  // let the page settle
+              await sleep(rand(1500, 2500));
               await shot(page, '01-signup-page');
 
-              // Click email field to make sure focus is there
               await emailField.click();
               await sleep(rand(500, 900));
-
-              // Type email with human-like delay
               log('entering email:', EMAIL);
               await typeHuman(emailField, EMAIL);
-              await sleep(rand(5000, 8000));  // 5-8 s delay as requested
+              await sleep(rand(5000, 8000));
               await shot(page, '02-email-entered');
 
-              // Tick ToS with mouse GUI automation
               log('ticking ToS checkbox...');
               await tickTos(page);
               await sleep(rand(1200, 2000));
               await shot(page, '03-tos-ticked');
 
-              // Click "Try 7 days for Free"
               log('clicking "Try 7 days for Free"...');
               await clickFirst(page, [
                 page.getByRole('button', { name: /try 7 days for free/i }),
@@ -976,9 +1212,9 @@ jobs:
               ], 10000);
               await sleep(rand(2000, 3500));
 
-              // ================================================================
+              // ============================================================
               // PHASE 2: Password page
-              // ================================================================
+              // ============================================================
               banner('Phase 2 — Create a password');
               const passField = page.getByPlaceholder(/your password/i).first();
               const stage1 = await waitAny([
@@ -988,17 +1224,15 @@ jobs:
               await shot(page, '04-after-email-submit');
 
               if (stage1 !== 'password') {
-                throw new Error(`Password step not reached (stage=${stage1}). Likely: email already registered, CAPTCHA not solved, or rate limit.`);
+                throw new Error(`Password step not reached (stage=${stage1}). Check screenshot 04.`);
               }
               log('password page appeared');
 
-              // Paste password into the password field
               await passField.click();
               await sleep(rand(400, 700));
               await typeHuman(passField, PASSWORD);
               await sleep(rand(600, 1000));
 
-              // Paste password into the confirm field
               const confirmField = page.getByPlaceholder(/confirm password/i).first();
               await confirmField.click();
               await sleep(rand(400, 700));
@@ -1006,22 +1240,17 @@ jobs:
               await sleep(rand(800, 1500));
               await shot(page, '05-password-filled');
 
-              // Check for Turnstile BEFORE clicking "Create an account"
               await solveTurnstile(page, 'before-create');
               await shot(page, '06-before-create-account');
 
-              // Click "Create an account"
               log('clicking "Create an account"...');
               await clickFirst(page, [
                 page.getByRole('button', { name: /create an account/i }),
               ], 10000);
               await sleep(rand(1500, 2500));
 
-              // Check for Turnstile AFTER clicking "Create an account"
-              // (the challenge sometimes appears only after the button click)
               await solveTurnstile(page, 'after-create');
 
-              // If the button is still visible and enabled, click it again after solving
               const createBtn = page.getByRole('button', { name: /create an account/i }).first();
               if (await createBtn.isVisible().catch(() => false) && await createBtn.isEnabled().catch(() => false)) {
                 log('clicking "Create an account" again after Turnstile...');
@@ -1044,13 +1273,10 @@ jobs:
               result.signup = true;
               log(`ACCOUNT CREATED: ${EMAIL}  (stage=${stage2})`);
 
-              // ================================================================
-              // PHASE 3: Onboarding — close "All set" modal, skip setup
-              // ================================================================
+              // ============================================================
+              // PHASE 3: Onboarding
+              // ============================================================
               banner('Phase 3 — onboarding / popups');
-
-              // Close the "All set! Install Gologin..." modal (× top-right of that overlay)
-              // Image 4 shows this page at /download-installer with an X in the top-right
               log('closing "All set" modal / download-installer page...');
               for (let i = 0; i < 5; i++) {
                 const closeBtn = await findVisible(page, [
@@ -1058,7 +1284,6 @@ jobs:
                   page.locator('button.close, button[class*="close" i]').first(),
                   page.locator('svg[class*="close" i]').first(),
                   page.getByRole('button', { name: /^×$|^close$/i }).first(),
-                  // The × that appears in the top-right of the full-page onboarding screen
                   page.locator('a[href*="profileList"], a[href*="dashboard"]').first(),
                 ], 3000);
                 if (closeBtn) {
@@ -1067,7 +1292,6 @@ jobs:
                   await sleep(1200);
                   break;
                 }
-                // If we're on the download-installer page, navigate away
                 if (page.url().includes('download-installer')) {
                   log('on download-installer page — navigating to profileList');
                   await page.goto('https://app.gologin.com/profileList', { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -1077,7 +1301,6 @@ jobs:
                 await sleep(800);
               }
 
-              // Handle "Skip recommended setup" (may appear after modal close)
               log('looking for "Skip recommended setup"...');
               for (let i = 0; i < 4; i++) {
                 const skip = await findVisible(page, [
@@ -1085,16 +1308,10 @@ jobs:
                   page.getByRole('link',   { name: /skip/i }),
                   page.getByRole('button', { name: /skip/i }),
                 ], 3000);
-                if (skip) {
-                  await skip.click().catch(() => {});
-                  log('clicked "Skip recommended setup"');
-                  await sleep(1500);
-                  break;
-                }
+                if (skip) { await skip.click().catch(() => {}); log('clicked "Skip recommended setup"'); await sleep(1500); break; }
                 await sleep(600);
               }
 
-              // Another popup may appear after skip — close it too (Image 5 modal ×)
               for (let i = 0; i < 3; i++) {
                 const closeBtn2 = await findVisible(page, [
                   page.locator('[aria-label="Close" i], [aria-label="close" i]').first(),
@@ -1104,11 +1321,9 @@ jobs:
                 else break;
               }
 
-              // General onboarding dismissal
               await dismissOverlays(page, 8);
               await shot(page, '08-after-onboarding');
 
-              // Navigate to dashboard if not already there
               if (!(await isDashboard(page))) {
                 log('dashboard not reached — navigating directly');
                 await page.goto('https://app.gologin.com/profileList', { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -1119,20 +1334,17 @@ jobs:
               await shot(page, '09-dashboard');
               log('reached the GoLogin dashboard');
 
-              // ================================================================
+              // ============================================================
               // PHASE 4: Run → API control → Copy token
-              // (recording steps 17-19)
-              // ================================================================
+              // ============================================================
               banner('Phase 4 — Run → API control → Copy token');
-
-              // Find the first visible "Run" button (any profile row)
               log('looking for a Run button...');
               const runBtn = await findVisible(page, [
                 page.getByRole('button', { name: 'Run', exact: true }),
               ], 20000);
 
               if (!runBtn) {
-                log('no Run button found on the dashboard — trying Settings API page directly');
+                log('no Run button found — trying Settings API page directly');
                 await tokenViaSettings(page);
               } else {
                 await runBtn.click();
@@ -1140,7 +1352,6 @@ jobs:
                 await sleep(rand(1000, 1800));
                 await shot(page, '10-run-menu');
 
-                // Click "API control" from the dropdown
                 const apiCtrlClicked = await clickFirst(page, [
                   page.getByText(/api control/i),
                   page.getByRole('menuitem', { name: /api control/i }),
@@ -1155,7 +1366,6 @@ jobs:
                   await shot(page, '11-api-control-page');
                   await scanPage(page, 'cloud-api-control');
 
-                  // Click "Copy token"
                   const copyEl = await findVisible(page, [
                     page.getByText(/copy token/i),
                     page.getByRole('button', { name: /copy token/i }),
@@ -1174,9 +1384,9 @@ jobs:
                 }
               }
 
-              // ================================================================
+              // ============================================================
               // Fallback: Settings → API & MCP → New token
-              // ================================================================
+              // ============================================================
               async function tokenViaSettings(pg) {
                 banner('Fallback — Settings → API & MCP');
                 await pg.goto('https://app.gologin.com/#/personalArea/TokenApi', {
@@ -1208,7 +1418,6 @@ jobs:
                 await btn.click().catch(() => {});
                 await sleep(1500);
 
-                // Fill the token name in the modal dialog if present
                 const nameInput = pg.locator('[role="dialog"] input[type="text"], [class*="modal" i] input[type="text"]').first();
                 if (await nameInput.isVisible().catch(() => false)) {
                   await nameInput.fill(`actions-${IDX}`).catch(() => {});
@@ -1227,7 +1436,7 @@ jobs:
                 await shot(pg, '14-settings-after-new-token');
               }
 
-              // Pick the best token candidate
+              // Pick best token
               const primary = candidates.filter(c => rankOf(c.source) <= 2);
               if (!primary.length) await tokenViaSettings(page);
 
@@ -1237,7 +1446,6 @@ jobs:
               result.token       = pick.token;
               result.tokenSource = pick.source;
 
-              // Validate token against the REST API
               try {
                 const r = await fetch('https://api.gologin.com/user', {
                   headers: { Authorization: `Bearer ${pick.token}`, Accept: 'application/json' },
@@ -1267,6 +1475,7 @@ jobs:
               console.log('device  :', IDX);
               console.log('email   :', EMAIL);
               console.log('signup  :', result.signup ? 'OK ✓' : 'FAILED ✗');
+              console.log('proxy   :', result.proxy);
               console.log('source  :', result.tokenSource || '-');
               console.log('REST /user (HTTP status):', result.restStatus ?? '-');
               console.log('');
@@ -1282,6 +1491,7 @@ jobs:
                 const md = [
                   `### Device ${IDX}: ${EMAIL}`,
                   `- Signup: **${result.signup ? 'OK ✓' : 'FAILED ✗'}**`,
+                  `- Proxy: ${result.proxy}`,
                   `- API key: \`${result.token || 'not captured'}\``,
                   `- Source: ${result.tokenSource || '-'}  |  REST check: ${result.restStatus ?? '-'}`,
                   result.error ? `- Error: ${result.error}` : '',
@@ -1290,15 +1500,15 @@ jobs:
                 try { fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n'); } catch {}
               }
 
-              if (browser) await browser.close().catch(() => {});
+              if (context) await context.close().catch(() => {});
             }
           })();
           JSEOF
 
       # ================================================================
-      # STEP 7 — Confirm Edge is available
+      # STEP 8 — Confirm Edge is available
       # ================================================================
-      - name: "[7/11] Confirm Microsoft Edge is available"
+      - name: "[8/11] Confirm Microsoft Edge is available"
         working-directory: automation
         run: |
           if ! node probe.mjs; then
@@ -1308,20 +1518,25 @@ jobs:
           fi
 
       # ================================================================
-      # STEP 8 — Run automation
+      # STEP 9 — Run automation
       # ================================================================
-      - name: "[8/11] Run GoLogin signup automation"
+      - name: "[9/11] Run GoLogin signup automation"
         id: automation
         working-directory: automation
         timeout-minutes: 20
         env:
-          OUT_DIR: out
+          OUT_DIR:      out
+          USE_PROXY:    ${{ env.USE_PROXY }}
+          PROXY_SERVER: ${{ env.PROXY_SERVER }}
+          PROXY_USER:   ${{ env.PROXY_USER }}
+          PROXY_PASS:   ${{ env.PROXY_PASS }}
+          PROXY_TYPE:   ${{ env.PROXY_TYPE }}
         run: node signup.mjs
 
       # ================================================================
-      # STEP 9 — Upload screenshots + result
+      # STEP 10 — Upload screenshots + result
       # ================================================================
-      - name: "[9/11] Upload screenshots and result"
+      - name: "[10/11] Upload screenshots and result"
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -1331,20 +1546,20 @@ jobs:
           retention-days: 7
 
       # ================================================================
-      # STEP 10 — Keep device alive for inspection
+      # STEP 11 — Keep device alive
       # ================================================================
-      - name: "[10/11] Keep device alive for inspection"
+      - name: "[11/11] Keep device alive for inspection"
         if: ${{ always() && env.KEEP_MIN != '0' }}
         run: |
           total=$KEEP_MIN
-          echo "Keeping device alive for ${total}min (automation outcome: ${{ steps.automation.outcome }})."
+          echo "Keeping device alive for ${total}min (outcome: ${{ steps.automation.outcome }})."
           [[ -n "$GS_EMAIL" ]] && echo "Connect via Getscreen: device gh-${GITHUB_RUN_ID}-dev${ACC_INDEX}-win"
           for ((m = total; m > 0; m--)); do echo "  ...${m}min left"; sleep 60; done
 
       # ================================================================
-      # STEP 11 — Cleanup
+      # CLEANUP
       # ================================================================
-      - name: "[11/11] Cleanup — close Edge, disconnect WARP"
+      - name: "Cleanup — close Edge, disconnect WARP"
         if: always()
         run: |
           echo "Closing Edge..."
@@ -1355,9 +1570,8 @@ jobs:
           fi
           echo "Device ${ACC_INDEX} (${ACC_EMAIL}) done. Automation: ${{ steps.automation.outcome }}"
 
-
 # =============================================================================
-# JOB 3 — REPORT: combined summary of all accounts + API keys
+# JOB 4 — REPORT: combined summary of all accounts + API keys
 # =============================================================================
   report:
     name: "Combined API key report"
@@ -1383,7 +1597,7 @@ jobs:
           ok=$(jq '[.[] | select(.token != null)] | length' all-results.json)
 
           echo "========= ALL GOLOGIN ACCOUNTS ($ok/$total with API key) ========="
-          jq -r '.[] | "#\(.index)  \(.email)\n  signup : \(.signup)\n  API KEY: \(.token // "NOT CAPTURED")\n  error  : \(.error // "-")\n"' all-results.json
+          jq -r '.[] | "#\(.index)  \(.email)\n  signup : \(.signup)\n  proxy  : \(.proxy // "n/a")\n  API KEY: \(.token // "NOT CAPTURED")\n  error  : \(.error // "-")\n"' all-results.json
           echo "=================================================================="
           echo ""
           echo "--- API keys only (email  token) ---"
@@ -1391,9 +1605,9 @@ jobs:
 
           {
             echo "## GoLogin accounts — combined ($ok of $total with API key)"
-            echo "| # | Email | Signup | API key |"
-            echo "|---|-------|--------|---------|"
-            jq -r '.[] | "| \(.index) | \(.email) | \(if .signup then "OK ✓" else "FAILED ✗" end) | `\(.token // "not captured")` |"' all-results.json
+            echo "| # | Email | Proxy | Signup | API key |"
+            echo "|---|-------|-------|--------|---------|"
+            jq -r '.[] | "| \(.index) | \(.email) | \(.proxy // "none") | \(if .signup then "OK ✓" else "FAILED ✗" end) | `\(.token // "not captured")` |"' all-results.json
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload combined results
@@ -1408,28 +1622,39 @@ jobs:
 # NOTES
 # =============================================================================
 # Secret GH_PAT (repo Settings → Secrets → Actions):
-#   Fine-grained PAT: Variables (read & write) + Actions (read)
-#   Classic PAT: 'repo' scope
-#   Used to persist last-used inputs in repo variable LAST_INPUTS_<WORKFLOW>
-#   (AES-256-CBC encrypted with the PAT itself as the passphrase).
+#   Fine-grained PAT: Variables read+write, Actions read+write, Contents read+write
+#   Used by: save_inputs job (commits updated YAML defaults back to the repo)
 #
 # Email strategy:
-#   The script appends 6 random lowercase alphanumeric characters directly to
-#   the local part of the email (e.g. techxstud@prot.me → techxstudgh4r2k@prot.me).
-#   No + plus-addressing is used. All accounts in a single run get unique suffixes.
+#   6 random lowercase alphanumeric characters appended directly to the local part
+#   (e.g. user@example.com → userab3k9x@example.com). No plus-addressing.
+#   Email and password are NOT saved to avoid storing credentials in git.
 #
-# Cloudflare Turnstile (the "Verify you are human" widget):
-#   The script handles it in two passes:
-#     1. Before clicking "Create an account" — if the widget is already visible.
-#     2. After clicking  "Create an account" — if it appears as a reaction.
-#   With WARP enabled the widget often does not appear at all because WARP
-#   provides a clean Cloudflare-verified IP address. Enable WARP for the most
-#   reliable results.
+# Proxy input format (scrapeops_api_key field):
+#   Space-separated list of tokens or proxy strings.  Supported provider detection:
+#     GoLogin  — compact JWT  (ey…)
+#     BytesFlow — contains "bytesflows.com"
+#     Redscrape — 32-char hex
+#     ScrapeOps — 8-4-4-4-12 UUID
+#     Floppy    — 30-80 alphanumeric chars (no special chars)
+#     Manual    — anything else containing : / @ or .
+#   Proxy is injected into Edge via Playwright's proxy option on
+#   launchPersistentContext, before the first navigation.
+#
+# Edge layout fix:
+#   The original script set viewport:{width:1920,height:1080} on newContext(),
+#   which forced a fixed canvas inside a smaller physical window, causing the
+#   GoLogin sign-up page to appear off-centre. The fix is viewport:null on
+#   launchPersistentContext, so the browser uses the real window dimensions from
+#   --start-maximized.
+#
+# Cloudflare Turnstile:
+#   Handled in two passes (before + after clicking "Create an account").
+#   With WARP enabled the widget often does not appear at all.
 #
 # Download prevention:
-#   Edge is started with --disable-download-notification and CDP
-#   Browser.setDownloadBehavior=deny so the GoLogin .exe installer that the
-#   "All set" page tries to auto-download is silently blocked.
+#   --disable-download-notification + CDP Browser.setDownloadBehavior=deny
+#   silently block the .exe installer the "All set" page tries to auto-download.
 #
 # Matrix limit: 256 jobs per run → account_count capped at 250.
 # =============================================================================
