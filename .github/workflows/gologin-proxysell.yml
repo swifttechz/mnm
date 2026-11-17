@@ -1,34 +1,27 @@
 # =============================================================================
 #  GoLogin -> Proxysell proxy generator
 #
-#  Generates proxies with the GoLogin API (named like 1-US-Mobile-ayuh) and adds
-#  every proxy that was generated to a Proxysell group.
+#  Generates proxies with the GoLogin API and adds every proxy that was
+#  generated to a Proxysell group.
 #
 #  ONE-TIME SETUP
 #   1. Repo -> Settings -> Secrets and variables -> Actions -> New repository secret
 #        GH_PAT  = a personal access token that can write this repo's settings:
 #                  Fine-grained token (this repo only), Repository permissions:
-#                    Secrets: Read and write     (remembers your API keys)
-#                    Variables: Read and write   (remembers the other inputs)
-#                    Contents: Read and write    (pre-fills the form defaults)
-#                    Workflows: Read and write   (pre-fills the form defaults)
+#                    Secrets: Read and write
+#                    Variables: Read and write
+#                    Contents: Read and write
+#                    Workflows: Read and write
 #                  Classic token: scopes "repo" + "workflow".
-#   2. Use a PRIVATE repository (see the note on inputs below).
+#   2. Use a PRIVATE repository.
 #   3. Actions tab -> "GoLogin to Proxysell" -> Run workflow.
 #
 #  HOW "REMEMBERING" WORKS
 #   * API keys     -> saved as repo secrets GOLOGIN_API_KEY / PROXYSELL_API_KEY
-#                     (only after both keys passed validation). Leave the fields
-#                     blank on later runs and the saved keys are used.
 #   * Other inputs -> saved as repo variables (PXG_*) AND written into the
 #                     `default:` of the lines tagged "# @remember:" below, so the
-#                     next time you open "Run workflow" the form is pre-filled.
-#                     Choose "last-saved" in a menu / leave a box blank to fall
-#                     back to the repo variables.
-#
-#  NOTE ON SECRECY: GitHub does not treat workflow_dispatch inputs as secrets.
-#  Whatever you type in a form field can be seen by anyone with read access to
-#  the repo. Type the API keys once (private repo), then leave them blank.
+#                     next time you open "Run workflow" the form is pre-filled
+#                     with the last successful values.
 # =============================================================================
 name: GoLogin to Proxysell
 
@@ -38,45 +31,59 @@ on:
   workflow_dispatch:
     inputs:
       gologin_api_key:
-        description: "GoLogin API token (blank = use saved)"
+        description: "GoLogin API token (leave blank to use the saved secret)"
         required: false
         type: string
         default: ""
       proxysell_api_key:
-        description: "Proxysell API key (blank = use saved)"
+        description: "Proxysell API key (leave blank to use the saved secret)"
         required: false
         type: string
         default: ""
       proxy_count:
-        description: "Number of proxies to generate (blank = last used)"
+        description: "Number of proxies to generate"
         required: false
         type: string
-        default: "90" # @remember:proxy_count
+        default: "10" # @remember:proxy_count
       proxy_type:
         description: "Proxy type"
         required: false
         type: choice
         options:
-          - last-saved
           - Residential
           - Mobile
           - Datacenter
-        default: "Mobile" # @remember:proxy_type
+        default: Residential # @remember:proxy_type
       proxy_protocol:
         description: "Proxy protocol (GoLogin and Proxysell support HTTP and SOCKS5)"
         required: false
         type: choice
         options:
-          - last-saved
           - HTTP
           - SOCKS5
           - SOCKS4
-        default: "HTTP" # @remember:proxy_protocol
+        default: HTTP # @remember:proxy_protocol
       country_codes:
-        description: "2-letter country code(s), comma separated, e.g. us or us,gb,de (blank = last used)"
+        description: "Country (top-tier / tier-1 countries including Russia)"
         required: false
-        type: string
-        default: "US" # @remember:country_codes
+        type: choice
+        options:
+          - US
+          - GB
+          - DE
+          - FR
+          - CA
+          - AU
+          - NL
+          - JP
+          - SG
+          - IN
+          - BR
+          - RU
+          - IT
+          - ES
+          - SE
+        default: US # @remember:country_codes
       proxysell_group:
         description: "Proxysell group UUID, or 'new' to create one each run (blank = last used)"
         required: false
@@ -87,28 +94,26 @@ on:
         required: false
         type: choice
         options:
-          - last-saved
           - "yes"
           - "no"
         default: "yes" # @remember:verify_proxies
 
 permissions:
-  contents: read        # GITHUB_TOKEN is not used for writes; GH_PAT does that
+  contents: read
 
 concurrency:
   group: gologin-proxysell-generator
   cancel-in-progress: false
 
 env:
-  # ---- tunables (safe to edit) ----------------------------------------------
-  GOLOGIN_THROTTLE_SECONDS: "1.5"     # pause between GoLogin calls (limit is 300+/min; 429 REVOKES the token)
-  MAX_PROXIES: "500"                  # upper bound accepted by the form
-  MAX_CONSECUTIVE_FAILURES: "5"       # abort generation after this many failures in a row
-  UPLOAD_CHUNK_SIZE: "50"             # proxies per Proxysell request
+  GOLOGIN_THROTTLE_SECONDS: "1.5"
+  MAX_PROXIES: "500"
+  MAX_CONSECUTIVE_FAILURES: "5"
+  UPLOAD_CHUNK_SIZE: "50"
   VERIFY_TIMEOUT_SECONDS: "20"
   VERIFY_WORKERS: "10"
-  SEND_UNVERIFIED_PROXIES: "true"     # "false" = only send proxies that passed the connectivity test
-  REMEMBER_FORM_DEFAULTS: "true"      # "false" = do not commit new form defaults to this file
+  SEND_UNVERIFIED_PROXIES: "true"
+  REMEMBER_FORM_DEFAULTS: "true"
 
 jobs:
   generate:
@@ -137,16 +142,6 @@ jobs:
           #!/usr/bin/env python3
           """
           GoLogin -> Proxysell proxy pipeline (runs inside GitHub Actions).
-
-          Phases:
-            1. Resolve + validate inputs (blank / "last-saved" falls back to saved values)
-            2. Pre-flight: check GoLogin token, create (or reuse) the Proxysell group
-            3. Remember inputs (repo secrets / variables / form defaults) via GH_PAT
-            4. Generate proxies on GoLogin (throttled, never retries on HTTP 429)
-            5. Recover any proxies whose creation response was lost or incomplete
-            6. Optionally verify each proxy through the chosen protocol
-            7. Send everything that was generated to Proxysell in chunks
-            8. Step summary + exit code
           """
           import base64
           import json
@@ -174,9 +169,9 @@ jobs:
           PROXYSELL_API = env("PROXYSELL_API_URL", "https://client-api.proxysell.com").rstrip("/")
           GITHUB_API = env("GITHUB_API_URL", "https://api.github.com").rstrip("/")
 
-          THROTTLE = float(env("GOLOGIN_THROTTLE_SECONDS", "1.5"))       # pause between GoLogin calls
+          THROTTLE = float(env("GOLOGIN_THROTTLE_SECONDS", "1.5"))
           MAX_PROXIES = int(env("MAX_PROXIES", "500"))
-          MAX_CONSEC_FAIL = int(env("MAX_CONSECUTIVE_FAILURES", "5"))    # circuit breaker
+          MAX_CONSEC_FAIL = int(env("MAX_CONSECUTIVE_FAILURES", "5"))
           UPLOAD_CHUNK = int(env("UPLOAD_CHUNK_SIZE", "50"))
           VERIFY_TIMEOUT = int(env("VERIFY_TIMEOUT_SECONDS", "20"))
           VERIFY_WORKERS = int(env("VERIFY_WORKERS", "10"))
@@ -187,7 +182,6 @@ jobs:
           PROTOCOLS = {"http": "HTTP", "socks5": "SOCKS5", "socks4": "SOCKS4"}
           UUID_RE = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
 
-          # repo variable / secret names used to remember inputs between runs
           SECRET_GOLOGIN = "GOLOGIN_API_KEY"
           SECRET_PROXYSELL = "PROXYSELL_API_KEY"
           VAR_NAMES = {
@@ -205,6 +199,13 @@ jobs:
               print(msg, flush=True)
 
 
+          def step(num, title):
+              say("")
+              say("=" * 70)
+              say(f"STEP {num}: {title}")
+              say("=" * 70)
+
+
           def warn(msg):
               print(f"::warning::{msg}", flush=True)
 
@@ -214,7 +215,6 @@ jobs:
 
 
           def mask(value):
-              """Ask the runner to redact a value from all further log output."""
               if value:
                   for line in str(value).splitlines():
                       if line.strip():
@@ -249,7 +249,6 @@ jobs:
 
 
           def describe(r):
-              """Short human-readable failure reason (never includes credentials we sent)."""
               if r.status == 0:
                   return r.text or "network error"
               msg = ""
@@ -267,8 +266,6 @@ jobs:
 
 
           class GoLogin:
-              """Thin client. NEVER retries on 429: GoLogin revokes the token when the rate limit is exceeded."""
-
               def __init__(self, token):
                   self.headers = {
                       "Authorization": f"Bearer {token}",
@@ -284,10 +281,10 @@ jobs:
                           r = requests.request(method, GOLOGIN_API + path, headers=self.headers,
                                                json=payload, timeout=60)
                           last = _decode(r)
-                      except requests.RequestException as exc:  # class name only: URLs/keys must not leak
+                      except requests.RequestException as exc:
                           last = Resp(0, None, f"network error ({type(exc).__name__})")
                       if last.status == 429:
-                          html = last.data is None  # Cloudflare 1015 returns an HTML/plain page, not JSON
+                          html = last.data is None
                           raise RateLimited(cloudflare=html)
                       if (last.status == 0 or last.status >= 500) and attempt < retries:
                           time.sleep(delay)
@@ -321,8 +318,6 @@ jobs:
 
 
           class GitHub:
-              """Writes repo secrets / variables / workflow defaults with the GH_PAT token."""
-
               def __init__(self, token, repo):
                   self.repo = repo
                   self.headers = {
@@ -351,7 +346,7 @@ jobs:
                       raise RuntimeError(self._why(r))
 
               def set_secret(self, name, value):
-                  from nacl import encoding, public  # PyNaCl: GitHub requires libsodium sealed boxes
+                  from nacl import encoding, public
 
                   r = self.call("GET", f"/repos/{self.repo}/actions/secrets/public-key")
                   if r.status_code != 200:
@@ -365,8 +360,7 @@ jobs:
                       raise RuntimeError(self._why(r))
 
               def remember_form_defaults(self, values):
-                  """Rewrite the `default:` of every line tagged `# @remember:<input>` in this workflow file."""
-                  wf_ref = env("GITHUB_WORKFLOW_REF")           # owner/repo/.github/workflows/x.yml@refs/heads/main
+                  wf_ref = env("GITHUB_WORKFLOW_REF")
                   if not wf_ref or env("GITHUB_REF_TYPE") != "branch":
                       raise RuntimeError("workflow was not dispatched from a branch")
                   path = wf_ref.split("@", 1)[0].split("/", 2)[2]
@@ -409,7 +403,6 @@ jobs:
 
           # ----------------------------------------------------------------------------- proxy helpers
           def find_proxy_dict(obj):
-              """Locate the first dict that looks like a proxy (has host+port) anywhere in a JSON response."""
               if isinstance(obj, dict):
                   if obj.get("host") and obj.get("port"):
                       return obj
@@ -426,7 +419,6 @@ jobs:
 
 
           def extract_record(data):
-              """Pull id / host / port / credentials out of whatever shape GoLogin returned."""
               rec = {"id": None, "host": None, "port": None, "username": None, "password": None, "mode": None}
               if isinstance(data, dict):
                   rec["id"] = data.get("id") or data.get("_id")
@@ -462,7 +454,6 @@ jobs:
 
 
           def build_dsn(rec, protocol):
-              """protocol://login:password@host:port  -- one of the formats Proxysell documents."""
               auth = ""
               if rec.get("username"):
                   user = urllib.parse.quote(str(rec["username"]), safe="")
@@ -472,7 +463,6 @@ jobs:
 
 
           def check_proxy(rec, protocol):
-              """Fetch an IP-echo page through the proxy with curl using the selected protocol."""
               scheme = {"http": "http", "socks5": "socks5h", "socks4": "socks4"}[protocol]
               cmd = ["curl", "-sS", "-m", str(VERIFY_TIMEOUT), "--proxy", f"{scheme}://{bracket(rec['host'])}:{rec['port']}"]
               if rec.get("username"):
@@ -498,21 +488,21 @@ jobs:
 
           # ----------------------------------------------------------------------------- main
           def main():
-              started = datetime.now(timezone.utc)
+              started = datetime.now().astimezone()
               repo = env("GITHUB_REPOSITORY")
               run_no = env("GITHUB_RUN_NUMBER", "0")
 
-              # -- 1. inputs ------------------------------------------------------------------------------
+              # -- STEP 1. Resolve inputs -----------------------------------------------------------------
+              step(1, "Resolving and validating inputs")
               with open(env("GITHUB_EVENT_PATH"), encoding="utf-8") as fh:
                   raw = (json.load(fh).get("inputs")) or {}
 
               def given(name):
-                  v = str(raw.get(name) or "").strip()
-                  return "" if v.lower() == "last-saved" else v
+                  return str(raw.get(name) or "").strip()
 
               typed_gl, typed_ps = given("gologin_api_key"), given("proxysell_api_key")
               mask(typed_gl)
-              mask(typed_ps)  # mask BEFORE anything else is logged
+              mask(typed_ps)
 
               gl_key = typed_gl or env("SAVED_GOLOGIN_API_KEY")
               ps_key = typed_ps or env("SAVED_PROXYSELL_API_KEY")
@@ -529,7 +519,7 @@ jobs:
               count_s, count_src = pick("proxy_count", "SAVED_PROXY_COUNT", "10")
               type_s, type_src = pick("proxy_type", "SAVED_PROXY_TYPE", "Residential")
               proto_s, proto_src = pick("proxy_protocol", "SAVED_PROXY_PROTOCOL", "HTTP")
-              ctry_s, ctry_src = pick("country_codes", "SAVED_COUNTRIES", "us")
+              ctry_s, ctry_src = pick("country_codes", "SAVED_COUNTRIES", "US")
               group_s, group_src = pick("proxysell_group", "SAVED_PROXYSELL_GROUP", "new")
               verify_s, verify_src = pick("verify_proxies", "SAVED_VERIFY", "yes")
 
@@ -556,7 +546,7 @@ jobs:
                   if not c:
                       continue
                   if not re.fullmatch(r"[A-Za-z]{2}", c):
-                      problems.append(f"country_codes must be 2-letter ISO codes like 'us' or 'us,gb,de' (got '{c}').")
+                      problems.append(f"country_codes must be 2-letter ISO codes (got '{c}').")
                   elif c.upper() not in [x.upper() for x in countries]:
                       countries.append(c.upper())
               if not countries:
@@ -572,7 +562,6 @@ jobs:
                   return 1
               verify = verify_s.lower() == "yes"
 
-              say("Configuration")
               say(f"   proxies        : {count}  ({count_src})")
               say(f"   type           : {ptype}  ({type_src})")
               say(f"   protocol       : {PROTOCOLS[protocol]}  ({proto_src})")
@@ -587,8 +576,8 @@ jobs:
 
               gl, ps = GoLogin(gl_key), Proxysell(ps_key)
 
-              # -- 2. pre-flight (fail before spending anything) -------------------------------------------
-              say("\nPre-flight checks")
+              # -- STEP 2. Pre-flight --------------------------------------------------------------------
+              step(2, "Pre-flight checks (GoLogin token + Proxysell groups)")
               try:
                   r = gl.call("GET", "/user")
               except RateLimited:
@@ -602,74 +591,92 @@ jobs:
               else:
                   warn(f"GoLogin token check was inconclusive ({describe(r)}); continuing.")
 
-              group_uuid, group_name, group_created = None, None, False
-              if group_in.lower() == "new":
-                  group_name = f"gologin-{ptype.lower()}-{protocol}-{started:%Y%m%d-%H%M}-run{run_no}"
-                  r = ps.call("POST", "/v1/group", {"name": group_name,
-                                                    "comment": f"Created by GitHub Actions run {env('GITHUB_RUN_ID')}"})
-                  gdata = (r.data or {}).get("data") if isinstance(r.data, dict) else None
-                  if r.status != 200 or not isinstance(gdata, dict) or not gdata.get("id"):
-                      err(f"Could not create the Proxysell group ({describe(r)}). Check the Proxysell API key.")
-                      return 1
-                  group_uuid, group_created = str(gdata["id"]), True
-                  say(f"   Proxysell group created: {group_name} ({group_uuid})")
-              else:
-                  group_uuid, group_name = group_in, "(existing group)"
-                  say(f"   Using existing Proxysell group {group_uuid}")
+              # Best-effort list of existing Proxysell groups (helps you copy a UUID next run)
+              say("   Attempting to list existing Proxysell groups...")
+              try:
+                  r = ps.call("GET", "/v1/group")
+                  if r.status == 200 and isinstance(r.data, dict):
+                      groups = r.data.get("data") or r.data.get("groups") or r.data.get("items") or []
+                      if isinstance(groups, list) and groups:
+                          say(f"   Found {len(groups)} group(s):")
+                          for g in groups[:30]:
+                              gid = g.get("id") or g.get("uuid") or g.get("groupUuid") or "?"
+                              gname = g.get("name") or g.get("title") or "(no name)"
+                              say(f"      • {gname}  →  {gid}")
+                          if len(groups) > 30:
+                              say(f"      ... and {len(groups)-30} more")
+                      else:
+                          say("   No groups returned (or empty list).")
+                  else:
+                      say(f"   Could not list groups ({describe(r)}). You can still paste a known UUID or use 'new'.")
+              except Exception as exc:
+                  say(f"   Group listing skipped ({type(exc).__name__}).")
 
-              # -- 3. remember inputs ----------------------------------------------------------------------
-              say("\nSaving inputs")
+              # -- STEP 3. Remember inputs ---------------------------------------------------------------
+              step(3, "Saving inputs (API keys + form defaults)")
               pat = env("GH_PAT")
               if not pat:
                   warn("Repo secret GH_PAT is not set, so inputs cannot be remembered. Generation continues.")
               else:
                   hub = GitHub(pat, repo)
                   saves = []
-                  if typed_gl and typed_gl != env("SAVED_GOLOGIN_API_KEY"):
-                      saves.append(("secret", SECRET_GOLOGIN, typed_gl))
-                  if typed_ps and typed_ps != env("SAVED_PROXYSELL_API_KEY"):
-                      saves.append(("secret", SECRET_PROXYSELL, typed_ps))
+
+                  # Always persist the effective keys when we have them
+                  if gl_key:
+                      saves.append(("secret", SECRET_GOLOGIN, gl_key))
+                  if ps_key:
+                      saves.append(("secret", SECRET_PROXYSELL, ps_key))
+
                   remembered = {
-                      "proxy_count": str(count), "proxy_type": ptype, "proxy_protocol": PROTOCOLS[protocol],
-                      "country_codes": ",".join(countries), "proxysell_group": group_in if group_in.lower() != "new" else "new",
+                      "proxy_count": str(count),
+                      "proxy_type": ptype,
+                      "proxy_protocol": PROTOCOLS[protocol],
+                      "country_codes": ",".join(countries),
+                      "proxysell_group": group_in if group_in.lower() != "new" else "new",
                       "verify_proxies": verify_s.lower(),
                   }
-                  saved_env = {"proxy_count": "SAVED_PROXY_COUNT", "proxy_type": "SAVED_PROXY_TYPE",
-                               "proxy_protocol": "SAVED_PROXY_PROTOCOL", "country_codes": "SAVED_COUNTRIES",
-                               "proxysell_group": "SAVED_PROXYSELL_GROUP", "verify_proxies": "SAVED_VERIFY"}
+                  saved_env = {
+                      "proxy_count": "SAVED_PROXY_COUNT",
+                      "proxy_type": "SAVED_PROXY_TYPE",
+                      "proxy_protocol": "SAVED_PROXY_PROTOCOL",
+                      "country_codes": "SAVED_COUNTRIES",
+                      "proxysell_group": "SAVED_PROXYSELL_GROUP",
+                      "verify_proxies": "SAVED_VERIFY",
+                  }
                   for key, value in remembered.items():
-                      if env(saved_env[key]) != value:           # only write what actually changed
+                      if env(saved_env[key]) != value:
                           saves.append(("variable", VAR_NAMES[key], value))
+
                   if not saves:
                       say("   nothing changed since the last run")
                   for kind, name, value in saves:
                       try:
                           (hub.set_secret if kind == "secret" else hub.set_variable)(name, value)
                           say(f"   saved {kind} {name}")
-                      except Exception as exc:  # never let bookkeeping kill the run
+                      except Exception as exc:
                           warn(f"Could not save {kind} {name}: {exc}. GH_PAT needs read/write on Secrets and Variables.")
                   if REMEMBER_FORM:
                       try:
                           hub.remember_form_defaults(remembered)
-                          say("   form defaults updated (next run's form will be pre-filled)")
+                          say("   form defaults updated (next run's form will be pre-filled with these values)")
                       except Exception as exc:
                           warn(f"Could not update form defaults: {exc}. (Needs Contents + Workflows write on GH_PAT; "
                                "values are still remembered via repo variables.)")
 
-              # -- 4. generate on GoLogin ------------------------------------------------------------------
-              say(f"\nGenerating {count} {ptype} proxies on GoLogin (about {THROTTLE:g}s apart to stay far below the rate limit)")
-              attempts = []   # one dict per proxy we tried to create
+              # -- STEP 4. Generate on GoLogin -----------------------------------------------------------
+              step(4, f"Generating {count} {ptype} proxies on GoLogin (~{THROTTLE:g}s apart)")
+              attempts = []
               consecutive = 0
               stop_reason = None
               rate_limited = False
               for i in range(1, count + 1):
                   cc = countries[(i - 1) % len(countries)]
-                  name = f"{i}-{cc}-{ptype}-{rand_tag()}"          # e.g. 1-US-Mobile-ayuh
+                  name = f"{i}-{cc}-{ptype}-{rand_tag()}"
                   body = {"countryCode": cc.lower(), "customName": name}
                   if ptype == "Mobile":
                       body["isMobile"] = True
                   elif ptype == "Datacenter":
-                      body["isDC"] = True                          # Residential = neither flag
+                      body["isDC"] = True
                   att = {"idx": i, "name": name, "cc": cc, "rec": None, "reason": None, "lookup": False}
                   attempts.append(att)
                   tag = f"[{i}/{count}] {name}"
@@ -695,7 +702,7 @@ jobs:
                               say(f"   {tag}: created but response had no host/port; will look it up")
                       else:
                           att["reason"] = describe(r)
-                          att["lookup"] = r.status == 0 or r.status >= 500   # may have been created anyway
+                          att["lookup"] = r.status == 0 or r.status >= 500
                           consecutive += 1
                           say(f"   {tag}: FAILED ({att['reason']})")
                   except RateLimited as exc:
@@ -717,10 +724,11 @@ jobs:
                   if i < count:
                       time.sleep(THROTTLE)
 
-              # -- 5. recover lost responses --------------------------------------------------------------
+              # -- STEP 5. Recover incomplete responses --------------------------------------------------
+              step(5, "Recovering any proxies whose creation response was incomplete")
               pending = [a for a in attempts if a["lookup"] and not (a["rec"] and has_endpoint(a["rec"]))]
-              if pending and not rate_limited:   # after a 429 we must not touch the API again
-                  say(f"\nLooking up {len(pending)} proxies whose creation result was unclear")
+              if pending and not rate_limited:
+                  say(f"   Looking up {len(pending)} proxies...")
                   wanted = {a["name"]: a for a in pending}
                   try:
                       for page in range(1, 41):
@@ -741,21 +749,24 @@ jobs:
                               break
                   except RateLimited:
                       warn("Rate limited while recovering proxies; skipping recovery.")
+              else:
+                  say("   nothing to recover")
 
               created = [a for a in attempts if a["rec"] and has_endpoint(a["rec"])]
               failed = [a for a in attempts if a not in created]
               not_attempted = count - len(attempts)
-              say(f"\nGoLogin result: {len(created)} usable, {len(failed)} failed, {not_attempted} not attempted")
+              say(f"\n   GoLogin result: {len(created)} usable, {len(failed)} failed, {not_attempted} not attempted")
               modes = sorted({str(a["rec"].get("mode")) for a in created if a["rec"].get("mode")})
               if modes:
                   say(f"   mode reported by GoLogin: {', '.join(modes)}")
                   if protocol not in [m.lower() for m in modes]:
                       say(f"   note: sending as {protocol}:// because that is the protocol you selected")
 
-              # -- 6. verify -------------------------------------------------------------------------------
+              # -- STEP 6. Optional verification ---------------------------------------------------------
+              step(6, f"Verifying proxies via {PROTOCOLS[protocol]}" if verify else "Skipping verification")
               checks = {}
               if verify and created:
-                  say(f"\nVerifying {len(created)} proxies via {PROTOCOLS[protocol]} (informational)")
+                  say(f"   Checking {len(created)} proxies (workers={VERIFY_WORKERS})...")
                   with ThreadPoolExecutor(max_workers=VERIFY_WORKERS) as pool:
                       for a, (ok, why) in zip(created, pool.map(lambda x: check_proxy(x["rec"], protocol), created)):
                           checks[a["name"]] = (ok, why)
@@ -764,10 +775,35 @@ jobs:
                   if good < len(created):
                       warn(f"{len(created) - good} proxies did not respond over {PROTOCOLS[protocol]}. "
                            + ("They are still being sent." if SEND_UNVERIFIED else "They will NOT be sent."))
+              else:
+                  say("   verification disabled or nothing to check")
 
-              # -- 7. upload to Proxysell -------------------------------------------------------------------
+              # -- STEP 7. Create / select Proxysell group + upload --------------------------------------
+              step(7, "Creating/selecting Proxysell group and uploading proxies")
               to_send = [a for a in created if SEND_UNVERIFIED or checks.get(a["name"], (True, ""))[0]]
-              ps_status = {}                     # name -> "added" | reason string
+              group_uuid, group_name, group_created = None, None, False
+
+              if group_in.lower() == "new":
+                  # Name format requested: count-COUNTRY-Type-time (local)
+                  time_str = started.strftime("%I:%M:%S%p").lstrip("0").replace(" ", "")
+                  cc_part = countries[0] if len(countries) == 1 else "+".join(countries)
+                  group_name = f"{len(to_send)}-{cc_part}-{ptype}-{time_str}"
+                  say(f"   Creating new Proxysell group: {group_name}")
+                  r = ps.call("POST", "/v1/group", {
+                      "name": group_name,
+                      "comment": f"Created by GitHub Actions run {env('GITHUB_RUN_ID')} at {started.isoformat()}"
+                  })
+                  gdata = (r.data or {}).get("data") if isinstance(r.data, dict) else None
+                  if r.status != 200 or not isinstance(gdata, dict) or not gdata.get("id"):
+                      err(f"Could not create the Proxysell group ({describe(r)}). Check the Proxysell API key.")
+                      return 1
+                  group_uuid, group_created = str(gdata["id"]), True
+                  say(f"   Group created: {group_name} ({group_uuid})")
+              else:
+                  group_uuid, group_name = group_in, "(existing group)"
+                  say(f"   Using existing Proxysell group {group_uuid}")
+
+              ps_status = {}
               dsn_to_name = {}
               for a in to_send:
                   dsn_to_name[build_dsn(a["rec"], protocol)] = a["name"]
@@ -775,7 +811,7 @@ jobs:
               upload_failed = False
               total_added = 0
               if dsns:
-                  say(f"\nSending {len(dsns)} proxies to Proxysell group {group_uuid} as {protocol}://login:password@host:port")
+                  say(f"   Sending {len(dsns)} proxies to group {group_uuid} as {protocol}://login:password@host:port")
                   for n in range(0, len(dsns), UPLOAD_CHUNK):
                       chunk = dsns[n:n + UPLOAD_CHUNK]
                       r = ps.call("POST", f"/v1/group/{group_uuid}/proxy", {"items": chunk})
@@ -798,7 +834,6 @@ jobs:
                           nm = dsn_to_name[dsn]
                           ps_status[nm] = f"rejected: {rejected[dsn]}" if dsn in rejected else "added"
                       if rejected and not any(dsn in rejected for dsn in chunk):
-                          # Proxysell may echo a normalised DSN; we cannot map it back to a name
                           names_note = f"{len(rejected)} proxies"
                           warn(f"Proxysell rejected {names_note} in chunk {n // UPLOAD_CHUNK + 1}: "
                                f"{sorted(set(rejected.values()))}")
@@ -810,11 +845,12 @@ jobs:
                   rejected_total = sum(1 for v in ps_status.values() if v != "added")
                   if rejected_total:
                       upload_failed = True
-                  say(f"Proxysell result: {total_added} added, {rejected_total} not added")
+                  say(f"   Proxysell result: {total_added} added, {rejected_total} not added")
               else:
                   warn("Nothing to send to Proxysell.")
 
-              # -- 8. summary ---------------------------------------------------------------------------------
+              # -- STEP 8. Summary -----------------------------------------------------------------------
+              step(8, "Writing summary")
               lines = [
                   "## GoLogin to Proxysell",
                   "",
@@ -869,7 +905,7 @@ jobs:
           if __name__ == "__main__":
               try:
                   sys.exit(main())
-              except Exception as exc:  # last-resort guard: never dump a traceback that could include secrets
+              except Exception as exc:
                   err(f"Unexpected error: {type(exc).__name__}: {str(exc)[:200]}")
                   sys.exit(1)
           PY
