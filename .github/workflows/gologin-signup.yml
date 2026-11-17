@@ -628,7 +628,6 @@ jobs:
                 Add-Type @"
                 using System; using System.Runtime.InteropServices;
                 public class W { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int n); }
-"@
                 Get-Process msedge -ErrorAction SilentlyContinue | ForEach-Object {
                   [W]::ShowWindow($_.MainWindowHandle, 3) | Out-Null
                 }
