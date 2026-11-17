@@ -51,7 +51,7 @@ on:
         description: "Number of proxies to generate (blank = last used)"
         required: false
         type: string
-        default: "" # @remember:proxy_count
+        default: "90" # @remember:proxy_count
       proxy_type:
         description: "Proxy type"
         required: false
@@ -61,7 +61,7 @@ on:
           - Residential
           - Mobile
           - Datacenter
-        default: last-saved # @remember:proxy_type
+        default: "Mobile" # @remember:proxy_type
       proxy_protocol:
         description: "Proxy protocol (GoLogin and Proxysell support HTTP and SOCKS5)"
         required: false
@@ -71,17 +71,17 @@ on:
           - HTTP
           - SOCKS5
           - SOCKS4
-        default: last-saved # @remember:proxy_protocol
+        default: "HTTP" # @remember:proxy_protocol
       country_codes:
         description: "2-letter country code(s), comma separated, e.g. us or us,gb,de (blank = last used)"
         required: false
         type: string
-        default: "" # @remember:country_codes
+        default: "US" # @remember:country_codes
       proxysell_group:
         description: "Proxysell group UUID, or 'new' to create one each run (blank = last used)"
         required: false
         type: string
-        default: "" # @remember:proxysell_group
+        default: "new" # @remember:proxysell_group
       verify_proxies:
         description: "Test each proxy through the chosen protocol before sending (informational)"
         required: false
@@ -90,7 +90,7 @@ on:
           - last-saved
           - "yes"
           - "no"
-        default: last-saved # @remember:verify_proxies
+        default: "yes" # @remember:verify_proxies
 
 permissions:
   contents: read        # GITHUB_TOKEN is not used for writes; GH_PAT does that
