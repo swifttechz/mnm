@@ -212,8 +212,11 @@ jobs:
           items='[]'
           CHARS='abcdefghijklmnopqrstuvwxyz0123456789'
           for (( i = 1; i <= COUNT; i++ )); do
-            # generate 6 random chars (az09) using /dev/urandom
-            suffix=$(cat /dev/urandom | tr -dc 'a-z0-9' | head -c 6)
+            # generate 6 random chars (az09) — pure bash, no pipefail issues
+            suffix=""
+            for (( j = 0; j < 6; j++ )); do
+              suffix+="${CHARS:RANDOM%${#CHARS}:1}"
+            done
             email="${local_part}${suffix}@${domain}"
             items=$(jq -c --argjson i "$i" --arg e "$email" '. + [{index:$i,email:$e}]' <<<"$items")
           done
@@ -625,9 +628,8 @@ jobs:
             // Method 1: PowerShell / Win32 ShowWindow(SW_MAXIMIZE=3)
             try {
               const ps = `
-                Add-Type @"
-                using System; using System.Runtime.InteropServices;
-                public class W { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int n); }
+                $code = 'using System; using System.Runtime.InteropServices; public class W { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int n); }';
+                Add-Type -TypeDefinition $code;
                 Get-Process msedge -ErrorAction SilentlyContinue | ForEach-Object {
                   [W]::ShowWindow($_.MainWindowHandle, 3) | Out-Null
                 }
