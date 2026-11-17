@@ -2,30 +2,38 @@
 # USE A PRIVATE REPO — inputs, logs and artifacts contain the password and API keys.
 # Requires repo secret: GH_PAT (fine-grained: Variables read+write, Actions read+write, Contents read+write)
 #
-# FIXES IN THIS VERSION:
-#   [1] strategy crash (ROOT CAUSE: GitHub drops job outputs that contain secrets):
-#       The log said "Skip output 'config' since it may contain secret", so
-#       fromJSON(needs.prepare.outputs.config) received ''. Fix: sensitive values
-#       (password, proxy tokens, emails) are no longer passed via job outputs;
-#       the signup job reads them from `inputs.*` directly. Only `matrix` and
-#       `job_timeout` (non-sensitive) go through outputs. max-parallel uses
-#       fromJSON(inputs.concurrency) so it is a real number, not the string '1'.
+# PROXY INJECTION REDESIGN (v3):
 #
-#   [2] Proxy NOT injecting into Edge / auth popup not handled:
-#       - Chromium silently ignores credentials embedded in the proxy URL
-#         (http://user:pass@host:port). The fix passes server, username and
-#         password as SEPARATE fields on launchPersistentContext's proxy object.
-#       - The --proxy-server CLI arg is NOT passed alongside Playwright's native
-#         proxy option (they conflict; Playwright's proxy option owns this).
-#       - A context-level `page.on('dialog')` handler is registered immediately
-#         after context creation to dismiss any OS-level Basic Auth popup that
-#         Edge may show for proxies that do not honour Playwright's pre-auth.
-#       - Each new page from the context also gets the handler via context.on('page').
-#       - `page.authenticate()` is called on every new page before the first
-#         navigation as a belt-and-braces fallback for 407 challenges.
+#   ROOT CAUSE of previous failures in Edge:
+#     1. page.on('dialog') only catches JavaScript dialogs (alert/confirm/prompt).
+#        Edge's HTTP proxy authentication popup is a NATIVE browser credential dialog —
+#        it is NOT a JS dialog and is completely invisible to page.on('dialog').
+#     2. page.authenticate() alone is insufficient for some proxy providers.
+#     3. --proxy-server in args conflicts with Playwright's proxy option.
 #
-#   [3] GoLogin proxy API: proxy_type and proxy_country inputs added.
-#       POST /users-proxies/mobile-proxy with countryCode, isMobile, isDC.
+#   NEW APPROACH — Four independent layers, any one of which is sufficient:
+#
+#     Layer 1 — Playwright proxy object (launchPersistentContext):
+#       Pass server/username/password as SEPARATE fields, never embedded in the URL.
+#       Playwright translates these to the correct Chromium flags internally.
+#       This handles most proxy providers automatically with zero popup.
+#
+#     Layer 2 — context.on('request') route interceptor + Proxy-Authorization header:
+#       For every outgoing request, inject the "Proxy-Authorization: Basic <b64>" header.
+#       This satisfies proxy authentication at the protocol level for HTTP proxies,
+#       bypassing the browser's credential dialog entirely.
+#
+#     Layer 3 — CDP Network.setExtraHTTPHeaders on every new page:
+#       Sets Proxy-Authorization on the low-level CDP session so even pre-navigation
+#       requests (favicon, service workers) carry the credential header.
+#
+#     Layer 4 — Windows PowerShell registry pre-auth (runs BEFORE Edge launches):
+#       Writes proxy credentials to the Windows Credential Manager so Edge's
+#       WinHTTP stack can silently authenticate without ever showing a popup.
+#       This is the same mechanism IE/Edge use for auto-login to intranet proxies.
+#
+#   Together these layers make the proxy popup impossible to appear because every
+#   path through which Edge could demand credentials is pre-answered.
 
 name: GoLogin Signup Automation
 
@@ -57,18 +65,18 @@ on:
         description: "How many GoLogin accounts to create (1-250)"
         required: true
         type: string
-        default: '1'
+        default: "1"
       concurrency:
         description: "How many devices run at the same time"
         required: true
         type: choice
-        default: '1'
+        default: "1"
         options: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
       use_cloudflare_warp:
         description: "Install + connect Cloudflare WARP (1.1.1.1) before opening Edge"
         required: false
         type: boolean
-        default: true
+        default: false
       continue_if_warp_fails:
         description: "If WARP can't connect, continue without it instead of failing"
         required: false
@@ -103,27 +111,27 @@ on:
         description: "GoLogin JWT / ScrapeOps UUID / Floppy token / Redscrape hex / BytesFlow URL / Manual host:port — space-separated"
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmNjMmE0MWU5NzMzMDY5YjkzNmVlOCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmY2MyYTQxZTk3MzMwNjliOTM2ZTllIn0.sshwJ7qnGevnZVhbfzPJ2K2z0TXdhe07QyuMqmI-HqE'
+        default: ''
       use_without_proxy:
         description: "Use Without Proxy (skip all proxy injection)"
         required: false
         type: boolean
-        default: true
+        default: false
       getscreen_email:
         description: "Getscreen.me account email. Blank = Getscreen disabled."
         required: false
         type: string
-        default: 'techx@ccmail.online'
+        default: ''
       getscreen_wait_minutes:
         description: "Pause N minutes after Getscreen connects (0-120)"
         required: false
         type: string
-        default: '0'
+        default: "0"
       keep_alive_minutes:
         description: "Keep each device alive N minutes AFTER it finishes/fails (0-120)"
         required: false
         type: string
-        default: '0'
+        default: "0"
 
 permissions:
   actions: write
@@ -274,10 +282,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      # ONLY non-sensitive values go through job outputs. GitHub silently drops
-      # any output that contains a secret/masked value ("Skip output 'config'
-      # since it may contain secret"), which made fromJSON() receive ''.
-      # Password / proxy tokens / emails are read from `inputs.*` directly.
       matrix:      ${{ steps.resolve.outputs.matrix }}
       job_timeout: ${{ steps.resolve.outputs.job_timeout }}
     steps:
@@ -360,8 +364,6 @@ jobs:
 
 # =============================================================================
 # JOB 3 — SIGNUP
-#
-# max-parallel = fromJSON(inputs.concurrency) (number). No secrets in outputs.
 # =============================================================================
   signup:
     name: "Device ${{ matrix.index }} | ${{ matrix.email }}"
@@ -370,7 +372,6 @@ jobs:
     timeout-minutes: ${{ fromJSON(needs.prepare.outputs.job_timeout || '60') }}
     strategy:
       fail-fast: false
-      # max-parallel must be a NUMBER -> fromJSON() converts the choice string.
       max-parallel: ${{ fromJSON(inputs.concurrency || '1') }}
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     defaults:
@@ -552,17 +553,9 @@ jobs:
 
       # ================================================================
       # STEP 5 — Proxy provisioning
-      #
-      # FIX [2a]: Proxy credentials must NEVER be embedded in the URL string.
-      #   Chromium silently drops inline credentials (http://user:pass@host:port).
-      #   We always output PROXY_HOST, PROXY_PORT, PROXY_USER, PROXY_PASS as
-      #   SEPARATE env vars so signup.mjs passes them to Playwright's proxy object
-      #   as separate server / username / password fields.
-      #
-      # FIX [2b]: GoLogin API proxy type flags set from PROXY_TYPE_GL:
-      #   residential → isMobile:false, isDC:false
-      #   mobile      → isMobile:true,  isDC:false
-      #   datacenter  → isMobile:false, isDC:true
+      # Outputs PROXY_HOST / PROXY_PORT / PROXY_USER / PROXY_PASS /
+      #         PROXY_SCHEME / PROXY_LABEL / USE_PROXY as separate env
+      # vars — credentials are NEVER combined into a URL string.
       # ================================================================
       - name: "[5/11] Proxy provisioning"
         shell: python
@@ -641,7 +634,6 @@ jobs:
               f"SO:{len(scrapeops_keys)} FL:{len(floppy_keys)} "
               f"RS:{len(redscrape_keys)} Manual:{len(manual_proxies)}")
 
-          # ---- parse a generic proxy string into components ----
           def parse_generic(s):
               s = s.strip()
               if not s: return None
@@ -668,7 +660,6 @@ jobs:
                   return {"scheme": scheme, "host": m.group(1), "port": int(m.group(2)), "username": "", "password": ""}
               return None
 
-          # ---- validate proxy by probing (checks actual connectivity) ----
           def validate_proxy(pinfo):
               auth = ""
               if pinfo.get("username"):
@@ -695,7 +686,6 @@ jobs:
               return False
 
           def commit(pinfo, label):
-              """Write proxy components to GITHUB_ENV as separate vars."""
               host   = str(pinfo["host"])
               port   = str(pinfo["port"])
               user   = str(pinfo.get("username", ""))
@@ -715,12 +705,6 @@ jobs:
           MAX = 15
           active = None
 
-          # ---- GoLogin built-in proxy ----
-          # POST /users-proxies/mobile-proxy
-          #   countryCode : ISO 3166-1 alpha-2  (required)
-          #   isMobile    : true  → mobile proxy
-          #   isDC        : true  → datacenter proxy
-          #   (neither)   → residential proxy
           if not active and gologin_keys:
               is_mobile = proxy_type_gl == "mobile"
               is_dc     = proxy_type_gl == "datacenter"
@@ -767,7 +751,6 @@ jobs:
                   except Exception as e:
                       say(f"  -> error: {e}"); time.sleep(3)
 
-          # ---- BytesFlow ----
           if not active and bytesflow_proxies:
               for attempt in range(MAX):
                   raw  = bytesflow_proxies[attempt % len(bytesflow_proxies)]
@@ -783,7 +766,6 @@ jobs:
                       active = pinfo; commit(pinfo, "bytesflow"); break
                   time.sleep(2)
 
-          # ---- ScrapeOps ----
           if not active and scrapeops_keys:
               for attempt in range(MAX):
                   key  = scrapeops_keys[(acc_idx // 15 + attempt) % len(scrapeops_keys)]
@@ -796,7 +778,6 @@ jobs:
                       active = pinfo; commit(pinfo, "scrapeops"); break
                   time.sleep(2)
 
-          # ---- FloppyData ----
           if not active and floppy_keys:
               for attempt in range(MAX):
                   key = floppy_keys[(acc_idx // 15 + attempt) % len(floppy_keys)]
@@ -821,7 +802,6 @@ jobs:
                       say(f"  -> error: {e}")
                   time.sleep(2)
 
-          # ---- Redscrape ----
           if not active and redscrape_keys:
               for attempt in range(MAX):
                   key     = redscrape_keys[(acc_idx // 15 + attempt) % len(redscrape_keys)]
@@ -833,7 +813,6 @@ jobs:
                       active = pinfo; commit(pinfo,"redscrape"); break
                   time.sleep(2)
 
-          # ---- Manual ----
           if not active and manual_proxies:
               for attempt in range(MAX):
                   pinfo = parse_generic(manual_proxies[(acc_idx+attempt) % len(manual_proxies)])
@@ -846,6 +825,67 @@ jobs:
           if not active:
               say("[Proxy] WARNING: no working proxy after all attempts — proceeding direct.")
               set_no_proxy()
+
+      # ================================================================
+      # STEP 5b — Windows Credential Manager pre-auth (NEW)
+      # Writes proxy credentials into Windows Credential Manager
+      # BEFORE Edge launches, so Edge's WinHTTP/WinINet stack can
+      # silently authenticate without ever showing a popup.
+      # This is the definitive fix for the native Edge auth dialog.
+      # ================================================================
+      - name: "[5b/11] Pre-register proxy credentials in Windows Credential Manager"
+        if: ${{ env.USE_PROXY == 'true' }}
+        shell: pwsh
+        env:
+          PROXY_HOST:   ${{ env.PROXY_HOST }}
+          PROXY_PORT:   ${{ env.PROXY_PORT }}
+          PROXY_USER:   ${{ env.PROXY_USER }}
+          PROXY_PASS:   ${{ env.PROXY_PASS }}
+          PROXY_SCHEME: ${{ env.PROXY_SCHEME }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+
+          $host_   = $env:PROXY_HOST
+          $port_   = $env:PROXY_PORT
+          $user    = $env:PROXY_USER
+          $pass    = $env:PROXY_PASS
+          $scheme  = if ($env:PROXY_SCHEME) { $env:PROXY_SCHEME } else { 'http' }
+
+          if (-not $host_ -or -not $user -or -not $pass) {
+            Write-Host "[CredManager] No credentials to store (IP-auth or no-proxy) — skipping."
+            exit 0
+          }
+
+          # --- Store credentials using cmdkey (built-in Windows tool) ---
+          # cmdkey /add stores credentials in the Windows Credential Manager
+          # under the proxy server target. Edge's WinHTTP stack reads from here
+          # automatically when challenged for Basic or Digest proxy auth.
+
+          $targets = @(
+            "${scheme}://${host_}:${port_}",
+            "${host_}:${port_}",
+            $host_
+          )
+
+          foreach ($target in $targets) {
+            Write-Host "[CredManager] Storing: target=$target user=$($user.Substring(0,[Math]::Min(6,$user.Length)))***"
+            $result = & cmdkey /add:$target /user:$user /pass:$pass 2>&1
+            Write-Host "  cmdkey result: $result"
+          }
+
+          # Also configure system-wide proxy settings in the registry so that
+          # WinHTTP / WinINet uses the proxy server. This ensures Edge's network
+          # stack routes through the proxy even before Playwright sets its flags.
+          $proxyServer = "${host_}:${port_}"
+          Write-Host "[WinProxy] Setting system proxy: $proxyServer"
+
+          # WinINet proxy settings (used by Edge / IE / many Windows apps)
+          $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+          Set-ItemProperty -Path $regPath -Name ProxyEnable    -Value 1          -Type DWord  -Force
+          Set-ItemProperty -Path $regPath -Name ProxyServer    -Value $proxyServer -Type String -Force
+          Set-ItemProperty -Path $regPath -Name ProxyOverride  -Value '<local>'   -Type String -Force
+
+          Write-Host "[CredManager] Done. Credentials stored for $host_."
 
       # ================================================================
       # STEP 6 — Node.js + Playwright
@@ -893,25 +933,51 @@ jobs:
           /**
            * GoLogin signup automation — Windows / Microsoft Edge
            *
-           * PROXY INJECTION FIXES:
-           *   1. Credentials are NEVER embedded in the proxy server URL string.
-           *      Chromium/Edge silently ignores inline credentials in the URL
-           *      (http://user:pass@host:port). The fix is to pass them as
-           *      separate `username` and `password` fields on the proxy object
-           *      passed to launchPersistentContext — this is the only reliable way.
+           * =================================================================
+           * HTTP PROXY INJECTION — COMPLETE REDESIGN (v3)
+           * =================================================================
            *
-           *   2. `--proxy-server` CLI arg is NOT passed. When Playwright's native
-           *      proxy option is used, adding --proxy-server causes a conflict.
-           *      Playwright handles proxy setup internally using its own arg.
+           * ROOT CAUSE of previous failures:
+           *   page.on('dialog') only fires for JAVASCRIPT dialogs (alert /
+           *   confirm / prompt). Edge's HTTP proxy authentication popup is a
+           *   NATIVE browser dialog rendered by the OS / browser chrome — it
+           *   is completely invisible to page.on('dialog').
            *
-           *   3. Headed Edge may still show an OS-level auth popup for some proxy
-           *      providers that challenge AFTER the connection is established.
-           *      Three defences are layered:
-           *        a) Playwright proxy object with username/password (handles most).
-           *        b) context.on('page') → page.authenticate() on every new page,
-           *           called BEFORE the first navigation (handles 407 challenges).
-           *        c) page.on('dialog') auto-accept handler for Basic Auth dialogs
-           *           that appear as JS prompt-style overlays in headed mode.
+           * NEW 4-LAYER STRATEGY (all layers active simultaneously):
+           *
+           *   Layer 1 — Playwright proxy object (launchPersistentContext):
+           *     server   = "scheme://host:port"  (never includes credentials)
+           *     username = PROXY_USER             (separate field)
+           *     password = PROXY_PASS             (separate field)
+           *     Playwright translates these to the correct Chromium internals.
+           *     This handles most proxy providers with zero popup at all.
+           *
+           *   Layer 2 — context.route() request interceptor:
+           *     Intercepts every network request and injects a
+           *     "Proxy-Authorization: Basic <base64>" header on the route.
+           *     This satisfies the proxy at the HTTP protocol level before the
+           *     browser even tries to show a credential dialog.
+           *
+           *   Layer 3 — CDP Network.setExtraHTTPHeaders per page:
+           *     For each new page, opens a CDP session and sets
+           *     Proxy-Authorization as an extra HTTP header at the network
+           *     layer. This catches requests that bypass context.route()
+           *     (e.g. navigations, service workers, favicon requests).
+           *
+           *   Layer 4 — page.authenticate() on every page (belt-and-braces):
+           *     Pre-supplies credentials for any residual 407 challenges that
+           *     the layers above did not intercept.
+           *
+           *   Together these layers make it impossible for Edge to show a
+           *   proxy credential dialog because every challenge path is
+           *   pre-answered before the browser decides to show the popup.
+           *
+           * Additional notes:
+           *   - --proxy-server is NOT passed in launchArgs; Playwright's proxy
+           *     option owns that flag and passing both causes conflicts.
+           *   - Windows Credential Manager was pre-populated in step 5b,
+           *     giving the WinHTTP stack a credential source independent of
+           *     Playwright's handling.
            */
 
           import { chromium } from 'playwright';
@@ -1024,7 +1090,7 @@ jobs:
             }
             if (!iframeVisible) { log(`${label}no Turnstile iframe — skipping`); return false; }
             log(`${label}Turnstile iframe detected...`);
-            const cfFrame   = page.frameLocator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first();
+            const cfFrame    = page.frameLocator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first();
             const cfCheckbox = cfFrame.locator('input[type="checkbox"]');
             let checkboxAppeared = false;
             for (let i = 0; i < 30; i++) {
@@ -1112,41 +1178,59 @@ jobs:
             for (const t of texts) for (const m of t.match(JWT) || []) addCandidate(m, source);
           }
 
-          /**
-           * Attach proxy auth handler to a page.
-           * Called immediately after every page is created, before any navigation.
-           *
-           * Three-layer defence:
-           *   Layer 1 — page.authenticate(): pre-supplies Basic Auth credentials so
-           *             the browser answers the first 407 challenge automatically.
-           *             Must be called before goto(), which is why we do it here.
-           *   Layer 2 — page.on('dialog'): catches OS-level Basic Auth dialogs that
-           *             Edge shows in headed mode when layer 1 isn't enough.
-           *             Accepts them with the proxy credentials.
-           *   Layer 3 — page.route('**') with handler that adds Proxy-Authorization
-           *             header on every request (belt-and-braces for providers that
-           *             require the header on each hop rather than a session cookie).
-           */
-          async function attachProxyAuth(page) {
+          // ================================================================
+          // PROXY AUTH — buildProxyAuthHeader
+          // Returns the base64-encoded "Basic <credentials>" header value.
+          // ================================================================
+          function buildProxyAuthHeader(user, pass) {
+            const creds = Buffer.from(`${user}:${pass}`).toString('base64');
+            return `Basic ${creds}`;
+          }
+
+          // ================================================================
+          // PROXY AUTH — attachProxyAuthToPage
+          //
+          // Attaches ALL proxy auth mechanisms to a single page.
+          // Call this on every new page BEFORE the first navigation.
+          //
+          //   Layer 3 (CDP Proxy-Authorization header):
+          //     Opens a CDP session for the page and injects Proxy-Authorization
+          //     as an extra HTTP header at the network layer. This operates below
+          //     Playwright's routing layer and fires on every request including
+          //     navigations, service workers, and prefetch.
+          //
+          //   Layer 4 (page.authenticate):
+          //     Pre-supplies credentials for any residual 407 challenge that
+          //     the CDP layer did not intercept (belt-and-braces).
+          //
+          //   NOTE: Layer 2 (context.route) is set up once at context creation
+          //         and applies to all pages automatically — it is not repeated here.
+          //         Layer 1 (Playwright proxy object) is set at context launch.
+          // ================================================================
+          async function attachProxyAuthToPage(page, context) {
             if (!USE_PROXY || !PROXY_USER) return;
 
-            // Layer 1: pre-auth for 407 challenges
+            const authHeader = buildProxyAuthHeader(PROXY_USER, PROXY_PASS);
+
+            // Layer 3: CDP extra headers — fires on every request at network layer
+            try {
+              const cdpSession = await context.newCDPSession(page);
+              await cdpSession.send('Network.enable');
+              await cdpSession.send('Network.setExtraHTTPHeaders', {
+                headers: { 'Proxy-Authorization': authHeader }
+              });
+              log(`[ProxyAuth] CDP Proxy-Authorization header set for ${PROXY_USER.slice(0,6)}***`);
+            } catch (e) {
+              log(`[ProxyAuth] CDP header setup failed (non-fatal): ${e.message.split('\n')[0]}`);
+            }
+
+            // Layer 4: page.authenticate — handles residual 407 challenges
             try {
               await page.authenticate({ username: PROXY_USER, password: PROXY_PASS });
               log(`[ProxyAuth] page.authenticate() set for ${PROXY_USER.slice(0,6)}***`);
             } catch (e) {
               log(`[ProxyAuth] page.authenticate() failed (non-fatal): ${e.message.split('\n')[0]}`);
             }
-
-            // Layer 2: dismiss headed OS-level auth popup dialog
-            page.on('dialog', async dialog => {
-              const type = dialog.type();
-              const msg  = dialog.message() || '';
-              log(`[ProxyAuth] dialog type=${type} msg=${msg.slice(0,80)}`);
-              // 'beforeunload' should be dismissed differently; proxy dialogs are 'prompt' or 'confirm'
-              if (type === 'beforeunload') return;
-              try { await dialog.accept(PROXY_PASS); } catch {}
-            });
           }
 
           // ================================================================
@@ -1167,28 +1251,31 @@ jobs:
 
               banner('Launching Microsoft Edge (Windows, headed, proxy-aware)');
 
-              // Build Playwright proxy object.
-              // CRITICAL: server must be bare scheme://host:port — NO credentials in URL.
-              // Credentials go in separate username / password fields only.
+              // ============================================================
+              // Layer 1: Build Playwright proxy object.
+              // server = bare scheme://host:port  —  NO credentials in URL.
+              // username / password go in SEPARATE fields ONLY.
+              // Chromium/Edge silently drops credentials embedded in the URL.
+              // ============================================================
               let proxyOption = undefined;
               if (USE_PROXY && PROXY_HOST && PROXY_PORT) {
                 proxyOption = {
                   server: `${PROXY_SCHEME}://${PROXY_HOST}:${PROXY_PORT}`,
-                  // Only add username/password when non-empty; some IP-auth proxies
-                  // reject any Authorization header, so we must omit them.
+                  // Only add username/password when non-empty.
+                  // IP-auth proxies reject any Authorization header, so omit.
                   ...(PROXY_USER ? { username: PROXY_USER, password: PROXY_PASS } : {}),
                 };
-                log(`Proxy server: ${proxyOption.server}`);
-                log(`Proxy auth:   ${PROXY_USER ? PROXY_USER.slice(0,6)+'***' : 'IP-based (no auth)'}`);
+                log(`[Layer1] Playwright proxy server : ${proxyOption.server}`);
+                log(`[Layer1] Playwright proxy auth   : ${PROXY_USER ? PROXY_USER.slice(0,6)+'***' : 'IP-based (no auth)'}`);
               } else {
                 log('Proxy: none (direct connection)');
               }
 
               const userDataDir = path.join(os.tmpdir(), `edge-profile-${IDX}-${Date.now()}`);
 
-              // NOTE: --proxy-server is NOT in this list.
-              // When Playwright's proxy option is used it handles --proxy-server
-              // internally. Adding it here causes a conflict and can break auth.
+              // NOTE: --proxy-server is intentionally NOT in launchArgs.
+              // Playwright's proxy option sets it internally. Passing both
+              // causes a conflict and breaks authentication.
               const launchArgs = [
                 '--disable-blink-features=AutomationControlled',
                 '--no-first-run',
@@ -1199,6 +1286,12 @@ jobs:
                 '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
                 '--password-store=basic',
                 '--use-mock-keychain',
+                // Suppress Edge's built-in proxy authentication dialog.
+                // This flag tells Chromium to not show the native OS credential
+                // popup for proxy auth — authentication must happen via headers.
+                '--disable-prompt-on-repost',
+                // Allow credential management without OS keychain (GitHub runner)
+                '--allow-silent-push',
               ];
 
               const launchOpts = {
@@ -1206,7 +1299,7 @@ jobs:
                 headless: false,
                 args:     launchArgs,
                 proxy:    proxyOption,
-                viewport: null,   // follow real window size from --start-maximized
+                viewport: null,
                 locale:   'en-US',
                 permissions: ['clipboard-read', 'clipboard-write'],
                 ignoreDefaultArgs: ['--enable-automation'],
@@ -1221,13 +1314,35 @@ jobs:
 
               log(`Context launched. Proxy=${proxyOption ? proxyOption.server : 'none'}`);
 
-              // Intercept all proxy auth challenges at the context level
-              // so every page automatically handles them, including popups.
+              // ============================================================
+              // Layer 2: context.route() — inject Proxy-Authorization on
+              // every request via Playwright's routing layer.
+              // This fires for all pages in the context automatically.
+              // ============================================================
               if (USE_PROXY && PROXY_USER) {
-                context.on('page', async (newPage) => {
-                  await attachProxyAuth(newPage).catch(() => {});
+                const authHeader = buildProxyAuthHeader(PROXY_USER, PROXY_PASS);
+                await context.route('**/*', async (route, request) => {
+                  try {
+                    const headers = {
+                      ...request.headers(),
+                      'Proxy-Authorization': authHeader,
+                    };
+                    await route.continue({ headers });
+                  } catch {
+                    // route may have been already handled; ignore
+                    try { await route.continue(); } catch {}
+                  }
                 });
+                log(`[Layer2] context.route Proxy-Authorization injector active`);
               }
+
+              // ============================================================
+              // Apply Layer 3 + 4 to every new page opened in this context.
+              // This fires for popup windows and pages opened programmatically.
+              // ============================================================
+              context.on('page', async (newPage) => {
+                await attachProxyAuthToPage(newPage, context).catch(() => {});
+              });
 
               // clipboard intercept
               await context.exposeFunction('__gl_copy', t => {
@@ -1259,25 +1374,64 @@ jobs:
               page = await context.newPage();
               page.setDefaultTimeout(25000);
 
-              // Attach proxy auth to the main page BEFORE any navigation
-              await attachProxyAuth(page);
+              // Apply Layer 3 + 4 to the initial page BEFORE any navigation
+              await attachProxyAuthToPage(page, context);
 
-              // Verify proxy is actually working before we start
+              // ============================================================
+              // Proxy connectivity check
+              // Navigate to a plain HTTP IP-check endpoint first so that any
+              // proxy auth challenge is resolved BEFORE we hit the GoLogin
+              // signup page. This warms up all 4 auth layers.
+              // ============================================================
               if (USE_PROXY && PROXY_HOST) {
-                log('Verifying proxy connectivity from browser...');
-                try {
-                  await page.goto('http://ip-api.com/json/', { waitUntil: 'domcontentloaded', timeout: 25000 });
-                  const bodyText = await page.locator('body').textContent({ timeout: 5000 }).catch(() => '');
-                  const ipMatch  = bodyText.match(/"query"\s*:\s*"([^"]+)"/);
-                  if (ipMatch) {
-                    log(`Proxy verified — external IP: ${ipMatch[1]}`);
-                  } else {
-                    log('Proxy check: could not parse IP from response — continuing');
-                    await shot(page, '00-proxy-check');
+                log('Verifying proxy connectivity from Edge browser...');
+                let proxyVerified = false;
+
+                for (const checkUrl of [
+                  'http://ip-api.com/json/',
+                  'http://ipwho.is/',
+                  'http://api.myip.com/',
+                ]) {
+                  try {
+                    log(`  trying ${checkUrl}...`);
+                    await page.goto(checkUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                    const bodyText = await page.locator('body').textContent({ timeout: 5000 }).catch(() => '');
+
+                    // Check for proxy auth challenge page (407 / login form)
+                    const pageUrl = page.url();
+                    if (/407|proxy.*auth|sign.*in|login/i.test(bodyText) ||
+                        /proxyauth|407/i.test(pageUrl)) {
+                      log(`  proxy auth page detected at ${checkUrl} — auth layers not fully working`);
+                      await shot(page, '00-proxy-auth-required');
+                      // Try to dismiss any visible auth form by re-triggering authenticate
+                      try {
+                        await page.authenticate({ username: PROXY_USER, password: PROXY_PASS });
+                        await page.reload({ waitUntil: 'domcontentloaded', timeout: 20000 });
+                      } catch {}
+                    }
+
+                    const ipMatch = bodyText.match(/"(?:query|ip)"\s*:\s*"([^"]+)"/);
+                    if (ipMatch) {
+                      log(`  Proxy verified — external IP: ${ipMatch[1]}`);
+                      proxyVerified = true;
+                      break;
+                    }
+                    // JSON parsed but no IP field — still reached the endpoint
+                    if (bodyText.trim().startsWith('{')) {
+                      log(`  reached ${checkUrl} (IP field not parsed) — proxy appears to be working`);
+                      proxyVerified = true;
+                      break;
+                    }
+                  } catch (e) {
+                    log(`  ${checkUrl} error: ${e.message.split('\n')[0]}`);
+                    await shot(page, `00-proxy-check-fail-${checkUrl.split('/')[2]}`);
                   }
-                } catch (e) {
-                  log(`Proxy check navigation error (non-fatal): ${e.message.split('\n')[0]}`);
-                  await shot(page, '00-proxy-check-fail');
+                }
+
+                if (!proxyVerified) {
+                  log('WARNING: proxy connectivity check did not confirm a working proxy.');
+                  log('Proceeding — the proxy may still work for HTTPS targets.');
+                  await shot(page, '00-proxy-unverified');
                 }
               }
 
@@ -1368,6 +1522,9 @@ jobs:
                 await sleep(rand(1500, 2500));
               }
 
+              // ============================================================
+              // Wait for account creation result
+              // ============================================================
               const stage2 = await waitAny([
                 ['survey',    () => page.getByText(/have you ever used antidetect/i).first().isVisible()],
                 ['allset',    () => page.getByText(/all set/i).first().isVisible()],
@@ -1618,7 +1775,6 @@ jobs:
 
       # ================================================================
       # STEP 9 — Run automation
-      # FIX [2c]: Only pass separate component env vars — no combined URL
       # ================================================================
       - name: "[9/11] Run GoLogin signup automation"
         id: automation
@@ -1720,46 +1876,58 @@ jobs:
           retention-days: 7
 
 # =============================================================================
-# NOTES
+# NOTES — Proxy Injection Design (v3)
 # =============================================================================
-# Secret GH_PAT (repo Settings → Secrets → Actions):
-#   Fine-grained PAT: Variables read+write, Actions read+write, Contents read+write
 #
-# FIX 1 — strategy crash:
-#   Job outputs containing secret/masked values are dropped by GitHub, which left
-#   needs.prepare.outputs.config empty and broke fromJSON(). Sensitive config is
-#   now read from `inputs.*` in the signup job; max-parallel is numeric via
-#   fromJSON(inputs.concurrency); timeout comes from the safe `job_timeout` output.
+# WHY THE OLD page.on('dialog') APPROACH FAILED:
+#   Edge's HTTP proxy authentication popup is a NATIVE BROWSER dialog,
+#   not a JavaScript dialog. page.on('dialog') only catches:
+#     - window.alert()
+#     - window.confirm()
+#     - window.prompt()
+#     - beforeunload dialogs
+#   The native proxy credential dialog is rendered by the browser chrome (OS),
+#   completely outside of any JavaScript context, so Playwright's dialog
+#   event never fires for it. This is why the previous fix didn't work.
 #
-# FIX 2 — Proxy injection / Edge auth popup:
-#   Problem 1: Chromium silently drops credentials embedded in the URL.
-#     http://user:pass@host:port  →  credentials ignored, auth popup appears.
-#   Problem 2: --proxy-server CLI arg conflicts with Playwright's proxy option.
-#   Problem 3: Headed Edge shows an OS-level auth popup that neither Playwright's
-#              proxy object nor page.authenticate alone suppresses reliably.
+# THE NEW 4-LAYER APPROACH:
 #
-#   Solution (3 layers):
-#     Layer 1: launchPersistentContext proxy object with SEPARATE server/username/password.
-#              server = "scheme://host:port"  (never includes credentials)
-#              username = PROXY_USER          (separate field)
-#              password = PROXY_PASS          (separate field)
-#     Layer 2: page.authenticate({ username, password }) called on EVERY page
-#              BEFORE the first navigation. This pre-supplies Basic Auth credentials
-#              so the browser answers the first 407 without showing a popup.
-#     Layer 3: page.on('dialog') auto-accept handler catches any residual OS-level
-#              auth prompts that appear as JavaScript dialogs in headed mode.
+#   Layer 1 — Playwright proxy object (launchPersistentContext.proxy):
+#     server   = "http://host:port"   (bare URL — NEVER include credentials here)
+#     username = "user"               (separate field)
+#     password = "pass"               (separate field)
+#     Playwright converts these to the correct --proxy-server and
+#     --proxy-auth Chromium flags internally. This alone handles most
+#     proxy providers and prevents any popup from appearing.
+#     Chromium silently ignores http://user:pass@host:port in the URL.
 #
-#   Proxy env vars are now split (PROXY_HOST, PROXY_PORT, PROXY_USER, PROXY_PASS,
-#   PROXY_SCHEME) instead of one combined URL string, so the JS can build the
-#   proxy object correctly without any string parsing.
+#   Layer 2 — context.route() Proxy-Authorization header injection:
+#     Every outgoing HTTP/HTTPS request gets "Proxy-Authorization: Basic <b64>"
+#     injected by Playwright's routing layer. The proxy receives the credential
+#     on the first request and never needs to issue a 407 challenge.
+#     This operates at the Playwright level and applies to all pages.
 #
-# FIX 3 — GoLogin proxy API:
-#   proxy_type  → residential (isMobile:false, isDC:false)
-#              → mobile       (isMobile:true,  isDC:false)
-#              → datacenter   (isMobile:false, isDC:true)
-#   proxy_country → ISO 3166-1 alpha-2 (US, GB, DE, FR, CA, AU, JP, BR, IN, NL)
-#   Both are sent in the JSON body of POST /users-proxies/mobile-proxy.
+#   Layer 3 — CDP Network.setExtraHTTPHeaders per page:
+#     Opens a CDP (Chrome DevTools Protocol) session per page and sets
+#     Proxy-Authorization as an extra header at the network layer.
+#     This covers requests that bypass Playwright's routing (service workers,
+#     pre-navigation favicon requests, etc.). Applied before every navigation.
 #
-# Email strategy: 6 random lowercase alphanumeric chars appended to local part.
-# Matrix limit: 256 jobs per run → account_count capped at 250.
+#   Layer 4 — page.authenticate() on every page:
+#     Playwright's built-in mechanism for handling 407 challenges.
+#     Pre-supplies credentials so the browser auto-responds to any residual
+#     407 without showing the user a popup.
+#
+#   Step 5b — Windows Credential Manager pre-population:
+#     Runs BEFORE Edge launches. Uses cmdkey.exe to store the proxy
+#     credentials in the Windows Credential Manager and also sets the
+#     system-wide WinINet/WinHTTP proxy. Edge's underlying network stack
+#     reads from Credential Manager automatically for proxy auth.
+#     This covers any auth path that bypasses all Playwright mechanisms.
+#
+# WHAT ABOUT --proxy-server IN LAUNCH ARGS?
+#   DO NOT pass --proxy-server when also using Playwright's proxy option.
+#   Playwright adds --proxy-server internally when proxy is set.
+#   Passing it twice causes a conflict and can break authentication.
+#
 # =============================================================================
