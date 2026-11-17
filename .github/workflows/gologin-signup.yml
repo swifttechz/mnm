@@ -53,7 +53,7 @@ on:
         description: "ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual — space-separated proxy tokens or strings"
         required: false
         type: string
-        default: 'geolocation://user-FhFSG0FbqydiOQf1-type-residential-session-I900VcAvr5yD-country-US:aAYAG0i8NUE6mLqs@geo.floppydata.com:10080:UNITED STATES'
+        default: ''
       use_without_proxy:
         description: "Use Without Proxy (skip all proxy injection)"
         required: false
@@ -63,7 +63,7 @@ on:
         description: "Getscreen.me account email. Blank = Getscreen disabled."
         required: false
         type: string
-        default: 'dramatic.skink.kvck@hidingpost.com'
+        default: ''
       getscreen_wait_minutes:
         description: "Pause N minutes after Getscreen connects (0-120)"
         required: false
@@ -108,8 +108,7 @@ jobs:
           IN_GSW:       ${{ inputs.getscreen_wait_minutes }}
           IN_KEEP:      ${{ inputs.keep_alive_minutes }}
           # NOTE: gologin_email and gologin_password are intentionally NOT saved
-          # to avoid storing credentials in the repo. They must be re-entered each run,
-          # or leave blank to fall back to whatever was saved in an earlier explicit run.
+          # to avoid storing credentials in the repo. They must be re-entered each run.
         run: |
           import os, re, glob
 
@@ -190,7 +189,6 @@ jobs:
                           if current_input in bool_keys:
                               rep = "true" if str(val).lower() in ("true", "1", "yes") else "false"
                           elif current_input == "concurrency":
-                              # keep as bare number (it's a choice input)
                               rep = f"'{val}'"
                           else:
                               safe = str(val).replace("'", "''")
@@ -213,7 +211,7 @@ jobs:
           git push origin HEAD || echo "Push skipped (no changes or permission issue)"
 
 # =============================================================================
-# JOB 2 — PREPARE: resolve inputs, build matrix
+# JOB 2 — PREPARE: resolve inputs, build matrix  (ALWAYS emits valid outputs)
 # =============================================================================
   prepare:
     name: "Prepare (validate inputs, build matrix)"
@@ -221,7 +219,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       matrix: ${{ steps.resolve.outputs.matrix }}
-      config:  ${{ steps.resolve.outputs.config }}
+      config: ${{ steps.resolve.outputs.config }}
     env:
       GH_PAT: ${{ secrets.GH_PAT }}
       REPO:    ${{ github.repository }}
@@ -245,33 +243,69 @@ jobs:
           IN_KEEP:     ${{ inputs.keep_alive_minutes }}
         run: |
           set -euo pipefail
-          fail() { echo "::error::$1"; exit 1; }
 
-          EMAIL="$IN_EMAIL"
-          PASSWORD="$IN_PASSWORD"
-          COUNT="$IN_COUNT"
-          CONC="$IN_CONC"
-          GS="$IN_GS"
+          # ------------------------------------------------------------------
+          # Always emit valid JSON so the signup job never sees empty fromJSON
+          # ------------------------------------------------------------------
+          write_outputs() {
+            local matrix_json="$1"
+            local config_json="$2"
+            {
+              echo "matrix<<MATRIX_EOF"
+              echo "$matrix_json"
+              echo "MATRIX_EOF"
+              echo "config<<CONFIG_EOF"
+              echo "$config_json"
+              echo "CONFIG_EOF"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          # Safe defaults that will never crash fromJSON / property access
+          EMPTY_MATRIX='{"include":[]}'
+          SAFE_CONFIG=$(jq -cn \
+            --arg runner "windows-latest" \
+            '{runner_image:$runner, gologin_password:"",
+              use_cloudflare_warp:false, continue_if_warp_fails:false,
+              proxy_input:"", use_without_proxy:false,
+              getscreen_email:"", getscreen_wait_minutes:0,
+              keep_alive_minutes:0, job_timeout:35, concurrency:1}')
+
+          EMAIL="${IN_EMAIL:-}"
+          PASSWORD="${IN_PASSWORD:-}"
+          COUNT="${IN_COUNT:-1}"
+          CONC="${IN_CONC:-1}"
+          GS="${IN_GS:-}"
           GSW="${IN_GSW:-0}"
           KEEP="${IN_KEEP:-0}"
-          RUNNER="$IN_RUNNER"
+          RUNNER="${IN_RUNNER:-windows-latest}"
 
-          [[ "$COUNT" =~ ^[0-9]+$ ]] && (( COUNT >= 1   && COUNT  <= 250 )) || fail "account_count must be 1-250"
-          [[ "$CONC"  =~ ^[0-9]+$ ]] && (( CONC  >= 1   && CONC   <= 10  )) || fail "concurrency must be 1-10"
-          [[ -n "$EMAIL" ]] || fail "gologin_email is empty — enter it in the form (it is not saved for security)"
-          [[ "$EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || fail "gologin_email invalid"
-          (( ${#PASSWORD} >= 8 )) || fail "gologin_password must be at least 8 characters"
-          [[ "$GSW"  =~ ^[0-9]+$ ]] && (( GSW  <= 120 )) || fail "getscreen_wait_minutes must be 0-120"
-          [[ "$KEEP" =~ ^[0-9]+$ ]] && (( KEEP <= 120 )) || fail "keep_alive_minutes must be 0-120"
-          if [[ -n "$GS" ]]; then
-            [[ "$GS" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || fail "getscreen_email invalid"
+          # ---- validation (collect errors, do not exit early) ----
+          ERRORS=()
+          [[ "$COUNT" =~ ^[0-9]+$ ]] && (( COUNT >= 1 && COUNT <= 250 )) || ERRORS+=("account_count must be 1-250")
+          [[ "$CONC"  =~ ^[0-9]+$ ]] && (( CONC  >= 1 && CONC  <= 10  )) || ERRORS+=("concurrency must be 1-10")
+          [[ -n "$EMAIL" ]] || ERRORS+=("gologin_email is empty — enter it in the form (it is not saved for security)")
+          if [[ -n "$EMAIL" ]]; then
+            [[ "$EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || ERRORS+=("gologin_email invalid")
           fi
-          case "$RUNNER" in windows-*) ;; *) fail "runner_image must be a windows-* runner" ;; esac
+          (( ${#PASSWORD} >= 8 )) || ERRORS+=("gologin_password must be at least 8 characters")
+          [[ "$GSW"  =~ ^[0-9]+$ ]] && (( GSW  <= 120 )) || ERRORS+=("getscreen_wait_minutes must be 0-120")
+          [[ "$KEEP" =~ ^[0-9]+$ ]] && (( KEEP <= 120 )) || ERRORS+=("keep_alive_minutes must be 0-120")
+          if [[ -n "$GS" ]]; then
+            [[ "$GS" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || ERRORS+=("getscreen_email invalid")
+          fi
+          case "$RUNNER" in windows-*) ;; *) ERRORS+=("runner_image must be a windows-* runner") ;; esac
 
-          # per-device timeout: 35 base + waits
+          if (( ${#ERRORS[@]} > 0 )); then
+            for e in "${ERRORS[@]}"; do
+              echo "::error::$e"
+            done
+            write_outputs "$EMPTY_MATRIX" "$SAFE_CONFIG"
+            exit 1
+          fi
+
+          # ---- success path ----
           t=$(( 35 + GSW + KEEP )); (( t > 360 )) && t=360
 
-          # build matrix items
           local_part="${EMAIL%@*}"; domain="${EMAIL#*@}"
           items='[]'
           CHARS='abcdefghijklmnopqrstuvwxyz0123456789'
@@ -306,8 +340,7 @@ jobs:
               keep_alive_minutes:($keep|tonumber),
               job_timeout:$t, concurrency:$conc}')
 
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "config=$config"  >> "$GITHUB_OUTPUT"
+          write_outputs "$matrix" "$config"
 
           {
             echo "### Effective configuration"
@@ -329,7 +362,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: "[2/2] Matrix ready"
-        run: echo "Matrix built. Devices will start (max parallel=${{ fromJSON(steps.resolve.outputs.config).concurrency }})."
+        run: |
+          echo "Matrix built. Devices will start (max parallel=${{ fromJSON(steps.resolve.outputs.config).concurrency }})."
 
 # =============================================================================
 # JOB 3 — SIGNUP: one fresh Windows runner per account
@@ -337,6 +371,7 @@ jobs:
   signup:
     name: "Device ${{ matrix.index }} | ${{ matrix.email }}"
     needs: [save_inputs, prepare]
+    if: ${{ needs.prepare.result == 'success' }}
     runs-on: ${{ fromJSON(needs.prepare.outputs.config).runner_image }}
     timeout-minutes: ${{ fromJSON(needs.prepare.outputs.config).job_timeout }}
     strategy:
@@ -523,7 +558,7 @@ jobs:
           fi
 
       # ================================================================
-      # STEP 5 — Proxy provisioning (identical parser to mx10.9)
+      # STEP 5 — Proxy provisioning
       # Outputs: PROXY_SERVER, PROXY_USER, PROXY_PASS, PROXY_TYPE, USE_PROXY
       # ================================================================
       - name: "[5/11] Proxy provisioning"
@@ -784,7 +819,6 @@ jobs:
           if active:
               auth = f"{active['username']}:{active['password']}@" if active.get("username") else ""
               server = f"http://{auth}{active['host']}:{active['port']}"
-              server_bare = f"{active['host']}:{active['port']}"
               if active.get("password") and len(active["password"]) >= 8:
                   print(f"::add-mask::{active['password']}", flush=True)
               say(f"[Proxy] ACTIVE — type={proxy_type} server={active['host']}:{active['port']}")
@@ -847,13 +881,12 @@ jobs:
           /**
            * GoLogin signup automation — Windows / Microsoft Edge
            *
-           * Key fixes vs original:
-           *   - viewport:null so the page fills the real window (fixes off-centre layout)
-           *   - launchPersistentContext instead of launch+newContext (required for viewport:null)
-           *   - proxy injected via launchPersistentContext's proxy option (not post-launch)
-           *   - 'os' module imported (was missing, caused crash)
-           *   - all ShowWindow/F11 maximize hacks removed (they fought the window manager)
-           *   - --start-maximized arg retained; window is already full size from launch
+           * Key fixes:
+           *   - viewport:null so the page fills the real window
+           *   - launchPersistentContext (required for viewport:null + proxy at launch)
+           *   - proxy injected via launchPersistentContext's proxy option
+           *   - 'os' module imported
+           *   - all ShowWindow/F11 maximize hacks removed
            */
 
           import { chromium } from 'playwright';
@@ -866,7 +899,6 @@ jobs:
           const IDX      = process.env.ACC_INDEX || '1';
           const OUT      = path.resolve(process.env.OUT_DIR || 'out');
 
-          // Proxy env vars set by step 5
           const USE_PROXY    = process.env.USE_PROXY    === 'true';
           const PROXY_SERVER = process.env.PROXY_SERVER || '';
           const PROXY_USER   = process.env.PROXY_USER   || '';
@@ -1070,14 +1102,9 @@ jobs:
 
               banner('Launching Microsoft Edge (Windows, headed, proxy-aware)');
 
-              // Build proxy option for Playwright (before the browser opens)
               let proxyOption = undefined;
               if (USE_PROXY && PROXY_SERVER) {
-                // Extract bare host:port from server string which may include auth
-                // e.g. "http://user:pass@host:port" -> server="http://host:port"
                 let serverUrl = PROXY_SERVER;
-                // If auth is embedded in the URL, strip it out for the server field
-                // and pass username/password separately
                 const authMatch = serverUrl.match(/^(https?:\/\/)([^:@]+):([^@]+)@(.+)$/);
                 if (authMatch) {
                   serverUrl = `${authMatch[1]}${authMatch[4]}`;
@@ -1104,24 +1131,13 @@ jobs:
                 '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
               ];
 
-              // launchPersistentContext is used (not launch+newContext) because:
-              //   1. It supports viewport:null correctly on headed browsers.
-              //   2. The proxy option is applied at launch time, before any navigation.
-              //   3. This is the standard Playwright pattern for headed automation with
-              //      a real user data directory.
-              //
-              // viewport: null — CRITICAL: tells Playwright NOT to override the window
-              // size. The window inherits the screen resolution from --start-maximized
-              // so the page loads full-width and centred. The old newContext approach
-              // forced a 1920x1080 canvas inside a smaller physical window, which
-              // pushed all content to the right and clipped the left half.
               try {
                 context = await chromium.launchPersistentContext(userDataDir, {
                   channel:  'msedge',
                   headless: false,
                   args:     launchArgs,
                   proxy:    proxyOption,
-                  viewport: null,           // <-- key fix: follow the real window size
+                  viewport: null,
                   locale:   'en-US',
                   permissions: ['clipboard-read', 'clipboard-write'],
                   ignoreDefaultArgs: ['--enable-automation'],
@@ -1140,7 +1156,6 @@ jobs:
                 });
               }
 
-              // clipboard intercept
               await context.exposeFunction('__gl_copy', t => {
                 for (const m of String(t).match(JWT) || []) addCandidate(m, 'copy-token-click');
               });
@@ -1168,7 +1183,6 @@ jobs:
               page = await context.newPage();
               page.setDefaultTimeout(25000);
 
-              // Block downloads via CDP
               try {
                 const client = await context.newCDPSession(page);
                 await client.send('Browser.setDownloadBehavior', {
@@ -1642,11 +1656,8 @@ jobs:
 #   launchPersistentContext, before the first navigation.
 #
 # Edge layout fix:
-#   The original script set viewport:{width:1920,height:1080} on newContext(),
-#   which forced a fixed canvas inside a smaller physical window, causing the
-#   GoLogin sign-up page to appear off-centre. The fix is viewport:null on
-#   launchPersistentContext, so the browser uses the real window dimensions from
-#   --start-maximized.
+#   viewport:null on launchPersistentContext so the browser uses the real window
+#   dimensions from --start-maximized.
 #
 # Cloudflare Turnstile:
 #   Handled in two passes (before + after clicking "Create an account").
@@ -1657,4 +1668,9 @@ jobs:
 #   silently block the .exe installer the "All set" page tries to auto-download.
 #
 # Matrix limit: 256 jobs per run → account_count capped at 250.
+#
+# IMPORTANT FIX (the error you were seeing):
+#   prepare ALWAYS writes valid matrix + config outputs (even on validation failure).
+#   This prevents the "fromJSON: empty input" crash in the signup strategy evaluation.
+#   signup / report are also guarded with if: needs.prepare.result == 'success'.
 # =============================================================================
