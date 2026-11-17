@@ -3,11 +3,13 @@
 # Requires repo secret: GH_PAT (fine-grained: Variables read+write, Actions read+write, Contents read+write)
 #
 # FIXES IN THIS VERSION:
-#   [1] strategy "empty input" / "Unexpected value ''" crash:
-#       prepare job now outputs `max_parallel` as a plain integer string.
-#       signup job uses it directly as a number: max-parallel: ${{ needs.prepare.outputs.max_parallel }}
-#       This avoids the fromJSON-on-empty-string evaluation that GitHub performs
-#       before confirming job outputs exist.
+#   [1] strategy crash (ROOT CAUSE: GitHub drops job outputs that contain secrets):
+#       The log said "Skip output 'config' since it may contain secret", so
+#       fromJSON(needs.prepare.outputs.config) received ''. Fix: sensitive values
+#       (password, proxy tokens, emails) are no longer passed via job outputs;
+#       the signup job reads them from `inputs.*` directly. Only `matrix` and
+#       `job_timeout` (non-sensitive) go through outputs. max-parallel uses
+#       fromJSON(inputs.concurrency) so it is a real number, not the string '1'.
 #
 #   [2] Proxy NOT injecting into Edge / auth popup not handled:
 #       - Chromium silently ignores credentials embedded in the proxy URL
@@ -55,12 +57,12 @@ on:
         description: "How many GoLogin accounts to create (1-250)"
         required: true
         type: string
-        default: '1'
+        default: "1"
       concurrency:
         description: "How many devices run at the same time"
         required: true
         type: choice
-        default: '1'
+        default: "1"
         options: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
       use_cloudflare_warp:
         description: "Install + connect Cloudflare WARP (1.1.1.1) before opening Edge"
@@ -101,7 +103,7 @@ on:
         description: "GoLogin JWT / ScrapeOps UUID / Floppy token / Redscrape hex / BytesFlow URL / Manual host:port — space-separated"
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmNjMmE0MWU5NzMzMDY5YjkzNmVlOCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmY2MyYTQxZTk3MzMwNjliOTM2ZTllIn0.sshwJ7qnGevnZVhbfzPJ2K2z0TXdhe07QyuMqmI-HqE'
+        default: ''
       use_without_proxy:
         description: "Use Without Proxy (skip all proxy injection)"
         required: false
@@ -111,17 +113,17 @@ on:
         description: "Getscreen.me account email. Blank = Getscreen disabled."
         required: false
         type: string
-        default: 'techx@ccmail.online'
+        default: ''
       getscreen_wait_minutes:
         description: "Pause N minutes after Getscreen connects (0-120)"
         required: false
         type: string
-        default: '0'
+        default: "0"
       keep_alive_minutes:
         description: "Keep each device alive N minutes AFTER it finishes/fails (0-120)"
         required: false
         type: string
-        default: '0'
+        default: "0"
 
 permissions:
   actions: write
@@ -272,11 +274,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      matrix:       ${{ steps.resolve.outputs.matrix }}
-      config:       ${{ steps.resolve.outputs.config }}
-      # max_parallel is a plain decimal string — safe to use directly in strategy
-      # without fromJSON wrapping, which crashed when output was not yet confirmed.
-      max_parallel: ${{ steps.resolve.outputs.max_parallel }}
+      # ONLY non-sensitive values go through job outputs. GitHub silently drops
+      # any output that contains a secret/masked value ("Skip output 'config'
+      # since it may contain secret"), which made fromJSON() receive ''.
+      # Password / proxy tokens / emails are read from `inputs.*` directly.
+      matrix:      ${{ steps.resolve.outputs.matrix }}
+      job_timeout: ${{ steps.resolve.outputs.job_timeout }}
     steps:
       - name: "[1/2] Resolve inputs and build matrix"
         id: resolve
@@ -327,33 +330,9 @@ jobs:
           done
           matrix=$(jq -c '{include:.}' <<<"$items")
 
-          config=$(jq -cn \
-            --arg runner   "$RUNNER" \
-            --arg password "$PASSWORD" \
-            --arg warp     "$IN_WARP" \
-            --arg warpc    "$IN_WARPC" \
-            --arg ptype    "$PTYPE" \
-            --arg pcountry "$PCOUNTRY" \
-            --arg proxy    "$IN_PROXY" \
-            --arg noproxy  "$IN_NOPROXY" \
-            --arg gs       "$GS" \
-            --arg gsw      "$GSW" \
-            --arg keep     "$KEEP" \
-            --argjson t    "$t" \
-            --argjson conc "$CONC" \
-            '{runner_image:$runner, gologin_password:$password,
-              use_cloudflare_warp:($warp=="true"),
-              continue_if_warp_fails:($warpc=="true"),
-              proxy_type:$ptype, proxy_country:$pcountry,
-              proxy_input:$proxy,
-              use_without_proxy:($noproxy=="true"),
-              getscreen_email:$gs, getscreen_wait_minutes:($gsw|tonumber),
-              keep_alive_minutes:($keep|tonumber),
-              job_timeout:$t, concurrency:$conc}')
-
+          echo "::add-mask::$PASSWORD"
           echo "matrix=$matrix"      >> "$GITHUB_OUTPUT"
-          echo "config=$config"       >> "$GITHUB_OUTPUT"
-          echo "max_parallel=$CONC"   >> "$GITHUB_OUTPUT"
+          echo "job_timeout=$t"      >> "$GITHUB_OUTPUT"
 
           {
             echo "### Effective configuration"
@@ -377,24 +356,22 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: "[2/2] Matrix ready"
-        run: echo "Matrix built. Devices will start (max parallel=${{ steps.resolve.outputs.max_parallel }})."
+        run: echo "Matrix built. Devices will start (max parallel=${{ inputs.concurrency }})."
 
 # =============================================================================
 # JOB 3 — SIGNUP
 #
-# FIX [1]: max-parallel now uses needs.prepare.outputs.max_parallel directly
-#          as a plain integer — no fromJSON() wrapper needed or used.
-#          GitHub evaluates strategy before outputs are confirmed when fromJSON
-#          is used on a potentially-blank output, causing the crash.
+# max-parallel = fromJSON(inputs.concurrency) (number). No secrets in outputs.
 # =============================================================================
   signup:
     name: "Device ${{ matrix.index }} | ${{ matrix.email }}"
     needs: [save_inputs, prepare]
-    runs-on: ${{ fromJSON(needs.prepare.outputs.config).runner_image }}
-    timeout-minutes: ${{ fromJSON(needs.prepare.outputs.config).job_timeout }}
+    runs-on: ${{ inputs.runner_image }}
+    timeout-minutes: ${{ fromJSON(needs.prepare.outputs.job_timeout || '60') }}
     strategy:
       fail-fast: false
-      max-parallel: ${{ needs.prepare.outputs.max_parallel }}
+      # max-parallel must be a NUMBER -> fromJSON() converts the choice string.
+      max-parallel: ${{ fromJSON(inputs.concurrency || '1') }}
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     defaults:
       run:
@@ -402,16 +379,16 @@ jobs:
     env:
       ACC_INDEX:         ${{ matrix.index }}
       ACC_EMAIL:         ${{ matrix.email }}
-      ACC_PASSWORD:      ${{ fromJSON(needs.prepare.outputs.config).gologin_password }}
-      WARP_ON:           ${{ fromJSON(needs.prepare.outputs.config).use_cloudflare_warp }}
-      WARP_CONTINUE:     ${{ fromJSON(needs.prepare.outputs.config).continue_if_warp_fails }}
-      PROXY_TYPE_GL:     ${{ fromJSON(needs.prepare.outputs.config).proxy_type }}
-      PROXY_COUNTRY:     ${{ fromJSON(needs.prepare.outputs.config).proxy_country }}
-      PROXY_INPUT:       ${{ fromJSON(needs.prepare.outputs.config).proxy_input }}
-      USE_WITHOUT_PROXY: ${{ fromJSON(needs.prepare.outputs.config).use_without_proxy }}
-      GS_EMAIL:          ${{ fromJSON(needs.prepare.outputs.config).getscreen_email }}
-      GS_WAIT:           ${{ fromJSON(needs.prepare.outputs.config).getscreen_wait_minutes }}
-      KEEP_MIN:          ${{ fromJSON(needs.prepare.outputs.config).keep_alive_minutes }}
+      ACC_PASSWORD:      ${{ inputs.gologin_password }}
+      WARP_ON:           ${{ inputs.use_cloudflare_warp }}
+      WARP_CONTINUE:     ${{ inputs.continue_if_warp_fails }}
+      PROXY_TYPE_GL:     ${{ inputs.proxy_type }}
+      PROXY_COUNTRY:     ${{ inputs.proxy_country }}
+      PROXY_INPUT:       ${{ inputs.scrapeops_api_key }}
+      USE_WITHOUT_PROXY: ${{ inputs.use_without_proxy }}
+      GS_EMAIL:          ${{ inputs.getscreen_email }}
+      GS_WAIT:           ${{ inputs.getscreen_wait_minutes || '0' }}
+      KEEP_MIN:          ${{ inputs.keep_alive_minutes || '0' }}
       PLAYWRIGHT_VERSION: "1.55.0"
 
     steps:
@@ -1748,13 +1725,11 @@ jobs:
 # Secret GH_PAT (repo Settings → Secrets → Actions):
 #   Fine-grained PAT: Variables read+write, Actions read+write, Contents read+write
 #
-# FIX 1 — strategy "empty input" / "Unexpected value ''" crash:
-#   Old code: max-parallel: ${{ fromJSON(needs.prepare.outputs.config).concurrency }}
-#   GitHub evaluates the entire strategy block at graph-resolution time, before
-#   job outputs are confirmed non-empty. fromJSON() on an empty string crashes.
-#   Fix: prepare job emits a dedicated max_parallel output (plain integer string).
-#        signup job reads it directly: max-parallel: ${{ needs.prepare.outputs.max_parallel }}
-#        No fromJSON wrapping needed for a bare integer string.
+# FIX 1 — strategy crash:
+#   Job outputs containing secret/masked values are dropped by GitHub, which left
+#   needs.prepare.outputs.config empty and broke fromJSON(). Sensitive config is
+#   now read from `inputs.*` in the signup job; max-parallel is numeric via
+#   fromJSON(inputs.concurrency); timeout comes from the safe `job_timeout` output.
 #
 # FIX 2 — Proxy injection / Edge auth popup:
 #   Problem 1: Chromium silently drops credentials embedded in the URL.
