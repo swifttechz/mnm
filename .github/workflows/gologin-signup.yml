@@ -2,19 +2,14 @@
 # USE A PRIVATE REPO — inputs, logs and artifacts contain the password and API keys.
 # Requires repo secret: GH_PAT  (fine-grained: Variables read+write, Actions read+write, Contents read+write)
 #
-# FIX (strategy "fromJSON: empty input" error):
-#   GitHub Actions evaluates the `strategy` block BEFORE the job runs, using the
-#   outputs of `needs.*` jobs.  If `needs` includes a job that doesn't produce the
-#   required output (save_inputs), or if the prepare job hasn't written its outputs
-#   yet when the expression is evaluated, fromJSON('') throws.
-#
-#   Solution applied here:
-#     1. `signup` no longer depends on `save_inputs` — that job has no outputs
-#        needed by signup, so the dependency was wrong and caused a race.
-#     2. `prepare` now always emits valid JSON (even on validation error it emits
-#        an empty-but-valid matrix so the job can fail gracefully).
-#     3. `strategy.matrix` and `timeout-minutes` are sourced from outputs of
-#        `prepare` only, which signup strictly waits for.
+# FIX (strategy "fromJSON: empty input" + "Skip output 'config' since it may contain secret"):
+#   1. `prepare` no longer packs `gologin_password` or `scrapeops_api_key` into job outputs.
+#      GitHub Actions drops any job output containing a value matching a secret, leaving it
+#      empty ('') and crashing `fromJSON(...)` in `signup`.
+#   2. `prepare` emits only non-secret outputs (`matrix`, `runner_image`, `concurrency`,
+#      `job_timeout`, `proxy_country`, `proxy_type`), with fallback guards on `fromJSON(...)`.
+#   3. `signup` reads sensitive and boolean/string inputs directly from `${{ inputs.* }}`.
+#   4. `signup` depends ONLY on `prepare` (not on `save_inputs`).
 
 name: GoLogin Signup Automation
 
@@ -37,7 +32,7 @@ on:
         description: "Windows runner to use"
         required: true
         type: choice
-        default: 'windows-latest'
+        default: windows-latest
         options:
           - windows-latest
           - windows-2025
@@ -46,12 +41,12 @@ on:
         description: "How many GoLogin accounts to create (1-250)"
         required: true
         type: string
-        default: '1'
+        default: "1"
       concurrency:
         description: "How many devices run at the same time"
         required: true
         type: choice
-        default: '1'
+        default: "1"
         options: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
       use_cloudflare_warp:
         description: "Install + connect Cloudflare WARP (1.1.1.1) before opening Edge"
@@ -67,7 +62,7 @@ on:
         description: "ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual — space-separated proxy tokens or strings"
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmM0MDMxNTU5M2MyYmZlNzVhZDBiYyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmYzQwMzE1NTkzYzJiZmU3NWFkMGE3In0.ymxBwNs-8XoQ_TduVeo2WdZ0vdRLFVwhJq7ml0vgckE'
+        default: ''
       use_without_proxy:
         description: "Use Without Proxy (skip all proxy injection)"
         required: false
@@ -77,7 +72,7 @@ on:
         description: "Proxy country (applies to GoLogin, ScrapeOps, Floppy, Redscrape API-key proxies)"
         required: false
         type: choice
-        default: 'us'
+        default: "us"
         options:
           - us
           - gb
@@ -93,7 +88,7 @@ on:
         description: "Proxy type for GoLogin built-in proxies (Residential / Mobile / Datacenter)"
         required: false
         type: choice
-        default: 'residential'
+        default: "residential"
         options:
           - residential
           - mobile
@@ -102,17 +97,17 @@ on:
         description: "Getscreen.me account email. Blank = Getscreen disabled."
         required: false
         type: string
-        default: 'dramatic.skink.kvck@hidingpost.com'
+        default: ''
       getscreen_wait_minutes:
         description: "Pause N minutes after Getscreen connects (0-120)"
         required: false
         type: string
-        default: '0'
+        default: "0"
       keep_alive_minutes:
         description: "Keep each device alive N minutes AFTER it finishes/fails (0-120)"
         required: false
         type: string
-        default: '0'
+        default: "0"
 
 permissions:
   actions: write
@@ -128,7 +123,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.GH_PAT }}
           ref: ${{ github.ref }}
@@ -255,21 +250,21 @@ jobs:
           git push origin HEAD || echo "Push skipped (no changes or permission issue)"
 
 # =============================================================================
-# JOB 2 — PREPARE: resolve inputs, build matrix
-# IMPORTANT: signup depends ONLY on this job (not on save_inputs).
-# This job always writes valid JSON to outputs so fromJSON() never gets ''.
+# JOB 2 — PREPARE: validate inputs, build matrix
+# IMPORTANT: Never emit passwords, API keys, or tokens into $GITHUB_OUTPUT.
+# GitHub Actions drops any job output matching a secret ("Skip output ...").
 # =============================================================================
   prepare:
     name: "Prepare (validate inputs, build matrix)"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      matrix:  ${{ steps.resolve.outputs.matrix }}
-      config:  ${{ steps.resolve.outputs.config }}
-    env:
-      GH_PAT: ${{ secrets.GH_PAT }}
-      REPO:    ${{ github.repository }}
-      WF_NAME: ${{ github.workflow }}
+      matrix:        ${{ steps.resolve.outputs.matrix }}
+      runner_image:  ${{ steps.resolve.outputs.runner_image }}
+      concurrency:   ${{ steps.resolve.outputs.concurrency }}
+      job_timeout:   ${{ steps.resolve.outputs.job_timeout }}
+      proxy_country: ${{ steps.resolve.outputs.proxy_country }}
+      proxy_type:    ${{ steps.resolve.outputs.proxy_type }}
     steps:
 
       - name: "[1/2] Resolve inputs and build matrix"
@@ -328,47 +323,30 @@ jobs:
           # per-device timeout: 35 base + waits
           t=$(( 35 + GSW + KEEP )); (( t > 360 )) && t=360
 
-          # build matrix items
-          local_part="${EMAIL%@*}"; domain="${EMAIL#*@}"
-          items='[]'
-          CHARS='abcdefghijklmnopqrstuvwxyz0123456789'
-          for (( i = 1; i <= COUNT; i++ )); do
-            suffix=""
-            for (( j = 0; j < 6; j++ )); do
-              suffix+="${CHARS:RANDOM%${#CHARS}:1}"
-            done
-            email="${local_part}${suffix}@${domain}"
-            items=$(jq -c --argjson i "$i" --arg e "$email" '. + [{index:$i,email:$e}]' <<<"$items")
-          done
-          matrix=$(jq -c '{include: .}' <<<"$items")
+          # build matrix items safely with Python
+          items=$(EMAIL="$EMAIL" COUNT="$COUNT" python3 - <<'PY'
+          import json, os, random, string
+          email = os.environ["EMAIL"]
+          count = int(os.environ["COUNT"])
+          local_part, domain = email.split("@", 1)
+          chars = string.ascii_lowercase + string.digits
+          out = []
+          for i in range(1, count + 1):
+              suffix = "".join(random.choices(chars, k=6))
+              out.append({"index": i, "email": f"{local_part}{suffix}@{domain}"})
+          print(json.dumps(out, separators=(",", ":")))
+          PY
+          )
+          matrix=$(jq -cn --argjson inc "$items" '{include:$inc}')
 
-          config=$(jq -cn \
-            --arg runner   "$RUNNER" \
-            --arg password "$PASSWORD" \
-            --arg warp     "$IN_WARP" \
-            --arg warpc    "$IN_WARPC" \
-            --arg proxy    "$IN_PROXY" \
-            --arg noproxy  "$IN_NOPROXY" \
-            --arg country  "$COUNTRY" \
-            --arg ptype    "$PTYPE" \
-            --arg gs       "$GS" \
-            --arg gsw      "$GSW" \
-            --arg keep     "$KEEP" \
-            --argjson t    "$t" \
-            --argjson conc "$CONC" \
-            '{runner_image:$runner, gologin_password:$password,
-              use_cloudflare_warp:($warp=="true"),
-              continue_if_warp_fails:($warpc=="true"),
-              proxy_input:$proxy,
-              use_without_proxy:($noproxy=="true"),
-              proxy_country:$country,
-              proxy_type:$ptype,
-              getscreen_email:$gs, getscreen_wait_minutes:($gsw|tonumber),
-              keep_alive_minutes:($keep|tonumber),
-              job_timeout:$t, concurrency:$conc}')
-
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "config=$config"  >> "$GITHUB_OUTPUT"
+          {
+            echo "matrix=$matrix"
+            echo "runner_image=$RUNNER"
+            echo "concurrency=$CONC"
+            echo "job_timeout=$t"
+            echo "proxy_country=$COUNTRY"
+            echo "proxy_type=$PTYPE"
+          } >> "$GITHUB_OUTPUT"
 
           {
             echo "### Effective configuration"
@@ -392,42 +370,36 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: "[2/2] Matrix ready"
-        run: echo "Matrix built. Devices will start (max parallel=${{ fromJSON(steps.resolve.outputs.config).concurrency }})."
+        run: echo "Matrix built. Devices will start (max parallel=${{ steps.resolve.outputs.concurrency }})."
 
 # =============================================================================
 # JOB 3 — SIGNUP: one fresh Windows runner per account
-#
-# FIX: `needs` lists only `prepare` (NOT `save_inputs`).
-#   - save_inputs runs in parallel and has no outputs needed here.
-#   - Including save_inputs in needs caused the strategy block to be evaluated
-#     while save_inputs was still running and prepare outputs were not yet
-#     available, producing fromJSON('') → "empty input" error.
 # =============================================================================
   signup:
     name: "Device ${{ matrix.index }} | ${{ matrix.email }}"
     needs: [prepare]
-    runs-on: ${{ fromJSON(needs.prepare.outputs.config).runner_image }}
-    timeout-minutes: ${{ fromJSON(needs.prepare.outputs.config).job_timeout }}
+    runs-on: ${{ needs.prepare.outputs.runner_image || 'windows-latest' }}
+    timeout-minutes: ${{ fromJSON(needs.prepare.outputs.job_timeout || '45') }}
     strategy:
       fail-fast: false
-      max-parallel: ${{ fromJSON(needs.prepare.outputs.config).concurrency }}
-      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+      max-parallel: ${{ fromJSON(needs.prepare.outputs.concurrency || '1') }}
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix || '{"include":[]}') }}
     defaults:
       run:
         shell: bash
     env:
-      ACC_INDEX:     ${{ matrix.index }}
-      ACC_EMAIL:     ${{ matrix.email }}
-      ACC_PASSWORD:  ${{ fromJSON(needs.prepare.outputs.config).gologin_password }}
-      WARP_ON:       ${{ fromJSON(needs.prepare.outputs.config).use_cloudflare_warp }}
-      WARP_CONTINUE: ${{ fromJSON(needs.prepare.outputs.config).continue_if_warp_fails }}
-      PROXY_INPUT:   ${{ fromJSON(needs.prepare.outputs.config).proxy_input }}
-      USE_WITHOUT_PROXY: ${{ fromJSON(needs.prepare.outputs.config).use_without_proxy }}
-      PROXY_COUNTRY: ${{ fromJSON(needs.prepare.outputs.config).proxy_country }}
-      PROXY_TYPE_INPUT: ${{ fromJSON(needs.prepare.outputs.config).proxy_type }}
-      GS_EMAIL:      ${{ fromJSON(needs.prepare.outputs.config).getscreen_email }}
-      GS_WAIT:       ${{ fromJSON(needs.prepare.outputs.config).getscreen_wait_minutes }}
-      KEEP_MIN:      ${{ fromJSON(needs.prepare.outputs.config).keep_alive_minutes }}
+      ACC_INDEX:         ${{ matrix.index }}
+      ACC_EMAIL:         ${{ matrix.email }}
+      ACC_PASSWORD:      ${{ inputs.gologin_password }}
+      WARP_ON:           ${{ inputs.use_cloudflare_warp }}
+      WARP_CONTINUE:     ${{ inputs.continue_if_warp_fails }}
+      PROXY_INPUT:       ${{ inputs.scrapeops_api_key }}
+      USE_WITHOUT_PROXY: ${{ inputs.use_without_proxy }}
+      PROXY_COUNTRY:     ${{ needs.prepare.outputs.proxy_country || 'us' }}
+      PROXY_TYPE_INPUT:  ${{ needs.prepare.outputs.proxy_type || 'residential' }}
+      GS_EMAIL:          ${{ inputs.getscreen_email }}
+      GS_WAIT:           ${{ inputs.getscreen_wait_minutes || '0' }}
+      KEEP_MIN:          ${{ inputs.keep_alive_minutes || '0' }}
       PLAYWRIGHT_VERSION: "1.55.0"
 
     steps:
@@ -596,19 +568,6 @@ jobs:
       # ================================================================
       # STEP 5 — Proxy provisioning
       # Outputs: PROXY_SERVER, PROXY_USER, PROXY_PASS, PROXY_TYPE, USE_PROXY
-      #
-      # NEW: PROXY_COUNTRY and PROXY_TYPE_INPUT are forwarded to every
-      # provider that supports them.
-      #
-      # GoLogin API proxy_type mapping (from official API docs):
-      #   residential → isMobile: false, isDC: false
-      #   mobile      → isMobile: true,  isDC: false
-      #   datacenter  → isMobile: false, isDC: true
-      #
-      # ScrapeOps country: injected into the username param
-      # Redscrape country: injected into the session username string
-      # Floppy country:    passed as ?country= query param
-      # BytesFlow country: injected into the username param (loc-XX)
       # ================================================================
       - name: "[5/11] Proxy provisioning"
         shell: python
@@ -637,8 +596,6 @@ jobs:
           proxy_country  = os.environ.get("PROXY_COUNTRY", "us").lower().strip() or "us"
           proxy_type_in  = os.environ.get("PROXY_TYPE_INPUT", "residential").lower().strip()
 
-          # GoLogin API params derived from proxy_type selector
-          # API docs: isMobile=true for mobile, isDC=true for datacenter, both false for residential
           PTYPE_MAP = {
               "mobile":      {"isMobile": True,  "isDC": False},
               "datacenter":  {"isMobile": False, "isDC": True},
@@ -646,7 +603,6 @@ jobs:
           }
           gl_proxy_params = PTYPE_MAP.get(proxy_type_in, PTYPE_MAP["residential"])
 
-          # Country code display names for logging
           COUNTRY_NAMES = {
               "us":"United States","gb":"United Kingdom","de":"Germany",
               "fr":"France","ca":"Canada","au":"Australia","jp":"Japan",
@@ -665,7 +621,6 @@ jobs:
           say(f"[Proxy] Country={proxy_country} ({country_label})  Type={proxy_type_in}")
           say(f"[Proxy] GoLogin API params: isMobile={gl_proxy_params['isMobile']} isDC={gl_proxy_params['isDC']}")
 
-          # ---- no proxy path ----
           if without_proxy or not proxy_input:
               say("[Proxy] No proxy configured — using direct connection.")
               set_env("USE_PROXY", "false")
@@ -675,7 +630,6 @@ jobs:
               set_env("PROXY_TYPE", "none")
               sys.exit(0)
 
-          # ---- parse tokens ----
           SCRAPEOPS_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
           REDSCRAPE_RE = re.compile(r"^[0-9a-f]{32}$", re.I)
           GOLOGIN_RE   = re.compile(r"^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
@@ -705,7 +659,6 @@ jobs:
               f"ScrapeOps:{len(scrapeops_keys)} Floppy:{len(floppy_keys)} "
               f"Redscrape:{len(redscrape_keys)} Manual:{len(manual_proxies)}")
 
-          # ---- parse a generic proxy string ----
           def parse_generic(proxy_str):
               s = proxy_str.strip()
               if not s:
@@ -734,7 +687,6 @@ jobs:
                   return {"host": m.group(1), "port": int(m.group(2)), "username": "", "password": ""}
               return None
 
-          # ---- validate proxy by probing ----
           def validate_proxy(pinfo):
               auth = f"{pinfo['username']}:{pinfo['password']}@" if pinfo.get("username") else ""
               url  = f"http://{auth}{pinfo['host']}:{pinfo['port']}"
@@ -758,11 +710,6 @@ jobs:
           proxy_type = "none"
 
           # ---- GoLogin ----
-          # Uses official API: POST /users-proxies/mobile-proxy
-          # countryCode: 2-letter lowercase (from PROXY_COUNTRY)
-          # isMobile: bool (true for mobile proxy type)
-          # isDC:     bool (true for datacenter proxy type)
-          # Both false = residential proxy
           if not active and gologin_keys:
               GOLOGIN_API = "https://api.gologin.com"
               for attempt in range(MAX_ATTEMPTS):
@@ -772,7 +719,7 @@ jobs:
                       f"country={proxy_country.upper()} type={proxy_type_in} name={name}")
                   try:
                       payload = {
-                          "countryCode": proxy_country,          # e.g. "us", "gb"
+                          "countryCode": proxy_country,
                           "isMobile":    gl_proxy_params["isMobile"],
                           "isDC":        gl_proxy_params["isDC"],
                           "customName":  name,
@@ -814,7 +761,6 @@ jobs:
                       time.sleep(2)
 
           # ---- BytesFlow ----
-          # Country injected into username: u-{base}-loc-{COUNTRY_UPPER}-t-10-s-{session}
           if not active and bytesflow_proxies:
               country_upper = proxy_country.upper()
               for attempt in range(MAX_ATTEMPTS):
@@ -835,7 +781,6 @@ jobs:
                   time.sleep(2)
 
           # ---- ScrapeOps ----
-          # Country injected into username: scrapeops.country={COUNTRY}.sticky_session={sess}
           if not active and scrapeops_keys:
               for attempt in range(MAX_ATTEMPTS):
                   key = scrapeops_keys[(acc_idx // 15 + attempt) % len(scrapeops_keys)]
@@ -851,7 +796,6 @@ jobs:
                   time.sleep(2)
 
           # ---- FloppyData ----
-          # Country injected via ?country= query param (uppercase 2-letter code)
           if not active and floppy_keys:
               FLOPPY_BASE = "https://api.floppydata.net"
               country_upper = proxy_country.upper()
@@ -883,7 +827,6 @@ jobs:
                   time.sleep(2)
 
           # ---- Redscrape ----
-          # Country injected into username: session-300-id-{id}-{COUNTRY_UPPER}
           if not active and redscrape_keys:
               REDSCRAPE_HOST = "dc0f.redscrape.com"
               REDSCRAPE_PORT = 7777
@@ -915,7 +858,6 @@ jobs:
                       break
                   time.sleep(2)
 
-          # ---- result ----
           if active:
               auth = f"{active['username']}:{active['password']}@" if active.get("username") else ""
               server = f"http://{auth}{active['host']}:{active['port']}"
@@ -938,7 +880,7 @@ jobs:
       # ================================================================
       # STEP 6 — Node.js + Playwright
       # ================================================================
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -1642,7 +1584,7 @@ jobs:
       # ================================================================
       - name: "[10/11] Upload screenshots and result"
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: result-${{ matrix.index }}
           path: automation/out
@@ -1684,7 +1626,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: result-*
           path: all
@@ -1715,51 +1657,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload combined results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gologin-all-results
           path: all-results.json
           if-no-files-found: ignore
           retention-days: 7
-
-# =============================================================================
-# NOTES
-# =============================================================================
-# Secret GH_PAT (repo Settings → Secrets → Actions):
-#   Fine-grained PAT: Variables read+write, Actions read+write, Contents read+write
-#   Used by: save_inputs job (commits updated YAML defaults back to the repo)
-#
-# Root cause of "fromJSON: empty input" error (now fixed):
-#   The `signup` job's `strategy` block references fromJSON(needs.prepare.outputs.*).
-#   Previously, `signup` also listed `save_inputs` in its `needs`. GitHub Actions
-#   evaluates `strategy` expressions early (before execution), and including a job
-#   with no relevant outputs in `needs` created a timing window where `prepare`
-#   outputs might not yet be written when the expression was evaluated, producing
-#   fromJSON('') → "empty input". Fix: `signup` now needs ONLY `prepare`.
-#   `save_inputs` runs in parallel and is not a dependency of `signup`.
-#
-# New inputs added:
-#   proxy_country — 2-letter ISO code (default: us). Supported: us gb de fr ca au jp br in nl.
-#     Applied to: GoLogin (countryCode), ScrapeOps (username param), Redscrape (session string),
-#                 Floppy (country query param), BytesFlow (loc- username segment).
-#   proxy_type — residential / mobile / datacenter (default: residential).
-#     Applied to GoLogin API only (official API: isMobile / isDC boolean flags):
-#       residential → isMobile:false, isDC:false
-#       mobile      → isMobile:true,  isDC:false
-#       datacenter  → isMobile:false, isDC:true
-#
-# Email strategy:
-#   6 random lowercase alphanumeric characters appended directly to the local part.
-#   Email and password are NOT saved to avoid storing credentials in git.
-#
-# Proxy input format (scrapeops_api_key field):
-#   Space-separated list of tokens or proxy strings. Provider auto-detected:
-#     GoLogin  — compact JWT  (ey…)
-#     BytesFlow — contains "bytesflows.com"
-#     Redscrape — 32-char hex
-#     ScrapeOps — 8-4-4-4-12 UUID
-#     Floppy    — 30-80 alphanumeric chars
-#     Manual    — anything else containing : / @ or .
-#
-# Matrix limit: 256 jobs per run → account_count capped at 250.
-# =============================================================================
