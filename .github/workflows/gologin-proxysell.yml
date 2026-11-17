@@ -1,0 +1,876 @@
+# =============================================================================
+#  GoLogin -> Proxysell proxy generator
+#
+#  Generates proxies with the GoLogin API (named like 1-US-Mobile-ayuh) and adds
+#  every proxy that was generated to a Proxysell group.
+#
+#  ONE-TIME SETUP
+#   1. Repo -> Settings -> Secrets and variables -> Actions -> New repository secret
+#        GH_PAT  = a personal access token that can write this repo's settings:
+#                  Fine-grained token (this repo only), Repository permissions:
+#                    Secrets: Read and write     (remembers your API keys)
+#                    Variables: Read and write   (remembers the other inputs)
+#                    Contents: Read and write    (pre-fills the form defaults)
+#                    Workflows: Read and write   (pre-fills the form defaults)
+#                  Classic token: scopes "repo" + "workflow".
+#   2. Use a PRIVATE repository (see the note on inputs below).
+#   3. Actions tab -> "GoLogin to Proxysell" -> Run workflow.
+#
+#  HOW "REMEMBERING" WORKS
+#   * API keys     -> saved as repo secrets GOLOGIN_API_KEY / PROXYSELL_API_KEY
+#                     (only after both keys passed validation). Leave the fields
+#                     blank on later runs and the saved keys are used.
+#   * Other inputs -> saved as repo variables (PXG_*) AND written into the
+#                     `default:` of the lines tagged "# @remember:" below, so the
+#                     next time you open "Run workflow" the form is pre-filled.
+#                     Choose "last-saved" in a menu / leave a box blank to fall
+#                     back to the repo variables.
+#
+#  NOTE ON SECRECY: GitHub does not treat workflow_dispatch inputs as secrets.
+#  Whatever you type in a form field can be seen by anyone with read access to
+#  the repo. Type the API keys once (private repo), then leave them blank.
+# =============================================================================
+name: GoLogin to Proxysell
+
+run-name: "GoLogin to Proxysell | ${{ inputs.proxy_count || 'saved' }} x ${{ inputs.proxy_type }} / ${{ inputs.proxy_protocol }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      gologin_api_key:
+        description: "GoLogin API token (blank = use saved)"
+        required: false
+        type: string
+        default: ""
+      proxysell_api_key:
+        description: "Proxysell API key (blank = use saved)"
+        required: false
+        type: string
+        default: ""
+      proxy_count:
+        description: "Number of proxies to generate (blank = last used)"
+        required: false
+        type: string
+        default: "" # @remember:proxy_count
+      proxy_type:
+        description: "Proxy type"
+        required: false
+        type: choice
+        options:
+          - last-saved
+          - Residential
+          - Mobile
+          - Datacenter
+        default: last-saved # @remember:proxy_type
+      proxy_protocol:
+        description: "Proxy protocol (GoLogin and Proxysell support HTTP and SOCKS5)"
+        required: false
+        type: choice
+        options:
+          - last-saved
+          - HTTP
+          - SOCKS5
+          - SOCKS4
+        default: last-saved # @remember:proxy_protocol
+      country_codes:
+        description: "2-letter country code(s), comma separated, e.g. us or us,gb,de (blank = last used)"
+        required: false
+        type: string
+        default: "" # @remember:country_codes
+      proxysell_group:
+        description: "Proxysell group UUID, or 'new' to create one each run (blank = last used)"
+        required: false
+        type: string
+        default: "" # @remember:proxysell_group
+      verify_proxies:
+        description: "Test each proxy through the chosen protocol before sending (informational)"
+        required: false
+        type: choice
+        options:
+          - last-saved
+          - "yes"
+          - "no"
+        default: last-saved # @remember:verify_proxies
+
+permissions:
+  contents: read        # GITHUB_TOKEN is not used for writes; GH_PAT does that
+
+concurrency:
+  group: gologin-proxysell-generator
+  cancel-in-progress: false
+
+env:
+  # ---- tunables (safe to edit) ----------------------------------------------
+  GOLOGIN_THROTTLE_SECONDS: "1.5"     # pause between GoLogin calls (limit is 300+/min; 429 REVOKES the token)
+  MAX_PROXIES: "500"                  # upper bound accepted by the form
+  MAX_CONSECUTIVE_FAILURES: "5"       # abort generation after this many failures in a row
+  UPLOAD_CHUNK_SIZE: "50"             # proxies per Proxysell request
+  VERIFY_TIMEOUT_SECONDS: "20"
+  VERIFY_WORKERS: "10"
+  SEND_UNVERIFIED_PROXIES: "true"     # "false" = only send proxies that passed the connectivity test
+  REMEMBER_FORM_DEFAULTS: "true"      # "false" = do not commit new form defaults to this file
+
+jobs:
+  generate:
+    name: Generate proxies and send to Proxysell
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Install dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --disable-pip-version-check requests pynacl
+
+      - name: Run pipeline
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          SAVED_GOLOGIN_API_KEY: ${{ secrets.GOLOGIN_API_KEY }}
+          SAVED_PROXYSELL_API_KEY: ${{ secrets.PROXYSELL_API_KEY }}
+          SAVED_PROXY_COUNT: ${{ vars.PXG_PROXY_COUNT }}
+          SAVED_PROXY_TYPE: ${{ vars.PXG_PROXY_TYPE }}
+          SAVED_PROXY_PROTOCOL: ${{ vars.PXG_PROXY_PROTOCOL }}
+          SAVED_COUNTRIES: ${{ vars.PXG_COUNTRIES }}
+          SAVED_PROXYSELL_GROUP: ${{ vars.PXG_PROXYSELL_GROUP }}
+          SAVED_VERIFY: ${{ vars.PXG_VERIFY }}
+        run: |
+          cat > "$RUNNER_TEMP/pipeline.py" <<'PY'
+          #!/usr/bin/env python3
+          """
+          GoLogin -> Proxysell proxy pipeline (runs inside GitHub Actions).
+
+          Phases:
+            1. Resolve + validate inputs (blank / "last-saved" falls back to saved values)
+            2. Pre-flight: check GoLogin token, create (or reuse) the Proxysell group
+            3. Remember inputs (repo secrets / variables / form defaults) via GH_PAT
+            4. Generate proxies on GoLogin (throttled, never retries on HTTP 429)
+            5. Recover any proxies whose creation response was lost or incomplete
+            6. Optionally verify each proxy through the chosen protocol
+            7. Send everything that was generated to Proxysell in chunks
+            8. Step summary + exit code
+          """
+          import base64
+          import json
+          import os
+          import random
+          import re
+          import string
+          import subprocess
+          import sys
+          import time
+          import urllib.parse
+          from concurrent.futures import ThreadPoolExecutor
+          from datetime import datetime, timezone
+
+          import requests
+
+
+          # ----------------------------------------------------------------------------- config
+          def env(name, default=""):
+              v = os.environ.get(name)
+              return v if v not in (None, "") else default
+
+
+          GOLOGIN_API = env("GOLOGIN_API_URL", "https://api.gologin.com").rstrip("/")
+          PROXYSELL_API = env("PROXYSELL_API_URL", "https://client-api.proxysell.com").rstrip("/")
+          GITHUB_API = env("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+
+          THROTTLE = float(env("GOLOGIN_THROTTLE_SECONDS", "1.5"))       # pause between GoLogin calls
+          MAX_PROXIES = int(env("MAX_PROXIES", "500"))
+          MAX_CONSEC_FAIL = int(env("MAX_CONSECUTIVE_FAILURES", "5"))    # circuit breaker
+          UPLOAD_CHUNK = int(env("UPLOAD_CHUNK_SIZE", "50"))
+          VERIFY_TIMEOUT = int(env("VERIFY_TIMEOUT_SECONDS", "20"))
+          VERIFY_WORKERS = int(env("VERIFY_WORKERS", "10"))
+          SEND_UNVERIFIED = env("SEND_UNVERIFIED_PROXIES", "true").lower() == "true"
+          REMEMBER_FORM = env("REMEMBER_FORM_DEFAULTS", "true").lower() == "true"
+
+          TYPES = {"residential": "Residential", "mobile": "Mobile", "datacenter": "Datacenter"}
+          PROTOCOLS = {"http": "HTTP", "socks5": "SOCKS5", "socks4": "SOCKS4"}
+          UUID_RE = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
+
+          # repo variable / secret names used to remember inputs between runs
+          SECRET_GOLOGIN = "GOLOGIN_API_KEY"
+          SECRET_PROXYSELL = "PROXYSELL_API_KEY"
+          VAR_NAMES = {
+              "proxy_count": "PXG_PROXY_COUNT",
+              "proxy_type": "PXG_PROXY_TYPE",
+              "proxy_protocol": "PXG_PROXY_PROTOCOL",
+              "country_codes": "PXG_COUNTRIES",
+              "proxysell_group": "PXG_PROXYSELL_GROUP",
+              "verify_proxies": "PXG_VERIFY",
+          }
+
+
+          # ----------------------------------------------------------------------------- logging
+          def say(msg=""):
+              print(msg, flush=True)
+
+
+          def warn(msg):
+              print(f"::warning::{msg}", flush=True)
+
+
+          def err(msg):
+              print(f"::error::{msg}", flush=True)
+
+
+          def mask(value):
+              """Ask the runner to redact a value from all further log output."""
+              if value:
+                  for line in str(value).splitlines():
+                      if line.strip():
+                          print(f"::add-mask::{line.strip()}", flush=True)
+
+
+          def cell(text):
+              return str(text).replace("|", "\\|").replace("\n", " ")[:140]
+
+
+          # ----------------------------------------------------------------------------- HTTP helpers
+          class Resp:
+              __slots__ = ("status", "data", "text")
+
+              def __init__(self, status, data, text):
+                  self.status, self.data, self.text = status, data, text
+
+
+          class RateLimited(Exception):
+              def __init__(self, cloudflare):
+                  super().__init__("rate limited")
+                  self.cloudflare = cloudflare
+
+
+          def _decode(r):
+              text = (r.text or "")[:400]
+              try:
+                  data = r.json()
+              except ValueError:
+                  data = None
+              return Resp(r.status_code, data, text)
+
+
+          def describe(r):
+              """Short human-readable failure reason (never includes credentials we sent)."""
+              if r.status == 0:
+                  return r.text or "network error"
+              msg = ""
+              if isinstance(r.data, dict):
+                  m = r.data.get("message") or r.data.get("error")
+                  if isinstance(m, list):
+                      m = "; ".join(str(x) for x in m)
+                  msg = str(m or "")
+                  errs = r.data.get("errors")
+                  if errs:
+                      msg = (msg + " " + json.dumps(errs)[:200]).strip()
+              if not msg:
+                  msg = re.sub(r"\s+", " ", r.text or "")[:160]
+              return f"HTTP {r.status}: {msg}".strip()
+
+
+          class GoLogin:
+              """Thin client. NEVER retries on 429: GoLogin revokes the token when the rate limit is exceeded."""
+
+              def __init__(self, token):
+                  self.headers = {
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/json",
+                      "Content-Type": "application/json",
+                  }
+
+              def call(self, method, path, payload=None, retries=2):
+                  delay = 4
+                  last = Resp(0, None, "no attempt made")
+                  for attempt in range(retries + 1):
+                      try:
+                          r = requests.request(method, GOLOGIN_API + path, headers=self.headers,
+                                               json=payload, timeout=60)
+                          last = _decode(r)
+                      except requests.RequestException as exc:  # class name only: URLs/keys must not leak
+                          last = Resp(0, None, f"network error ({type(exc).__name__})")
+                      if last.status == 429:
+                          html = last.data is None  # Cloudflare 1015 returns an HTML/plain page, not JSON
+                          raise RateLimited(cloudflare=html)
+                      if (last.status == 0 or last.status >= 500) and attempt < retries:
+                          time.sleep(delay)
+                          delay *= 2
+                          continue
+                      return last
+                  return last
+
+
+          class Proxysell:
+              def __init__(self, api_key):
+                  self.key = api_key
+
+              def call(self, method, path, payload=None, retries=3):
+                  delay = 3
+                  last = Resp(0, None, "no attempt made")
+                  for attempt in range(retries + 1):
+                      try:
+                          r = requests.request(method, PROXYSELL_API + path, params={"apiKey": self.key},
+                                               json=payload, timeout=90)
+                          last = _decode(r)
+                      except requests.RequestException as exc:
+                          last = Resp(0, None, f"network error ({type(exc).__name__})")
+                      retryable = last.status in (0, 429) or last.status >= 500
+                      if retryable and attempt < retries:
+                          time.sleep(delay)
+                          delay *= 2
+                          continue
+                      return last
+                  return last
+
+
+          class GitHub:
+              """Writes repo secrets / variables / workflow defaults with the GH_PAT token."""
+
+              def __init__(self, token, repo):
+                  self.repo = repo
+                  self.headers = {
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  }
+
+              def call(self, method, path, **kw):
+                  return requests.request(method, GITHUB_API + path, headers=self.headers, timeout=30, **kw)
+
+              @staticmethod
+              def _why(r):
+                  try:
+                      msg = r.json().get("message", "")
+                  except ValueError:
+                      msg = (r.text or "")[:120]
+                  return f"HTTP {r.status_code} {msg}".strip()
+
+              def set_variable(self, name, value):
+                  body = {"name": name, "value": value}
+                  r = self.call("PATCH", f"/repos/{self.repo}/actions/variables/{name}", json=body)
+                  if r.status_code == 404:
+                      r = self.call("POST", f"/repos/{self.repo}/actions/variables", json=body)
+                  if r.status_code not in (200, 201, 204):
+                      raise RuntimeError(self._why(r))
+
+              def set_secret(self, name, value):
+                  from nacl import encoding, public  # PyNaCl: GitHub requires libsodium sealed boxes
+
+                  r = self.call("GET", f"/repos/{self.repo}/actions/secrets/public-key")
+                  if r.status_code != 200:
+                      raise RuntimeError(self._why(r))
+                  key = r.json()
+                  pk = public.PublicKey(key["key"].encode("utf-8"), encoding.Base64Encoder())
+                  sealed = public.SealedBox(pk).encrypt(value.encode("utf-8"))
+                  payload = {"encrypted_value": base64.b64encode(sealed).decode("ascii"), "key_id": key["key_id"]}
+                  r = self.call("PUT", f"/repos/{self.repo}/actions/secrets/{name}", json=payload)
+                  if r.status_code not in (201, 204):
+                      raise RuntimeError(self._why(r))
+
+              def remember_form_defaults(self, values):
+                  """Rewrite the `default:` of every line tagged `# @remember:<input>` in this workflow file."""
+                  wf_ref = env("GITHUB_WORKFLOW_REF")           # owner/repo/.github/workflows/x.yml@refs/heads/main
+                  if not wf_ref or env("GITHUB_REF_TYPE") != "branch":
+                      raise RuntimeError("workflow was not dispatched from a branch")
+                  path = wf_ref.split("@", 1)[0].split("/", 2)[2]
+                  branch = env("GITHUB_REF_NAME")
+                  r = self.call("GET", f"/repos/{self.repo}/contents/{urllib.parse.quote(path)}",
+                                params={"ref": branch})
+                  if r.status_code != 200:
+                      raise RuntimeError(self._why(r))
+                  meta = r.json()
+                  old = base64.b64decode(meta["content"]).decode("utf-8")
+                  new = rewrite_defaults(old, values)
+                  if new == old:
+                      say("   form defaults already up to date")
+                      return
+                  payload = {
+                      "message": "chore: remember last proxy-generator inputs",
+                      "content": base64.b64encode(new.encode("utf-8")).decode("ascii"),
+                      "sha": meta["sha"],
+                      "branch": branch,
+                  }
+                  r = self.call("PUT", f"/repos/{self.repo}/contents/{urllib.parse.quote(path)}", json=payload)
+                  if r.status_code not in (200, 201):
+                      raise RuntimeError(self._why(r))
+
+
+          _DEFAULT_LINE = re.compile(
+              r"^(?P<pre>\s*default:\s*)(?P<val>.*?)(?P<post>\s+#\s*@remember:(?P<key>[a-z_]+)\s*)$")
+          _SAFE_DEFAULT = re.compile(r"^[A-Za-z0-9,_\-]*$")
+
+
+          def rewrite_defaults(text, values):
+              out = []
+              for line in text.split("\n"):
+                  m = _DEFAULT_LINE.match(line)
+                  if m and m.group("key") in values and _SAFE_DEFAULT.match(str(values[m.group("key")])):
+                      line = f'{m.group("pre")}{json.dumps(str(values[m.group("key")]))}{m.group("post")}'
+                  out.append(line)
+              return "\n".join(out)
+
+
+          # ----------------------------------------------------------------------------- proxy helpers
+          def find_proxy_dict(obj):
+              """Locate the first dict that looks like a proxy (has host+port) anywhere in a JSON response."""
+              if isinstance(obj, dict):
+                  if obj.get("host") and obj.get("port"):
+                      return obj
+                  for v in obj.values():
+                      hit = find_proxy_dict(v)
+                      if hit:
+                          return hit
+              elif isinstance(obj, list):
+                  for v in obj:
+                      hit = find_proxy_dict(v)
+                      if hit:
+                          return hit
+              return None
+
+
+          def extract_record(data):
+              """Pull id / host / port / credentials out of whatever shape GoLogin returned."""
+              rec = {"id": None, "host": None, "port": None, "username": None, "password": None, "mode": None}
+              if isinstance(data, dict):
+                  rec["id"] = data.get("id") or data.get("_id")
+              d = find_proxy_dict(data)
+              if d:
+                  rec["id"] = d.get("id") or d.get("_id") or rec["id"]
+                  rec["host"] = d.get("host")
+                  rec["port"] = d.get("port")
+                  rec["username"] = d.get("username")
+                  rec["password"] = d.get("password")
+                  mode = d.get("mode")
+                  rec["mode"] = mode if isinstance(mode, str) else None
+              return rec
+
+
+          def has_endpoint(rec):
+              return bool(rec.get("host") and rec.get("port"))
+
+
+          def has_auth(rec):
+              return bool(rec.get("username") and rec.get("password"))
+
+
+          def mask_record(rec):
+              mask(rec.get("password"))
+              if rec.get("username") and len(str(rec["username"])) >= 8:
+                  mask(rec["username"])
+
+
+          def bracket(host):
+              host = str(host)
+              return f"[{host}]" if ":" in host and not host.startswith("[") else host
+
+
+          def build_dsn(rec, protocol):
+              """protocol://login:password@host:port  -- one of the formats Proxysell documents."""
+              auth = ""
+              if rec.get("username"):
+                  user = urllib.parse.quote(str(rec["username"]), safe="")
+                  pwd = urllib.parse.quote(str(rec.get("password") or ""), safe="")
+                  auth = f"{user}:{pwd}@"
+              return f"{protocol}://{auth}{bracket(rec['host'])}:{rec['port']}"
+
+
+          def check_proxy(rec, protocol):
+              """Fetch an IP-echo page through the proxy with curl using the selected protocol."""
+              scheme = {"http": "http", "socks5": "socks5h", "socks4": "socks4"}[protocol]
+              cmd = ["curl", "-sS", "-m", str(VERIFY_TIMEOUT), "--proxy", f"{scheme}://{bracket(rec['host'])}:{rec['port']}"]
+              if rec.get("username"):
+                  cmd += ["--proxy-user", f"{rec['username']}:{rec.get('password') or ''}"]
+              cmd.append("https://api.ipify.org")
+              try:
+                  cp = subprocess.run(cmd, capture_output=True, text=True, timeout=VERIFY_TIMEOUT + 10)
+              except subprocess.TimeoutExpired:
+                  return False, "timeout"
+              except OSError as exc:
+                  return False, f"curl unavailable ({type(exc).__name__})"
+              out = (cp.stdout or "").strip()
+              if cp.returncode == 0 and re.fullmatch(r"[0-9a-fA-F:.]{3,45}", out):
+                  return True, "ok"
+              first = ((cp.stderr or out or "no response").strip().splitlines() or ["no response"])[0]
+              first = re.sub(r"^curl:\s*(\(\d+\)\s*)?", "", first)[:60]
+              return False, f"curl exit {cp.returncode}: {first}"
+
+
+          def rand_tag(n=4):
+              return "".join(random.choices(string.ascii_lowercase, k=n))
+
+
+          # ----------------------------------------------------------------------------- main
+          def main():
+              started = datetime.now(timezone.utc)
+              repo = env("GITHUB_REPOSITORY")
+              run_no = env("GITHUB_RUN_NUMBER", "0")
+
+              # -- 1. inputs ------------------------------------------------------------------------------
+              with open(env("GITHUB_EVENT_PATH"), encoding="utf-8") as fh:
+                  raw = (json.load(fh).get("inputs")) or {}
+
+              def given(name):
+                  v = str(raw.get(name) or "").strip()
+                  return "" if v.lower() == "last-saved" else v
+
+              typed_gl, typed_ps = given("gologin_api_key"), given("proxysell_api_key")
+              mask(typed_gl)
+              mask(typed_ps)  # mask BEFORE anything else is logged
+
+              gl_key = typed_gl or env("SAVED_GOLOGIN_API_KEY")
+              ps_key = typed_ps or env("SAVED_PROXYSELL_API_KEY")
+
+              def pick(name, saved_env, default):
+                  v = given(name)
+                  if v:
+                      return v, "input"
+                  s = env(saved_env).strip()
+                  if s:
+                      return s, "saved"
+                  return default, "default"
+
+              count_s, count_src = pick("proxy_count", "SAVED_PROXY_COUNT", "10")
+              type_s, type_src = pick("proxy_type", "SAVED_PROXY_TYPE", "Residential")
+              proto_s, proto_src = pick("proxy_protocol", "SAVED_PROXY_PROTOCOL", "HTTP")
+              ctry_s, ctry_src = pick("country_codes", "SAVED_COUNTRIES", "us")
+              group_s, group_src = pick("proxysell_group", "SAVED_PROXYSELL_GROUP", "new")
+              verify_s, verify_src = pick("verify_proxies", "SAVED_VERIFY", "yes")
+
+              problems = []
+              if not gl_key:
+                  problems.append("No GoLogin API key: type one in the form (it will be saved) or add the repo secret "
+                                  f"{SECRET_GOLOGIN}.")
+              if not ps_key:
+                  problems.append("No Proxysell API key: type one in the form (it will be saved) or add the repo secret "
+                                  f"{SECRET_PROXYSELL}.")
+              if not re.fullmatch(r"\d{1,6}", count_s) or not (1 <= int(count_s) <= MAX_PROXIES):
+                  problems.append(f"proxy_count must be a whole number between 1 and {MAX_PROXIES} (got '{count_s}').")
+                  count = 0
+              else:
+                  count = int(count_s)
+              ptype = TYPES.get(type_s.lower())
+              if not ptype:
+                  problems.append(f"proxy_type must be Residential, Mobile or Datacenter (got '{type_s}').")
+              protocol = proto_s.lower()
+              if protocol not in PROTOCOLS:
+                  problems.append(f"proxy_protocol must be HTTP, SOCKS5 or SOCKS4 (got '{proto_s}').")
+              countries = []
+              for c in re.split(r"[,\s;]+", ctry_s.strip()):
+                  if not c:
+                      continue
+                  if not re.fullmatch(r"[A-Za-z]{2}", c):
+                      problems.append(f"country_codes must be 2-letter ISO codes like 'us' or 'us,gb,de' (got '{c}').")
+                  elif c.upper() not in [x.upper() for x in countries]:
+                      countries.append(c.upper())
+              if not countries:
+                  problems.append("country_codes is empty.")
+              if verify_s.lower() not in ("yes", "no"):
+                  problems.append(f"verify_proxies must be yes or no (got '{verify_s}').")
+              group_in = group_s.strip()
+              if group_in.lower() != "new" and not UUID_RE.match(group_in):
+                  problems.append("proxysell_group must be 'new' (create a group) or an existing group UUID.")
+              if problems:
+                  for p in problems:
+                      err(p)
+                  return 1
+              verify = verify_s.lower() == "yes"
+
+              say("Configuration")
+              say(f"   proxies        : {count}  ({count_src})")
+              say(f"   type           : {ptype}  ({type_src})")
+              say(f"   protocol       : {PROTOCOLS[protocol]}  ({proto_src})")
+              say(f"   countries      : {', '.join(countries)}  ({ctry_src})")
+              say(f"   proxysell group: {'create new' if group_in.lower() == 'new' else group_in}  ({group_src})")
+              say(f"   verify         : {verify_s}  ({verify_src})")
+              say(f"   gologin key    : {'typed in form' if typed_gl else 'saved secret'}")
+              say(f"   proxysell key  : {'typed in form' if typed_ps else 'saved secret'}")
+              if protocol == "socks4":
+                  warn("SOCKS4 selected: GoLogin proxies are documented as HTTP/SOCKS5 and Proxysell accepts "
+                       "SOCKS5/HTTP only. Expect failures; HTTP or SOCKS5 is recommended.")
+
+              gl, ps = GoLogin(gl_key), Proxysell(ps_key)
+
+              # -- 2. pre-flight (fail before spending anything) -------------------------------------------
+              say("\nPre-flight checks")
+              try:
+                  r = gl.call("GET", "/user")
+              except RateLimited:
+                  err("GoLogin answered HTTP 429 on a single request. Your token may already be revoked; create a new one.")
+                  return 1
+              if r.status in (401, 403):
+                  err(f"GoLogin rejected the API key ({describe(r)}). Check the token and that your plan includes API access.")
+                  return 1
+              if r.status == 200:
+                  say("   GoLogin token OK")
+              else:
+                  warn(f"GoLogin token check was inconclusive ({describe(r)}); continuing.")
+
+              group_uuid, group_name, group_created = None, None, False
+              if group_in.lower() == "new":
+                  group_name = f"gologin-{ptype.lower()}-{protocol}-{started:%Y%m%d-%H%M}-run{run_no}"
+                  r = ps.call("POST", "/v1/group", {"name": group_name,
+                                                    "comment": f"Created by GitHub Actions run {env('GITHUB_RUN_ID')}"})
+                  gdata = (r.data or {}).get("data") if isinstance(r.data, dict) else None
+                  if r.status != 200 or not isinstance(gdata, dict) or not gdata.get("id"):
+                      err(f"Could not create the Proxysell group ({describe(r)}). Check the Proxysell API key.")
+                      return 1
+                  group_uuid, group_created = str(gdata["id"]), True
+                  say(f"   Proxysell group created: {group_name} ({group_uuid})")
+              else:
+                  group_uuid, group_name = group_in, "(existing group)"
+                  say(f"   Using existing Proxysell group {group_uuid}")
+
+              # -- 3. remember inputs ----------------------------------------------------------------------
+              say("\nSaving inputs")
+              pat = env("GH_PAT")
+              if not pat:
+                  warn("Repo secret GH_PAT is not set, so inputs cannot be remembered. Generation continues.")
+              else:
+                  hub = GitHub(pat, repo)
+                  saves = []
+                  if typed_gl and typed_gl != env("SAVED_GOLOGIN_API_KEY"):
+                      saves.append(("secret", SECRET_GOLOGIN, typed_gl))
+                  if typed_ps and typed_ps != env("SAVED_PROXYSELL_API_KEY"):
+                      saves.append(("secret", SECRET_PROXYSELL, typed_ps))
+                  remembered = {
+                      "proxy_count": str(count), "proxy_type": ptype, "proxy_protocol": PROTOCOLS[protocol],
+                      "country_codes": ",".join(countries), "proxysell_group": group_in if group_in.lower() != "new" else "new",
+                      "verify_proxies": verify_s.lower(),
+                  }
+                  saved_env = {"proxy_count": "SAVED_PROXY_COUNT", "proxy_type": "SAVED_PROXY_TYPE",
+                               "proxy_protocol": "SAVED_PROXY_PROTOCOL", "country_codes": "SAVED_COUNTRIES",
+                               "proxysell_group": "SAVED_PROXYSELL_GROUP", "verify_proxies": "SAVED_VERIFY"}
+                  for key, value in remembered.items():
+                      if env(saved_env[key]) != value:           # only write what actually changed
+                          saves.append(("variable", VAR_NAMES[key], value))
+                  if not saves:
+                      say("   nothing changed since the last run")
+                  for kind, name, value in saves:
+                      try:
+                          (hub.set_secret if kind == "secret" else hub.set_variable)(name, value)
+                          say(f"   saved {kind} {name}")
+                      except Exception as exc:  # never let bookkeeping kill the run
+                          warn(f"Could not save {kind} {name}: {exc}. GH_PAT needs read/write on Secrets and Variables.")
+                  if REMEMBER_FORM:
+                      try:
+                          hub.remember_form_defaults(remembered)
+                          say("   form defaults updated (next run's form will be pre-filled)")
+                      except Exception as exc:
+                          warn(f"Could not update form defaults: {exc}. (Needs Contents + Workflows write on GH_PAT; "
+                               "values are still remembered via repo variables.)")
+
+              # -- 4. generate on GoLogin ------------------------------------------------------------------
+              say(f"\nGenerating {count} {ptype} proxies on GoLogin (about {THROTTLE:g}s apart to stay far below the rate limit)")
+              attempts = []   # one dict per proxy we tried to create
+              consecutive = 0
+              stop_reason = None
+              rate_limited = False
+              for i in range(1, count + 1):
+                  cc = countries[(i - 1) % len(countries)]
+                  name = f"{i}-{cc}-{ptype}-{rand_tag()}"          # e.g. 1-US-Mobile-ayuh
+                  body = {"countryCode": cc.lower(), "customName": name}
+                  if ptype == "Mobile":
+                      body["isMobile"] = True
+                  elif ptype == "Datacenter":
+                      body["isDC"] = True                          # Residential = neither flag
+                  att = {"idx": i, "name": name, "cc": cc, "rec": None, "reason": None, "lookup": False}
+                  attempts.append(att)
+                  tag = f"[{i}/{count}] {name}"
+                  try:
+                      r = gl.call("POST", "/users-proxies/mobile-proxy", body)
+                      if r.status in (200, 201):
+                          rec = extract_record(r.data)
+                          if rec["id"] and (not has_endpoint(rec) or not has_auth(rec)):
+                              time.sleep(THROTTLE)
+                              d = gl.call("GET", f"/proxy/{rec['id']}")
+                              if d.status == 200:
+                                  more = extract_record(d.data)
+                                  for k, v in more.items():
+                                      rec[k] = rec[k] or v
+                          mask_record(rec)
+                          att["rec"] = rec
+                          if has_endpoint(rec):
+                              consecutive = 0
+                              say(f"   {tag}: created" + ("" if has_auth(rec) else " (no credentials returned)"))
+                          else:
+                              att["lookup"] = True
+                              consecutive = 0
+                              say(f"   {tag}: created but response had no host/port; will look it up")
+                      else:
+                          att["reason"] = describe(r)
+                          att["lookup"] = r.status == 0 or r.status >= 500   # may have been created anyway
+                          consecutive += 1
+                          say(f"   {tag}: FAILED ({att['reason']})")
+                  except RateLimited as exc:
+                      rate_limited = True
+                      att["reason"] = "HTTP 429 rate limited"
+                      if exc.cloudflare:
+                          stop_reason = ("GoLogin/Cloudflare rate-limited this runner's IP (HTTP 429, non-JSON page). "
+                                         "Retry in a while with fewer proxies.")
+                      else:
+                          stop_reason = ("GoLogin returned HTTP 429. GoLogin revokes the token on 429, so generate a NEW "
+                                         f"API token before the next run ({SECRET_GOLOGIN} / form field).")
+                      err(stop_reason)
+                      say("   stopping generation now; proxies created so far are still sent to Proxysell")
+                      break
+                  if consecutive >= MAX_CONSEC_FAIL:
+                      stop_reason = f"{MAX_CONSEC_FAIL} failures in a row; aborting generation (circuit breaker)."
+                      warn(stop_reason)
+                      break
+                  if i < count:
+                      time.sleep(THROTTLE)
+
+              # -- 5. recover lost responses --------------------------------------------------------------
+              pending = [a for a in attempts if a["lookup"] and not (a["rec"] and has_endpoint(a["rec"]))]
+              if pending and not rate_limited:   # after a 429 we must not touch the API again
+                  say(f"\nLooking up {len(pending)} proxies whose creation result was unclear")
+                  wanted = {a["name"]: a for a in pending}
+                  try:
+                      for page in range(1, 41):
+                          time.sleep(THROTTLE)
+                          r = gl.call("GET", f"/proxy/v2?page={page}")
+                          if r.status != 200 or not isinstance(r.data, dict):
+                              warn(f"Could not list GoLogin proxies ({describe(r)}).")
+                              break
+                          for p in r.data.get("proxies") or []:
+                              a = wanted.get(p.get("customName"))
+                              if a and not (a["rec"] and has_endpoint(a["rec"])):
+                                  rec = extract_record(p)
+                                  if has_endpoint(rec):
+                                      mask_record(rec)
+                                      a["rec"], a["reason"], a["recovered"] = rec, None, True
+                                      say(f"   recovered {a['name']}")
+                          if not r.data.get("hasMore") or all(a["rec"] for a in wanted.values()):
+                              break
+                  except RateLimited:
+                      warn("Rate limited while recovering proxies; skipping recovery.")
+
+              created = [a for a in attempts if a["rec"] and has_endpoint(a["rec"])]
+              failed = [a for a in attempts if a not in created]
+              not_attempted = count - len(attempts)
+              say(f"\nGoLogin result: {len(created)} usable, {len(failed)} failed, {not_attempted} not attempted")
+              modes = sorted({str(a["rec"].get("mode")) for a in created if a["rec"].get("mode")})
+              if modes:
+                  say(f"   mode reported by GoLogin: {', '.join(modes)}")
+                  if protocol not in [m.lower() for m in modes]:
+                      say(f"   note: sending as {protocol}:// because that is the protocol you selected")
+
+              # -- 6. verify -------------------------------------------------------------------------------
+              checks = {}
+              if verify and created:
+                  say(f"\nVerifying {len(created)} proxies via {PROTOCOLS[protocol]} (informational)")
+                  with ThreadPoolExecutor(max_workers=VERIFY_WORKERS) as pool:
+                      for a, (ok, why) in zip(created, pool.map(lambda x: check_proxy(x["rec"], protocol), created)):
+                          checks[a["name"]] = (ok, why)
+                  good = sum(1 for ok, _ in checks.values() if ok)
+                  say(f"   {good}/{len(created)} responded")
+                  if good < len(created):
+                      warn(f"{len(created) - good} proxies did not respond over {PROTOCOLS[protocol]}. "
+                           + ("They are still being sent." if SEND_UNVERIFIED else "They will NOT be sent."))
+
+              # -- 7. upload to Proxysell -------------------------------------------------------------------
+              to_send = [a for a in created if SEND_UNVERIFIED or checks.get(a["name"], (True, ""))[0]]
+              ps_status = {}                     # name -> "added" | reason string
+              dsn_to_name = {}
+              for a in to_send:
+                  dsn_to_name[build_dsn(a["rec"], protocol)] = a["name"]
+              dsns = list(dsn_to_name)
+              upload_failed = False
+              total_added = 0
+              if dsns:
+                  say(f"\nSending {len(dsns)} proxies to Proxysell group {group_uuid} as {protocol}://login:password@host:port")
+                  for n in range(0, len(dsns), UPLOAD_CHUNK):
+                      chunk = dsns[n:n + UPLOAD_CHUNK]
+                      r = ps.call("POST", f"/v1/group/{group_uuid}/proxy", {"items": chunk})
+                      body = r.data if isinstance(r.data, dict) else {}
+                      if r.status != 200 or body.get("success") is False:
+                          upload_failed = True
+                          why = describe(r) if r.status != 200 else f"success=false {body.get('message') or body.get('errors')}"
+                          err(f"Proxysell rejected chunk {n // UPLOAD_CHUNK + 1}: {why}")
+                          for d in chunk:
+                              ps_status[dsn_to_name[d]] = f"upload failed ({why[:80]})"
+                          continue
+                      d = body.get("data") or {}
+                      added = int(d.get("added") or 0)
+                      total_added += added
+                      rejected = {}
+                      for item in d.get("notAddedList") or []:
+                          for bad in item.get("dsnList") or []:
+                              rejected[bad] = item.get("reason") or "rejected"
+                      for dsn in chunk:
+                          nm = dsn_to_name[dsn]
+                          ps_status[nm] = f"rejected: {rejected[dsn]}" if dsn in rejected else "added"
+                      if rejected and not any(dsn in rejected for dsn in chunk):
+                          # Proxysell may echo a normalised DSN; we cannot map it back to a name
+                          names_note = f"{len(rejected)} proxies"
+                          warn(f"Proxysell rejected {names_note} in chunk {n // UPLOAD_CHUNK + 1}: "
+                               f"{sorted(set(rejected.values()))}")
+                      say(f"   chunk {n // UPLOAD_CHUNK + 1}: added {added}/{len(chunk)}"
+                          + (f", not added {sum(len(i.get('dsnList') or []) for i in d.get('notAddedList') or [])}"
+                             if d.get("notAddedList") else ""))
+                      for item in d.get("notAddedList") or []:
+                          say(f"      reason: {item.get('reason')} ({len(item.get('dsnList') or [])} proxies)")
+                  rejected_total = sum(1 for v in ps_status.values() if v != "added")
+                  if rejected_total:
+                      upload_failed = True
+                  say(f"Proxysell result: {total_added} added, {rejected_total} not added")
+              else:
+                  warn("Nothing to send to Proxysell.")
+
+              # -- 8. summary ---------------------------------------------------------------------------------
+              lines = [
+                  "## GoLogin to Proxysell",
+                  "",
+                  "| | |", "|---|---|",
+                  f"| Requested | {count} |",
+                  f"| Created on GoLogin | {len(created)} |",
+                  f"| Failed on GoLogin | {len(failed)}{f' (+{not_attempted} not attempted)' if not_attempted else ''} |",
+                  f"| Sent to Proxysell | {len(dsns)} |",
+                  f"| Added by Proxysell | {total_added} |",
+                  f"| Type / protocol | {ptype} / {PROTOCOLS[protocol]} |",
+                  f"| Countries | {', '.join(countries)} |",
+                  f"| Proxysell group | {group_name} `{group_uuid}`{' (new)' if group_created else ''} |",
+                  "",
+              ]
+              if stop_reason:
+                  lines += [f"> **Stopped early:** {cell(stop_reason)}", ""]
+              lines += ["| # | GoLogin name | GoLogin | Check | Proxysell |", "|---|---|---|---|---|"]
+              for a in attempts:
+                  if a in created:
+                      gl_s = "recovered" if a.get("recovered") else "created"
+                  else:
+                      gl_s = f"failed: {a['reason'] or 'no usable response'}"
+                  if a["name"] in checks:
+                      ok, why = checks[a["name"]]
+                      chk = "ok" if ok else f"fail ({why})"
+                  else:
+                      chk = "-"
+                  lines.append(f"| {a['idx']} | `{a['name']}` | {cell(gl_s)} | {cell(chk)} | {cell(ps_status.get(a['name'], '-'))} |")
+              if not_attempted:
+                  lines.append(f"| ... | {not_attempted} more not attempted | | | |")
+              summary_path = env("GITHUB_STEP_SUMMARY")
+              if summary_path:
+                  with open(summary_path, "a", encoding="utf-8") as fh:
+                      fh.write("\n".join(lines) + "\n")
+
+              if not created:
+                  err("No proxies were generated.")
+                  return 1
+              if upload_failed:
+                  err("Some proxies were generated but not accepted by Proxysell. They still exist in your GoLogin "
+                      "dashboard (Proxies) under the names listed in the run summary.")
+                  return 1
+              if stop_reason:
+                  err("Run finished early (see above). Proxies created before the stop were sent to Proxysell.")
+                  return 1
+              if len(created) < count:
+                  warn(f"Only {len(created)} of {count} proxies were generated; all of them were sent to Proxysell.")
+              say("\nDone.")
+              return 0
+
+
+          if __name__ == "__main__":
+              try:
+                  sys.exit(main())
+              except Exception as exc:  # last-resort guard: never dump a traceback that could include secrets
+                  err(f"Unexpected error: {type(exc).__name__}: {str(exc)[:200]}")
+                  sys.exit(1)
+          PY
+          "$RUNNER_TEMP/venv/bin/python" "$RUNNER_TEMP/pipeline.py"
