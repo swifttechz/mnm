@@ -67,7 +67,7 @@ on:
         description: "ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual — space-separated proxy tokens or strings"
         required: false
         type: string
-        default: 'geolocation://user-FhFSG0FbqydiOQf1-type-residential-session-I900VcAvr5yD-country-US:aAYAG0i8NUE6mLqs@geo.floppydata.com:10080:UNITED STATES'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmM0MDMxNTU5M2MyYmZlNzVhZDBiYyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmYzQwMzE1NTkzYzJiZmU3NWFkMGE3In0.ymxBwNs-8XoQ_TduVeo2WdZ0vdRLFVwhJq7ml0vgckE'
       use_without_proxy:
         description: "Use Without Proxy (skip all proxy injection)"
         required: false
