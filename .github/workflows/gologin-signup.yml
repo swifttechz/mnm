@@ -13,17 +13,17 @@ on:
         description: "Base GoLogin email (random suffix appended per account). Blank = last saved"
         required: false
         type: string
-        default: ''
+        default: 'techxstudioyt@kmail.com'
       gologin_password:
         description: "GoLogin password for every account (min 8 chars). Blank = last saved"
         required: false
         type: string
-        default: ''
+        default: '11223344'
       runner_image:
         description: "Windows runner to use"
         required: true
         type: choice
-        default: windows-latest
+        default: 'windows-latest'
         options:
           - windows-latest
           - windows-2025
@@ -43,7 +43,7 @@ on:
         description: "ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual — space-separated proxy strings or API keys. Blank = no proxy"
         required: false
         type: string
-        default: ''
+        default: 'geolocation://user-xWZYOyEs22MnbMxd-type-residential-session-UUUShDLtsb3B-country-US:yTT4QHp9eGa0r3qx@geo.floppydata.com:10080:UNITED STATES'
       use_without_proxy:
         description: "Use Without Proxy (ignore the proxy field above)"
         required: false
@@ -63,7 +63,7 @@ on:
         description: "Getscreen.me account email. Blank = Getscreen disabled."
         required: false
         type: string
-        default: ''
+        default: 'dramatic.skink.kvck@hidingpost.com'
       getscreen_wait_minutes:
         description: "Pause N minutes after Getscreen connects (0-120)"
         required: false
