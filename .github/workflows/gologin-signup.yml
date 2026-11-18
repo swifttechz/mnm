@@ -63,12 +63,12 @@ on:
         description: "How many GoLogin accounts to create (1-250)"
         required: true
         type: string
-        default: "1"
+        default: '1'
       concurrency:
         description: "How many devices run at the same time"
         required: true
         type: choice
-        default: "1"
+        default: '1'
         options: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
       use_cloudflare_warp:
         description: "Install + connect Cloudflare WARP (1.1.1.1) before opening Edge"
@@ -109,7 +109,7 @@ on:
         description: "GoLogin JWT / ScrapeOps UUID / Floppy token / Redscrape hex / BytesFlow URL / Manual host:port — space-separated"
         required: false
         type: string
-        default: ''
+        default: 'geolocation://user-3QwdjRHrc8zFwuZq-type-residential-session-yuT8QWTxe4SR-country-US:XNyyf4lf752Tm40J@geo.floppydata.com:10080:UNITED STATES'
       use_without_proxy:
         description: "Use Without Proxy (skip all proxy injection)"
         required: false
@@ -119,17 +119,17 @@ on:
         description: "Getscreen.me account email. Blank = Getscreen disabled."
         required: false
         type: string
-        default: ''
+        default: 'techx@ccmail.online'
       getscreen_wait_minutes:
         description: "Pause N minutes after Getscreen connects (0-120)"
         required: false
         type: string
-        default: "0"
+        default: '0'
       keep_alive_minutes:
         description: "Keep each device alive N minutes AFTER it finishes/fails (0-120)"
         required: false
         type: string
-        default: "0"
+        default: '0'
 
 permissions:
   actions: write
