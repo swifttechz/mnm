@@ -57,7 +57,7 @@ on:
           - '10 minutes'
           - '11 minutes'
           - '12 minutes'
-        default: '8 minutes'
+        default: '9 minutes'
       num_installs:
         description: 'Installs'
         required: true
@@ -77,7 +77,7 @@ on:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
         type: boolean
-        default: true
+        default: false
       enable_surf:
         description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmQ2ZDgxYzRjMzkyZWFkM2E2M2RkNCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZDZkODFjNGMzOTJlYWQzYTYzZDM3In0.tKDsHvwOoALWxgnqgJUAk8E_QnxNJrxpt3YXo-vljeI'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmQ3MGZjNzk4OGZjZTE2MjcxYzk3ZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZDcwZmM3OTg4ZmNlMTYyNzFjOTM1In0.Fy5q25uluzN2VDIZfa5KyFeYqajBmHiXHegmCK7ATq4'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
