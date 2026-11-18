@@ -65,12 +65,12 @@ on:
         description: "How many GoLogin accounts to create (1-250)"
         required: true
         type: string
-        default: '1'
+        default: "1"
       concurrency:
         description: "How many devices run at the same time"
         required: true
         type: choice
-        default: '1'
+        default: "1"
         options: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
       use_cloudflare_warp:
         description: "Install + connect Cloudflare WARP (1.1.1.1) before opening Edge"
@@ -111,7 +111,7 @@ on:
         description: "GoLogin JWT / ScrapeOps UUID / Floppy token / Redscrape hex / BytesFlow URL / Manual host:port — space-separated"
         required: false
         type: string
-        default: 'geolocation://user-3QwdjRHrc8zFwuZq-type-residential-session-yuT8QWTxe4SR-country-US:XNyyf4lf752Tm40J@geo.floppydata.com:10080:UNITED STATES'
+        default: ''
       use_without_proxy:
         description: "Use Without Proxy (skip all proxy injection)"
         required: false
@@ -121,17 +121,17 @@ on:
         description: "Getscreen.me account email. Blank = Getscreen disabled."
         required: false
         type: string
-        default: 'techx@ccmail.online'
+        default: ''
       getscreen_wait_minutes:
         description: "Pause N minutes after Getscreen connects (0-120)"
         required: false
         type: string
-        default: '0'
+        default: "0"
       keep_alive_minutes:
         description: "Keep each device alive N minutes AFTER it finishes/fails (0-120)"
         required: false
         type: string
-        default: '0'
+        default: "0"
 
 permissions:
   actions: write
@@ -1242,6 +1242,9 @@ jobs:
           # ---------------------------------------------------------------
           # Proxy auth keywords (ported verbatim from main10FA)
           # ---------------------------------------------------------------
+          # ---------------------------------------------------------------
+          # Proxy auth keywords + helpers (ported VERBATIM from main10FA)
+          # ---------------------------------------------------------------
           PROXY_AUTH_TITLE_KEYWORDS = [
               "sign in", "authentication required", "proxy authentication",
               "connect to", "enter credentials", "network authentication",
@@ -1283,593 +1286,522 @@ jobs:
           ]
 
           _FOLD_SPECIAL_MAP = str.maketrans({
-              'ł':'l','Ł':'L','đ':'d','Đ':'D','ø':'o','Ø':'O',
-              'ß':'ss','æ':'ae','Æ':'AE','œ':'oe','Œ':'OE','ı':'i',
+              'l': 'l', 'd': 'd', 'o': 'o', 'O': 'O',
+              'ss': 'ss', 'ae': 'ae', 'AE': 'AE', 'oe': 'oe', 'OE': 'OE', 'i': 'i',
           })
-          def fold(text):
-              if not text: return ""
+          _FOLD_SPECIAL_MAP = str.maketrans({
+              '\u0142': 'l', '\u0141': 'L', '\u0111': 'd', '\u0110': 'D',
+              '\u00f8': 'o', '\u00d8': 'O', '\u00df': 'ss', '\u00e6': 'ae',
+              '\u00c6': 'AE', '\u0153': 'oe', '\u0152': 'OE', '\u0131': 'i',
+          })
+
+          def _fold(text):
+              if not text:
+                  return ""
               pre = text.translate(_FOLD_SPECIAL_MAP)
               nfkd = unicodedata.normalize('NFKD', pre)
-              return ''.join(ch for ch in nfkd if not unicodedata.combining(ch)).lower().strip()
+              stripped = ''.join(ch for ch in nfkd if not unicodedata.combining(ch))
+              return stripped.lower().strip()
 
-          def matches_any(text, kws):
-              if not text: return False
-              tl = fold(text)
-              return any(fold(k) in tl for k in kws)
+          def _matches_any(text, keyword_list):
+              if not text:
+                  return False
+              tl = _fold(text)
+              return any(_fold(kw) in tl for kw in keyword_list)
 
-          def proxy_host_hint():
-              srv = PROXY_SERVER.replace("http://","").replace("https://","")
+          def _proxy_host_hint():
+              srv = (PROXY_SERVER or "").replace("http://", "").replace("https://", "")
               host = srv.split("@")[-1].split(":")[0].strip()
               return host if len(host) >= 4 else ""
 
-          PROXY_HOST_HINT = proxy_host_hint()
+          _PROXY_HOST_HINT = ""
 
-          def is_proxy_auth_dialog(wt):
-              if not wt: return False
-              return (matches_any(wt, PROXY_AUTH_TITLE_KEYWORDS) or
-                      (bool(PROXY_HOST_HINT) and PROXY_HOST_HINT.lower() in wt.lower()))
+          def _window_mentions_proxy_host(text):
+              global _PROXY_HOST_HINT
+              if not text:
+                  return False
+              if not _PROXY_HOST_HINT:
+                  _PROXY_HOST_HINT = _proxy_host_hint()
+              return bool(_PROXY_HOST_HINT) and _PROXY_HOST_HINT.lower() in text.lower()
 
-          def is_address_bar(ctrl):
-              try:
-                  wt  = (ctrl.window_text() or "").lower().strip()
-                  aid = ""
-                  try: aid = (ctrl.element_info.automation_id or "").lower()
-                  except: pass
-                  for n in ADDRESS_BAR_NAMES:
-                      if n in wt or n in aid: return True
-                  for a in ADDRESS_BAR_AUTOMATION_IDS:
-                      if a.lower() in aid: return True
-              except: pass
-              return False
+          def _is_proxy_auth_dialog(window_text):
+              if not window_text:
+                  return False
+              return _matches_any(window_text, PROXY_AUTH_TITLE_KEYWORDS) or _window_mentions_proxy_host(window_text)
 
-          def page_ctrl_keys(container, ctype):
+          # ---------------------------------------------------------------
+          # PROXY AUTH: ONE-SHOT STATE + WEB-PAGE PROTECTION (verbatim main10FA)
+          # ---------------------------------------------------------------
+          PROXY_AUTH_STATE = {
+              "done": False, "reason": "", "done_time": 0.0, "late_reinjects": 0,
+              "page_ok_ticks": 0, "last_prompt_seen": 0.0, "started": 0.0, "valve_logged": False,
+          }
+          LATE_PROMPT_WINDOW_SEC = 90
+          LATE_REINJECT_MAX = 2
+
+          def _reset_proxy_auth_state():
+              PROXY_AUTH_STATE.update({
+                  "done": False, "reason": "", "done_time": 0.0, "late_reinjects": 0,
+                  "page_ok_ticks": 0, "last_prompt_seen": 0.0, "started": time.time(), "valve_logged": False,
+              })
+
+          def _mark_proxy_auth_done(reason):
+              if PROXY_AUTH_STATE["done"]:
+                  return
+              PROXY_AUTH_STATE["done"] = True
+              PROXY_AUTH_STATE["reason"] = reason
+              PROXY_AUTH_STATE["done_time"] = time.time()
+              log("ProxyAuth", "=" * 60)
+              log("ProxyAuth", f"PROXY AUTH DONE ({reason}).")
+              log("ProxyAuth", "Proxy credentials will NOT be typed again into any text box.")
+              log("ProxyAuth", f"Only a genuine proxy prompt naming the host may be answered: max {LATE_REINJECT_MAX}x within {LATE_PROMPT_WINDOW_SEC}s.")
+              log("ProxyAuth", "=" * 60)
+
+          def _page_control_keys(container, control_type):
               keys = set()
               try:
-                  for doc in container.descendants(control_type="Document"):
-                      try:
-                          for c in doc.descendants(control_type=ctype):
-                              try: keys.add(tuple(c.element_info.runtime_id))
-                              except: pass
-                      except: return keys, False
-              except: return keys, False
+                  docs = container.descendants(control_type="Document")
+              except Exception:
+                  return keys, False
+              for doc in docs:
+                  try:
+                      for c in doc.descendants(control_type=control_type):
+                          try:
+                              keys.add(tuple(c.element_info.runtime_id))
+                          except Exception:
+                              pass
+                  except Exception:
+                      return keys, False
               return keys, True
 
-          def outside_page(container, ctype):
-              try: all_c = container.descendants(control_type=ctype)
-              except: return []
-              keys, ok = page_ctrl_keys(container, ctype)
-              if not ok: return []
-              if not keys: return list(all_c)
+          def _outside_page(container, control_type):
+              try:
+                  all_c = container.descendants(control_type=control_type)
+              except Exception:
+                  return []
+              keys, ok = _page_control_keys(container, control_type)
+              if not ok:
+                  return []
+              if not keys:
+                  return list(all_c)
               out = []
               for c in all_c:
-                  try: rid = tuple(c.element_info.runtime_id)
-                  except: rid = None
-                  if rid is not None and rid in keys: continue
+                  try:
+                      rid = tuple(c.element_info.runtime_id)
+                  except Exception:
+                      rid = None
+                  if rid is not None and rid in keys:
+                      continue
                   out.append(c)
               return out
 
-          def find_username_fields(container):
-              results = []
+          def _is_address_bar_control(ctrl):
               try:
-                  for ctrl in outside_page(container, "Edit"):
-                      if is_address_bar(ctrl): continue
-                      try: wt = ctrl.window_text() or ""
-                      except: wt = ""
-                      try: name = ctrl.element_info.name or ""
-                      except: name = ""
-                      if matches_any(wt + " " + name, USERNAME_FIELD_KEYWORDS):
-                          results.append(ctrl)
-              except: pass
-              return results
-
-          def find_password_fields(container):
-              results = []
-              try:
-                  for ctrl in outside_page(container, "Edit"):
-                      if is_address_bar(ctrl): continue
-                      try: wt = ctrl.window_text() or ""
-                      except: wt = ""
-                      try: name = ctrl.element_info.name or ""
-                      except: name = ""
-                      if matches_any(wt + " " + name, PASSWORD_FIELD_KEYWORDS):
-                          results.append(ctrl); continue
-                      try:
-                          state = int((ctrl.legacy_properties().get("State", 0) or 0))
-                          if state & 0x20000000: results.append(ctrl); continue
-                      except: pass
-              except: pass
-              return results
-
-          def find_submit_button(container):
-              try:
-                  for btn in outside_page(container, "Button"):
-                      try: wt = btn.window_text() or ""
-                      except: wt = ""
-                      try: name = btn.element_info.name or ""
-                      except: name = ""
-                      if matches_any(wt + " " + name, SUBMIT_BUTTON_KEYWORDS):
-                          return btn
-              except: pass
-              return None
-
-          def auth_dialog_by_structure(window):
-              try:
-                  edits = [c for c in outside_page(window, "Edit") if not is_address_bar(c)]
-                  if len(edits) == 2: return edits[0], edits[1]
-              except: pass
-              return None, None
-
-          def edge_has_proxy_prompt(w):
-              try:
-                  edits = [c for c in outside_page(w, "Edit") if not is_address_bar(c)]
-                  if len(edits) == 2: return True
-                  for t in w.descendants(control_type="Text")[:300]:
-                      tt = t.window_text() or ""
-                      if tt and PROXY_HOST_HINT and PROXY_HOST_HINT.lower() in tt.lower():
+                  wt  = (ctrl.window_text() or "").lower().strip()
+                  aid = ""
+                  cls = ""
+                  try: aid = (ctrl.element_info.automation_id or "").lower()
+                  except Exception: pass
+                  try: cls = (ctrl.element_info.class_name or "").lower()
+                  except Exception: pass
+                  for name in ADDRESS_BAR_NAMES:
+                      if name in wt or name in aid:
                           return True
-              except: pass
+                  for aid_kw in ADDRESS_BAR_AUTOMATION_IDS:
+                      if aid_kw.lower() in aid:
+                          return True
+                  if "omnibox" in cls or "addressbar" in cls:
+                      return True
+              except Exception:
+                  pass
               return False
 
-          def page_loaded_without_prompt(edge_window):
+          def _edge_has_proxy_prompt(edge_window):
+              try:
+                  edits = [c for c in _outside_page(edge_window, "Edit") if not _is_address_bar_control(c)]
+              except Exception:
+                  return False
+              if not edits:
+                  return False
+              if len(edits) == 2:
+                  return True
+              try:
+                  for t in edge_window.descendants(control_type="Text")[:300]:
+                      tt = t.window_text() or ""
+                      if tt and _window_mentions_proxy_host(tt):
+                          return True
+              except Exception:
+                  pass
+              return False
+
+          def _find_genuine_proxy_prompt(desktop, edge_window):
+              try:
+                  for w in desktop.windows(visible_only=True):
+                      try:
+                          awt = w.window_text() or ""
+                      except Exception:
+                          continue
+                      if "Microsoft Edge" in awt:
+                          continue
+                      if _window_mentions_proxy_host(awt):
+                          return w
+                      try:
+                          for t in w.descendants(control_type="Text")[:60]:
+                              if _window_mentions_proxy_host(t.window_text() or ""):
+                                  return w
+                      except Exception:
+                          pass
+              except Exception:
+                  pass
+              if edge_window is not None and _edge_has_proxy_prompt(edge_window):
+                  try:
+                      for t in edge_window.descendants(control_type="Text")[:300]:
+                          if _window_mentions_proxy_host(t.window_text() or ""):
+                              return edge_window
+                  except Exception:
+                      pass
+              return None
+
+          def _page_loaded_without_prompt(edge_window):
               try:
                   wt = (edge_window.window_text() or "").strip().lower()
                   base = re.sub(r"\s*[-\u2013\u2014]\s*[^-\u2013\u2014]*microsoft\W*edge\s*$", "", wt).strip()
                   if base in ("", "microsoft edge", "edge", "new tab", "about:blank"):
                       return False
-                  if edge_has_proxy_prompt(edge_window): return False
+                  if _edge_has_proxy_prompt(edge_window):
+                      return False
                   count = 0
                   for doc in edge_window.descendants(control_type="Document"):
                       count += len(doc.children())
                   return count >= 3
-              except: return False
+              except Exception:
+                  return False
 
-          # ---------------------------------------------------------------
-          # Proxy auth state (one-shot, web-page-safe — identical to main10FA)
-          # ---------------------------------------------------------------
-          PROXY_AUTH_STATE = {
-              "done": False, "reason": "", "done_time": 0.0,
-              "late_reinjects": 0, "page_ok_ticks": 0,
-              "last_prompt_seen": 0.0, "started": 0.0, "valve_logged": False,
-          }
-          LATE_PROMPT_WINDOW_SEC = 90
-          LATE_REINJECT_MAX      = 2
-
-          def reset_proxy_auth_state():
-              PROXY_AUTH_STATE.update({
-                  "done": False, "reason": "", "done_time": 0.0,
-                  "late_reinjects": 0, "page_ok_ticks": 0,
-                  "last_prompt_seen": 0.0, "started": time.time(), "valve_logged": False,
-              })
-
-          def mark_proxy_auth_done(reason):
-              if PROXY_AUTH_STATE["done"]: return
-              PROXY_AUTH_STATE["done"]      = True
-              PROXY_AUTH_STATE["reason"]    = reason
-              PROXY_AUTH_STATE["done_time"] = time.time()
-              log("ProxyAuth", "="*50)
-              log("ProxyAuth", f"PROXY AUTH DONE ({reason}).")
-              log("ProxyAuth", "Credentials will NOT be typed again into any text box.")
-              log("ProxyAuth", "="*50)
-
-          def inject_proxy_auth(window, label="", allow_late=False):
-              if not USE_PROXY or not PROXY_USER or not PROXY_PASS: return False
-              if PROXY_AUTH_STATE["done"] and not allow_late:            return False
+          def _window_looks_like_auth_dialog(window, allow_structural=False):
               try:
-                  user_fields = find_username_fields(window)
-                  pass_fields = find_password_fields(window)
+                  wt = window.window_text() or ""
+              except Exception:
+                  wt = ""
+              if _is_proxy_auth_dialog(wt):
+                  return True
+              try:
+                  snippets = []
+                  for t in window.descendants(control_type="Text")[:30]:
+                      try:
+                          tt = t.window_text()
+                      except Exception:
+                          tt = ""
+                      if tt:
+                          snippets.append(tt)
+                  combined = " ".join(snippets)
+                  if combined and (_matches_any(combined, PROXY_AUTH_TITLE_KEYWORDS) or _window_mentions_proxy_host(combined)):
+                      return True
+              except Exception:
+                  pass
+              if allow_structural:
+                  try:
+                      edits = [c for c in _outside_page(window, "Edit") if not _is_address_bar_control(c)]
+                      if len(edits) == 2:
+                          return True
+                  except Exception:
+                      pass
+              return False
+
+          def _find_username_fields(container):
+              results = []
+              try:
+                  for ctrl in _outside_page(container, "Edit"):
+                      if _is_address_bar_control(ctrl):
+                          continue
+                      try: wt = ctrl.window_text() or ""
+                      except Exception: wt = ""
+                      try: name = ctrl.element_info.name or ""
+                      except Exception: name = ""
+                      if _matches_any(wt + " " + name, USERNAME_FIELD_KEYWORDS):
+                          results.append(ctrl)
+              except Exception:
+                  pass
+              return results
+
+          def _find_password_fields(container):
+              results = []
+              try:
+                  for ctrl in _outside_page(container, "Edit"):
+                      if _is_address_bar_control(ctrl):
+                          continue
+                      try: wt = ctrl.window_text() or ""
+                      except Exception: wt = ""
+                      try: name = ctrl.element_info.name or ""
+                      except Exception: name = ""
+                      if _matches_any(wt + " " + name, PASSWORD_FIELD_KEYWORDS):
+                          results.append(ctrl)
+                          continue
+                      try:
+                          legacy = ctrl.legacy_properties()
+                          state = int(legacy.get("State", 0) or 0)
+                          if state & 0x20000000:
+                              results.append(ctrl)
+                              continue
+                      except Exception:
+                          pass
+                      try:
+                          cls = ctrl.element_info.class_name or ""
+                          if "password" in cls.lower():
+                              results.append(ctrl)
+                      except Exception:
+                          pass
+              except Exception:
+                  pass
+              return results
+
+          def _find_submit_button(container):
+              try:
+                  for btn in _outside_page(container, "Button"):
+                      try: wt = btn.window_text() or ""
+                      except Exception: wt = ""
+                      try: name = btn.element_info.name or ""
+                      except Exception: name = ""
+                      if _matches_any(wt + " " + name, SUBMIT_BUTTON_KEYWORDS):
+                          return btn
+              except Exception:
+                  pass
+              return None
+
+          def _is_auth_dialog_by_structure(window):
+              try:
+                  all_edits = [c for c in _outside_page(window, "Edit") if not _is_address_bar_control(c)]
+                  if len(all_edits) == 2:
+                      return all_edits[0], all_edits[1]
+              except Exception:
+                  pass
+              return None, None
+
+          # ---------------------------------------------------------------
+          # inject_proxy_auth — VERBATIM from main10FA (the working version)
+          # ---------------------------------------------------------------
+          def inject_proxy_auth(window, label="", allow_late=False):
+              if not USE_PROXY or not PROXY_USER or not PROXY_PASS:
+                  return False
+              if PROXY_AUTH_STATE["done"] and not allow_late:
+                  return False
+
+              try:
+                  user_fields = _find_username_fields(window)
+                  pass_fields = _find_password_fields(window)
+
                   if (user_fields and not pass_fields) or (pass_fields and not user_fields):
                       try:
-                          edits = [c for c in outside_page(window, "Edit") if not is_address_bar(c)]
-                      except: edits = []
-                      if len(edits) == 2:
+                          all_edits = [c for c in _outside_page(window, "Edit") if not _is_address_bar_control(c)]
+                      except Exception:
+                          all_edits = []
+                      if len(all_edits) == 2:
                           known = (user_fields or pass_fields)[0]
-                          other = [c for c in edits if c != known]
+                          other = [c for c in all_edits if c != known]
                           if other:
                               if user_fields and not pass_fields:
                                   pass_fields = [other[0]]
+                                  log("ProxyAuth", f"[{label}] Password field had no locale match — inferred as the other field.")
                               else:
                                   user_fields = [other[0]]
+                                  log("ProxyAuth", f"[{label}] Username field had no locale match — inferred as the other field.")
+
                   if not user_fields or not pass_fields:
-                      u_s, p_s = auth_dialog_by_structure(window)
-                      if u_s and p_s:
-                          user_fields = [u_s]; pass_fields = [p_s]
+                      u_struct, p_struct = _is_auth_dialog_by_structure(window)
+                      if u_struct and p_struct:
+                          log("ProxyAuth", f"[{label}] Using structural detection (2-field dialog, no label matched).")
+                          user_fields = [u_struct]
+                          pass_fields = [p_struct]
+
                   if user_fields and pass_fields:
-                      if is_address_bar(user_fields[0]) or is_address_bar(pass_fields[0]):
-                          log("ProxyAuth", f"[{label}] BLOCKED — address bar. Skipping.")
+                      if _is_address_bar_control(user_fields[0]) or _is_address_bar_control(pass_fields[0]):
+                          log("ProxyAuth", f"[{label}] BLOCKED — fields are address bars. Skipping.")
                           return False
-                      log("ProxyAuth", f"[{label}] Injecting {PROXY_LABEL} creds. User={PROXY_USER[:20]}...")
-                      window.set_focus(); time.sleep(0.5)
+
+                      log("ProxyAuth", f"[{label}] Injecting {PROXY_LABEL} credentials. User={PROXY_USER[:25]}...")
+                      window.set_focus()
+                      time.sleep(0.5)
+
                       try:
-                          user_fields[0].click_input(); time.sleep(0.2)
-                          send_keys('^a'); time.sleep(0.1); send_keys('{DELETE}'); time.sleep(0.1)
+                          user_fields[0].click_input()
+                          time.sleep(0.2)
+                          send_keys('^a')
+                          time.sleep(0.1)
+                          send_keys('{DELETE}')
+                          time.sleep(0.1)
                           user_fields[0].type_keys(PROXY_USER, with_spaces=True, pause=0.02)
                           time.sleep(0.3)
-                      except Exception as eu: log("ProxyAuth", f"username type failed: {eu}")
+                      except Exception as eu:
+                          log("ProxyAuth", f"[{label}] Username field type failed: {eu}")
+
                       try:
-                          pass_fields[0].click_input(); time.sleep(0.2)
-                          send_keys('^a'); time.sleep(0.1); send_keys('{DELETE}'); time.sleep(0.1)
+                          pass_fields[0].click_input()
+                          time.sleep(0.2)
+                          send_keys('^a')
+                          time.sleep(0.1)
+                          send_keys('{DELETE}')
+                          time.sleep(0.1)
                           pass_fields[0].type_keys(PROXY_PASS, with_spaces=True, pause=0.02)
                           time.sleep(0.3)
-                      except Exception as ep: log("ProxyAuth", f"password type failed: {ep}")
-                      submit = find_submit_button(window)
-                      if submit:
+                      except Exception as ep:
+                          log("ProxyAuth", f"[{label}] Password field type failed: {ep}")
+
+                      signed_in = False
+                      submit_btn = _find_submit_button(window)
+                      if submit_btn:
                           try:
-                              submit.click_input()
-                              log("ProxyAuth", f"[{label}] Submit clicked.")
-                              return True
-                          except Exception as eb: log("ProxyAuth", f"submit click failed: {eb}")
-                      try:
-                          pass_fields[0].click_input(); time.sleep(0.2)
-                          send_keys('{ENTER}')
-                          log("ProxyAuth", f"[{label}] ENTER fallback."); return True
-                      except Exception as ek: log("ProxyAuth", f"ENTER fallback failed: {ek}")
+                              submit_btn.click_input()
+                              log("ProxyAuth", f"[{label}] Submit button clicked. Auth submitted.")
+                              signed_in = True
+                          except Exception as eb:
+                              log("ProxyAuth", f"[{label}] Submit button click failed: {eb}")
+
+                      if not signed_in:
+                          try:
+                              pass_fields[0].click_input()
+                              time.sleep(0.2)
+                              send_keys('{ENTER}')
+                              log("ProxyAuth", f"[{label}] Submitted via ENTER fallback.")
+                              signed_in = True
+                          except Exception as ek:
+                              log("ProxyAuth", f"[{label}] ENTER fallback failed: {ek}")
+
+                      return signed_in
+
                   else:
                       wt = ""
-                      try: wt = window.window_text() or ""
-                      except: pass
-                      if not is_proxy_auth_dialog(wt): return False
-                      try: has_doc = len(window.descendants(control_type="Document")) > 0
-                      except: has_doc = True
-                      if has_doc:
-                          log("ProxyAuth", f"[{label}] Refusing blind typing: window has web content.")
+                      try:
+                          wt = window.window_text() or ""
+                      except Exception:
+                          pass
+
+                      if not _is_proxy_auth_dialog(wt):
+                          log("ProxyAuth", f"[{label}] No auth fields and window '{wt}' is not an auth dialog. Skipping.")
                           return False
-                      log("ProxyAuth", f"[{label}] No Edit fields — keyboard Tab injection.")
-                      window.set_focus(); time.sleep(0.5)
-                      send_keys('^a{DELETE}'); time.sleep(0.1)
+
+                      try:
+                          has_doc = len(window.descendants(control_type="Document")) > 0
+                      except Exception:
+                          has_doc = True
+                      if has_doc:
+                          log("ProxyAuth", f"[{label}] Refusing blind keyboard typing: window contains web page content.")
+                          return False
+
+                      log("ProxyAuth", f"[{label}] No Edit fields — trying keyboard Tab injection.")
+                      window.set_focus()
+                      time.sleep(0.5)
+                      send_keys('^a{DELETE}')
+                      time.sleep(0.1)
                       for ch in PROXY_USER:
                           send_keys(ch if ch.isalnum() or ch in '.-_=@' else '{%s}' % ch)
                           time.sleep(0.01)
-                      send_keys('{TAB}'); time.sleep(0.3)
-                      send_keys('^a{DELETE}'); time.sleep(0.1)
+                      send_keys('{TAB}')
+                      time.sleep(0.3)
+                      send_keys('^a{DELETE}')
+                      time.sleep(0.1)
                       for ch in PROXY_PASS:
                           send_keys(ch if ch.isalnum() or ch in '.-_=@' else '{%s}' % ch)
                           time.sleep(0.01)
+                      time.sleep(0.2)
                       send_keys('{ENTER}')
-                      log("ProxyAuth", f"[{label}] Keyboard-only auth submitted."); return True
+                      log("ProxyAuth", f"[{label}] Keyboard-only auth submitted.")
+                      return True
+
               except Exception as e:
-                  log("ProxyAuth", f"[{label}] exception: {e}"); return False
-
-          def find_genuine_proxy_prompt(desktop, edge_window):
-              try:
-                  for w in desktop.windows(visible_only=True):
-                      try: awt = w.window_text() or ""
-                      except: continue
-                      if "Microsoft Edge" in awt: continue
-                      if PROXY_HOST_HINT and PROXY_HOST_HINT.lower() in awt.lower(): return w
-                      try:
-                          for t in w.descendants(control_type="Text")[:60]:
-                              if PROXY_HOST_HINT and PROXY_HOST_HINT.lower() in (t.window_text() or "").lower():
-                                  return w
-                      except: pass
-              except: pass
-              if edge_window is not None and edge_has_proxy_prompt(edge_window):
-                  try:
-                      for t in edge_window.descendants(control_type="Text")[:300]:
-                          if PROXY_HOST_HINT and PROXY_HOST_HINT.lower() in (t.window_text() or "").lower():
-                              return edge_window
-                  except: pass
-              return None
-
-          # ---------------------------------------------------------------
-          # Edge launcher — subprocess + --proxy-server (main10FA pattern)
-          # ---------------------------------------------------------------
-          def find_edge_exe():
-              for c in EDGE_EXE_CANDIDATES:
-                  if os.path.exists(c): return c
-              return None
-
-          CDP_PORT = 9222
-
-          def launch_edge_with_proxy(target_url, attempt_num=1):
-              resolved_exe = find_edge_exe()
-              if not resolved_exe:
-                  log("EdgeLaunch", "CRITICAL: Edge exe not found!")
+                  log("ProxyAuth", f"[{label}] inject_proxy_auth exception: {e}")
                   return False
-              try: os.system("taskkill /F /IM msedge.exe >nul 2>&1")
-              except: pass
-              time.sleep(2)
-              user_dir = os.path.join(tempfile.gettempdir(), f"EdgeGLSignup_{random.randint(100000,999999)}")
-              cmd_parts = [
-                  f'"{resolved_exe}"',
-                  f'--user-data-dir="{user_dir}"',
-                  f'--remote-debugging-port={CDP_PORT}',
-                  '--no-first-run',
-                  '--no-default-browser-check',
-                  '--disable-sync',
-                  '--disable-blink-features=AutomationControlled',
-                  '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
-                  '--safebrowsing-disable-download-protection',
-                  '--disable-features=msSmartScreenProtection,SmartScreenPuaEnabled,CalculateNativeWinOcclusion',
-                  '--restore-last-session=false',
-                  '--start-maximized',
-                  '--password-store=basic',
-                  '--use-mock-keychain',
-                  '--lang=en-US',
-                  '--accept-lang="en-US,en;q=0.9"',
-              ]
-              if USE_PROXY and PROXY_SERVER and PROXY_SERVER.strip():
-                  proxy_arg = PROXY_SERVER if "://" in PROXY_SERVER else f"http://{PROXY_SERVER}"
-                  cmd_parts.append(f'--proxy-server="{proxy_arg}"')
-                  log("EdgeLaunch", f"Attempt {attempt_num}: Proxy injected -> {proxy_arg}")
-              else:
-                  log("EdgeLaunch", f"Attempt {attempt_num}: Direct mode (no proxy).")
-              cmd_parts.append(f'"{target_url}"')
-              cmd = ' '.join(cmd_parts)
-              log("EdgeLaunch", f"CMD (truncated): {cmd[:220]}...")
-              try:
-                  subprocess.Popen(cmd, shell=True)
-                  log("EdgeLaunch", f"Attempt {attempt_num}: Edge spawned.")
-                  return True
-              except Exception as e:
-                  log("EdgeLaunch", f"Popen failed: {e}")
-                  try:
-                      os.system(f'start "" {cmd}')
-                      log("EdgeLaunch", f"os.system fallback executed."); return True
-                  except Exception as e2:
-                      log("EdgeLaunch", f"os.system also failed: {e2}"); return False
 
-          def verify_edge_launch_with_proxy_auth(target_url):
-              """
-              Launch Edge + --proxy-server, then wait for and handle the native
-              proxy auth dialog exactly as main10FA does. Returns True once Edge
-              is confirmed running and proxy is authenticated (or no auth needed).
-              """
-              reset_proxy_auth_state()
-              for attempt in range(1, 6):
-                  launch_edge_with_proxy(target_url, attempt_num=attempt)
-                  start_wait = time.time()
-                  if USE_PROXY and PROXY_USER and PROXY_PASS:
-                      log("EdgeLaunch", "Authenticated proxy. Waiting up to 15s for native auth dialog...")
-                      auth_found = False
-                      while time.time() - start_wait < 15:
-                          desktop_chk = Desktop(backend="uia")
-                          try:
-                              for w in desktop_chk.windows(visible_only=True):
-                                  wt = w.window_text() or ""
-                                  if is_proxy_auth_dialog(wt):
-                                      auth_found = True; break
-                                  if "Microsoft Edge" in wt or "Edge" in wt:
-                                      u, p = auth_dialog_by_structure(w)
-                                      if u and p: auth_found = True; break
-                          except: pass
-                          if auth_found: break
-                          time.sleep(1)
-                      if auth_found:
-                          log("EdgeLaunch", "Proxy auth dialog detected — Edge launched correctly.")
-                          return True
-                      else:
-                          log("EdgeLaunch", f"No auth dialog in 15s (attempt {attempt}). Relaunching...")
-                          os.system("taskkill /F /IM msedge.exe >nul 2>&1"); time.sleep(2)
-                  else:
-                      log("EdgeLaunch", "No auth needed. Waiting up to 15s for Edge URL to load...")
-                      url_loaded = False
-                      while time.time() - start_wait < 15:
-                          desktop_chk = Desktop(backend="uia")
-                          try:
-                              for w in desktop_chk.windows(visible_only=True):
-                                  wt = (w.window_text() or "").lower()
-                                  if ("microsoft edge" in wt or "msedge" in wt) and wt not in ["microsoft edge","edge","new tab",""]:
-                                      url_loaded = True; break
-                          except: pass
-                          if url_loaded: break
-                          time.sleep(1)
-                      if url_loaded:
-                          log("EdgeLaunch", "URL loaded — Edge launched correctly."); return True
-                      else:
-                          log("EdgeLaunch", f"URL not loaded in 15s (attempt {attempt}). Relaunching...")
-                          os.system("taskkill /F /IM msedge.exe >nul 2>&1"); time.sleep(2)
-              log("EdgeLaunch", "FATAL: Could not verify Edge launch after 5 attempts.")
-              return False
-
-          def run_proxy_auth_loop(desktop_ref, edge_win_ref, stop_event):
-              """
-              Background thread: continuously scans for the native proxy auth dialog
-              and injects credentials. Mirrors main10FA's main polling loop auth block.
-              Stops once proxy is marked done OR stop_event is set.
-              """
+          # ---------------------------------------------------------------
+          # Proxy auth polling loop — verbatim main10FA polling logic
+          # ---------------------------------------------------------------
+          def run_proxy_auth_loop(stop_event):
               AUTH_SCAN_INTERVAL  = 2.0
               LATE_VALVE_INTERVAL = 6.0
-              last_auth_scan = 0.0
+              last_auth_scan  = 0.0
               last_late_check = 0.0
               log("ProxyAuthLoop", "Background proxy-auth thread started.")
+
               while not stop_event.is_set():
                   now = time.time()
+
                   if not PROXY_AUTH_STATE["done"]:
                       if now - last_auth_scan >= AUTH_SCAN_INTERVAL:
                           last_auth_scan = now
+                          auth_injected_this_tick = False
+                          seen_prompt = False
+                          edge_window = None
+
                           try:
                               desktop = Desktop(backend="uia")
-                              auth_injected = False
-                              seen_prompt = False
-                              edge_w = None
-                              for w in desktop.windows(visible_only=True):
-                                  wt = w.window_text() or ""
-                                  if "Microsoft Edge" in wt: edge_w = w
-                                  if "Microsoft Edge" in wt and wt != "Microsoft Edge": continue
-                                  if is_proxy_auth_dialog(wt):
+
+                              for auth_window in desktop.windows(visible_only=True):
+                                  awt = auth_window.window_text() or ""
+                                  if "Microsoft Edge" in awt and awt != "Microsoft Edge":
+                                      edge_window = auth_window
+                                      continue
+                                  if "Microsoft Edge" in awt:
+                                      edge_window = auth_window
+                                      continue
+                                  if _window_looks_like_auth_dialog(auth_window):
                                       seen_prompt = True
-                                      log("ProxyAuthLoop", f"[TopLevel] Dialog: '{wt}' — injecting...")
-                                      if inject_proxy_auth(w, label=f"toplevel-{wt[:30]}"):
-                                          auth_injected = True; break
-                              if not auth_injected and edge_w:
-                                  if edge_has_proxy_prompt(edge_w):
+                                      log("ProxyAuthLoop", f"[TopLevel] Auth dialog: '{awt}' — injecting...")
+                                      if inject_proxy_auth(auth_window, label=f"toplevel-{awt[:30]}"):
+                                          auth_injected_this_tick = True
+                                          break
+
+                              if not auth_injected_this_tick and edge_window:
+                                  if _edge_has_proxy_prompt(edge_window):
                                       seen_prompt = True
-                                      log("ProxyAuthLoop", "[Edge-UI] Inline proxy prompt detected — injecting...")
-                                      if inject_proxy_auth(edge_w, label="edge-ui"):
-                                          auth_injected = True
-                              if auth_injected:
-                                  mark_proxy_auth_done("credentials submitted")
+                                      log("ProxyAuthLoop", "[Edge-UI] Browser-UI credential prompt detected (web page fields excluded) — injecting...")
+                                      if inject_proxy_auth(edge_window, label="edge-ui"):
+                                          auth_injected_this_tick = True
+
+                              if auth_injected_this_tick:
+                                  _mark_proxy_auth_done("credentials submitted")
                               elif seen_prompt:
                                   PROXY_AUTH_STATE["page_ok_ticks"] = 0
                                   PROXY_AUTH_STATE["last_prompt_seen"] = now
-                              elif (edge_w and (now - PROXY_AUTH_STATE["started"]) > 10
+                              elif (edge_window
+                                    and (now - PROXY_AUTH_STATE["started"]) > 10
                                     and (now - PROXY_AUTH_STATE["last_prompt_seen"]) > 5):
-                                  if page_loaded_without_prompt(edge_w):
+                                  if _page_loaded_without_prompt(edge_window):
                                       PROXY_AUTH_STATE["page_ok_ticks"] += 1
                                       if PROXY_AUTH_STATE["page_ok_ticks"] >= 3:
-                                          mark_proxy_auth_done("page loaded with no proxy prompt — proxy already authenticated")
+                                          _mark_proxy_auth_done("page loaded with no proxy prompt — proxy already authenticated")
                                   else:
                                       PROXY_AUTH_STATE["page_ok_ticks"] = 0
+
                           except Exception as ex:
                               log("ProxyAuthLoop", f"scan error: {ex}")
+
                   else:
-                      # Late-prompt valve (identical to main10FA)
+                      # Late-prompt valve (verbatim main10FA)
                       age = now - PROXY_AUTH_STATE["done_time"]
                       if age <= LATE_PROMPT_WINDOW_SEC and PROXY_AUTH_STATE["late_reinjects"] < LATE_REINJECT_MAX:
                           if now - last_late_check >= LATE_VALVE_INTERVAL:
                               last_late_check = now
                               try:
                                   desktop = Desktop(backend="uia")
-                                  edge_w = None
+                                  edge_window = None
                                   for w in desktop.windows(visible_only=True):
                                       if "Microsoft Edge" in (w.window_text() or ""):
-                                          edge_w = w; break
-                                  late_target = find_genuine_proxy_prompt(desktop, edge_w)
-                                  if late_target is not None:
-                                      PROXY_AUTH_STATE["late_reinjects"] += 1
-                                      log("ProxyAuthLoop", f"[LatePrompt] Genuine proxy prompt still showing — re-injecting ({PROXY_AUTH_STATE['late_reinjects']}/{LATE_REINJECT_MAX}).")
-                                      inject_proxy_auth(late_target, label="late-prompt", allow_late=True)
-                              except: pass
+                                          edge_window = w
+                                          break
+                                  late_target = _find_genuine_proxy_prompt(desktop, edge_window)
+                              except Exception:
+                                  late_target = None
+                              if late_target is not None:
+                                  PROXY_AUTH_STATE["late_reinjects"] += 1
+                                  log("ProxyAuthLoop", f"[LatePrompt] Genuine proxy prompt still showing — re-submitting ({PROXY_AUTH_STATE['late_reinjects']}/{LATE_REINJECT_MAX}).")
+                                  inject_proxy_auth(late_target, label="late-prompt", allow_late=True)
                       elif not PROXY_AUTH_STATE["valve_logged"]:
                           PROXY_AUTH_STATE["valve_logged"] = True
-                          log("ProxyAuthLoop", "Late-prompt window closed: proxy auth injection fully disabled.")
+                          log("ProxyAuthLoop", "Late-prompt window closed: proxy credential injection fully disabled.")
+
                   time.sleep(1.5)
+
               log("ProxyAuthLoop", "Background proxy-auth thread stopped.")
 
-          # ---------------------------------------------------------------
-          # Playwright signup helpers (form automation — unchanged from v2)
-          # ---------------------------------------------------------------
-          def wait_any(checks, timeout_ms):
-              end = time.time() + timeout_ms/1000
-              while time.time() < end:
-                  for name, fn in checks:
-                      try:
-                          if fn(): return name
-                      except: pass
-                  time.sleep(0.4)
-              return None
 
-          def find_visible(page, locs, timeout_ms=6000):
-              end = time.time() + timeout_ms/1000
-              while time.time() < end:
-                  for l in locs:
-                      try:
-                          if l.first.is_visible(): return l.first
-                      except: pass
-                  time.sleep(0.3)
-              return None
-
-          def click_first(page, locs, timeout_ms=4000):
-              el = find_visible(page, locs, timeout_ms)
-              if not el: return False
-              try: el.click(timeout=5000)
-              except: el.click(force=True, timeout=3000)
-              return True
-
-          def type_human(loc, text):
-              loc.click()
-              loc.fill("")
-              loc.press_sequentially(text, delay=random.randint(30,70))
-
-          def tick_tos(page):
-              cb = page.locator('input[type="checkbox"]').first
-              if cb.count() > 0:
-                  if cb.is_checked(): return True
-                  page.get_by_text(re.compile(r'I agree to the', re.I)).first.click(
-                      position={"x":-20,"y":8}, force=True)
-                  time.sleep(0.4)
-                  if cb.is_checked(): return True
-                  cb.check(force=True); time.sleep(0.3)
-              return True
-
-          def solve_turnstile(page, caller_label=""):
-              lbl = f"[{caller_label}] " if caller_label else ""
-              log("Turnstile", f"{lbl}checking for Cloudflare Turnstile...")
-              iframe_visible = False
-              for _ in range(24):
-                  try:
-                      if page.locator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').count() > 0:
-                          iframe_visible = True; break
-                  except: pass
-                  time.sleep(0.5)
-              if not iframe_visible: log("Turnstile", f"{lbl}no iframe — skipping"); return False
-              log("Turnstile", f"{lbl}iframe detected...")
-              cf = page.frame_locator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first
-              cb = cf.locator('input[type="checkbox"]')
-              appeared = False
-              for _ in range(30):
-                  try:
-                      if cb.is_visible(): appeared = True; break
-                  except: pass
-                  time.sleep(0.5)
-              if not appeared:
-                  shot(page, f"cf-no-checkbox-{caller_label}"); return False
-              shot(page, f"cf-before-{caller_label}")
-              for attempt in range(1,6):
-                  try: cb.click(timeout=5000); break
-                  except: time.sleep(1)
-              solved = False
-              for _ in range(60):
-                  try:
-                      te = page.locator('[name="cf-turnstile-response"]')
-                      if te.count() > 0 and len(te.input_value()) > 10: solved = True; break
-                      if page.locator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').count() == 0:
-                          solved = True; break
-                  except: pass
-                  time.sleep(0.5)
-              shot(page, f"cf-{'solved' if solved else 'timeout'}-{caller_label}")
-              log("Turnstile", f"{lbl}{'SOLVED ✓' if solved else 'TIMED OUT'}")
-              if solved: time.sleep(random.randint(1200,2000)/1000)
-              return solved
-
-          def dismiss_overlays(page, rounds=10):
-              for _ in range(rounds):
-                  acted = click_first(page, [
-                      page.get_by_role("button", name=re.compile(r"got it", re.I)),
-                      page.get_by_text(re.compile(r"skip recommended setup", re.I)),
-                      page.get_by_role("button", name=re.compile(r"^not now$", re.I)),
-                      page.get_by_role("button", name=re.compile(r"^(close|skip|maybe later|no thanks)$", re.I)),
-                      page.locator('[aria-label="Close" i], [aria-label="close" i]'),
-                  ], 800)
-                  if not acted: break
-                  time.sleep(0.9)
-
-          def is_dashboard(page):
-              return (page.get_by_role("button", name=re.compile(r"add profile", re.I)).first.is_visible() or
-                      page.get_by_text(re.compile(r"^all profiles$", re.I)).first.is_visible())
-
-          JWT = re.compile(r'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}')
-          candidates = []
-          RANK = ['copy-token-click','clipboard','network','settings-new','settings-existing']
-          def rank_of(s):
-              i = next((i for i,r in enumerate(RANK) if s.startswith(r)), 99); return i
-
-          def add_candidate(token, source):
-              if not token or any(c["token"] == token for c in candidates): return
-              candidates.append({"token": token, "source": source})
-              log("Token", f"candidate [{source}] ({len(token)} chars)")
-
-          def read_clipboard(page):
-              try:
-                  for m in JWT.findall(page.evaluate("() => navigator.clipboard.readText()") or ""):
-                      add_candidate(m, "clipboard")
-              except: pass
-
-          def scan_page(page, source):
-              texts = page.evaluate("""() => {
-                  const out = [document.body?.innerText || ''];
-                  document.querySelectorAll('input,textarea').forEach(e => out.push(e.value||''));
-                  document.querySelectorAll('[data-token],[title],[data-clipboard-text]').forEach(e => {
-                      out.push(e.getAttribute('data-token')||'',e.getAttribute('title')||'',e.getAttribute('data-clipboard-text')||'');
-                  });
-                  return out;
-              }""")
-              for t in texts:
-                  for m in JWT.findall(t): add_candidate(m, source)
-
-          # ---------------------------------------------------------------
-          # MAIN
-          # ---------------------------------------------------------------
           def main():
               proxy_display = (f"{PROXY_LABEL}:{PROXY_SERVER} user={PROXY_USER[:6]}***"
                                if USE_PROXY else "none")
