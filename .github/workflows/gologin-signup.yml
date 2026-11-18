@@ -918,316 +918,151 @@ jobs:
           $proxyPass   = $env:PROXY_PASS
           $proxyServer = $env:PROXY_SERVER
 
-          # Write the monitor script content
-          $scriptContent = @"
-          import time, sys, os, unicodedata, re
-          from pywinauto import Desktop
-          from pywinauto.keyboard import send_keys
-
-          PROXY_USER   = os.environ.get('PROXY_USER_MON', '')
-          PROXY_PASS   = os.environ.get('PROXY_PASS_MON', '')
-          PROXY_SERVER = os.environ.get('PROXY_SERVER_MON', '')
-
-          def log(msg):
-              print(f'[{time.strftime("%H:%M:%S")}][ProxyMon] {msg}', flush=True)
-
-          # Multi-language keywords taken from the working main10.9FA injector
-          PROXY_AUTH_TITLE_KEYWORDS = [
-              "sign in", "authentication required", "proxy authentication",
-              "connect to", "enter credentials", "network authentication",
-              "proxy auth", "enter network credentials", "authentication",
-              "proxy", "credential",
-              "connexion", "authentification",
-              "entrar", "autenticacao", "conectar",
-              "anmelden", "authentifizierung",
-              "iniciar sesion", "autenticacion",
-              "accedi", "autenticazione",
-              "aanmelden", "authenticatie",
-              "zaloguj", "uwierzytelnianie",
-              "dang nhap", "xac thuc",
-              "masuk", "autentikasi",
-          ]
-          USERNAME_FIELD_KEYWORDS = [
-              "username", "user name", "user", "login", "account", "email",
-              "nom d utilisateur", "utilisateur", "identifiant",
-              "nome de usuario", "usuario", "utilizador",
-              "benutzername", "benutzer",
-              "nombre de usuario",
-              "nome utente", "utente",
-              "gebruikersnaam",
-              "nazwa uzytkownika", "uzytkownik",
-              "ten nguoi dung",
-              "nama pengguna",
-          ]
-          PASSWORD_FIELD_KEYWORDS = [
-              "password", "pass", "passwd", "secret", "pin",
-              "mot de passe",
-              "senha", "palavra-passe",
-              "passwort", "kennwort",
-              "contrasena", "clave",
-              "parola d ordine",
-              "wachtwoord",
-              "haslo",
-              "mat khau",
-              "kata sandi",
-          ]
-          SUBMIT_BUTTON_KEYWORDS = [
-              "sign in", "ok", "connect", "login", "submit", "authenticate",
-              "continue", "proceed", "confirm", "accept",
-              "connexion", "continuer", "confirmer",
-              "entrar", "continuar", "confirmar",
-              "anmelden", "weiter", "bestatigen",
-              "iniciar sesion", "aceptar",
-              "accedi", "continua",
-              "aanmelden", "doorgaan",
-              "zaloguj", "polacz", "kontynuuj",
-              "dang nhap", "tiep tuc",
-              "masuk", "lanjutkan",
-          ]
-          ADDRESS_BAR_NAMES = [
-              "address and search bar", "address bar", "search bar",
-              "omnibox", "location bar", "url bar", "address",
-              "barre d adresse", "barra de enderecos", "adressleiste",
-              "barra de direcciones", "barra degli indirizzi",
-              "adresbalk", "pasek adresu", "thanh dia chi", "bilah alamat",
-          ]
-          ADDRESS_BAR_AUTOMATION_IDS = [
-              "addressEditBox", "addressField", "locationBar",
-              "view_1", "omnibox",
-          ]
-
-          def fold(text):
-              if not text: return ''
-              nfkd = unicodedata.normalize('NFKD', text)
-              return ''.join(ch for ch in nfkd if not unicodedata.combining(ch)).lower().strip()
-
-          def matches_any(text, kws):
-              if not text: return False
-              tl = fold(text)
-              return any(fold(k) in tl for k in kws)
-
-          def proxy_host_hint():
-              srv = (PROXY_SERVER or '').replace('http://','').replace('https://','')
-              host = srv.split('@')[-1].split(':')[0].strip()
-              return host if len(host) >= 4 else ''
-
-          PROXY_HOST_HINT = proxy_host_hint()
-
-          def is_proxy_auth_dialog(wt):
-              if not wt: return False
-              return matches_any(wt, PROXY_AUTH_TITLE_KEYWORDS) or (bool(PROXY_HOST_HINT) and PROXY_HOST_HINT.lower() in wt.lower())
-
-          def is_address_bar(ctrl):
-              try:
-                  wt  = (ctrl.window_text() or '').lower().strip()
-                  aid = ''
-                  try: aid = (ctrl.element_info.automation_id or '').lower()
-                  except: pass
-                  for name in ADDRESS_BAR_NAMES:
-                      if name in wt or name in aid: return True
-                  for a in ADDRESS_BAR_AUTOMATION_IDS:
-                      if a.lower() in aid: return True
-              except: pass
-              return False
-
-          def page_ctrl_keys(container, ctype):
-              keys = set()
-              try:
-                  for doc in container.descendants(control_type='Document'):
-                      try:
-                          for c in doc.descendants(control_type=ctype):
-                              try: keys.add(tuple(c.element_info.runtime_id))
-                              except: pass
-                      except: return keys, False
-              except: return keys, False
-              return keys, True
-
-          def outside_page(container, ctype):
-              try:
-                  all_c = container.descendants(control_type=ctype)
-              except: return []
-              keys, ok = page_ctrl_keys(container, ctype)
-              if not ok: return []
-              if not keys: return list(all_c)
-              out = []
-              for c in all_c:
-                  try:
-                      rid = tuple(c.element_info.runtime_id)
-                  except: rid = None
-                  if rid is not None and rid in keys: continue
-                  out.append(c)
-              return out
-
-          def find_username_fields(container):
-              results = []
-              try:
-                  for ctrl in outside_page(container, 'Edit'):
-                      if is_address_bar(ctrl): continue
-                      try: wt = ctrl.window_text() or ''
-                      except: wt = ''
-                      try: name = ctrl.element_info.name or ''
-                      except: name = ''
-                      if matches_any(wt + ' ' + name, USERNAME_FIELD_KEYWORDS):
-                          results.append(ctrl)
-              except: pass
-              return results
-
-          def find_password_fields(container):
-              results = []
-              try:
-                  for ctrl in outside_page(container, 'Edit'):
-                      if is_address_bar(ctrl): continue
-                      try: wt = ctrl.window_text() or ''
-                      except: wt = ''
-                      try: name = ctrl.element_info.name or ''
-                      except: name = ''
-                      if matches_any(wt + ' ' + name, PASSWORD_FIELD_KEYWORDS):
-                          results.append(ctrl); continue
-                      try:
-                          state = int((ctrl.legacy_properties().get('State', 0) or 0))
-                          if state & 0x20000000:
-                              results.append(ctrl); continue
-                      except: pass
-              except: pass
-              return results
-
-          def find_submit_button(container):
-              try:
-                  for btn in outside_page(container, 'Button'):
-                      try: wt = btn.window_text() or ''
-                      except: wt = ''
-                      try: name = btn.element_info.name or ''
-                      except: name = ''
-                      if matches_any(wt + ' ' + name, SUBMIT_BUTTON_KEYWORDS): return btn
-              except: pass
-              return None
-
-          PROXY_AUTH_STATE = {
-              "done": False, "reason": "", "done_time": 0.0,
-              "late_reinjects": 0, "page_ok_ticks": 0,
-              "last_prompt_seen": 0.0, "started": time.time(), "valve_logged": False
-          }
-          LATE_PROMPT_WINDOW_SEC = 90
-          LATE_REINJECT_MAX = 2
-
-          def mark_done(reason):
-              if PROXY_AUTH_STATE["done"]: return
-              PROXY_AUTH_STATE["done"] = True
-              PROXY_AUTH_STATE["reason"] = reason
-              PROXY_AUTH_STATE["done_time"] = time.time()
-              log(f"PROXY AUTH DONE ({reason}). Credentials will not be typed into web-page fields.")
-
-          def inject_auth(window, label='', allow_late=False):
-              if not PROXY_USER or not PROXY_PASS: return False
-              if PROXY_AUTH_STATE["done"] and not allow_late: return False
-              try:
-                  user_fields = find_username_fields(window)
-                  pass_fields = find_password_fields(window)
-                  if not user_fields or not pass_fields:
-                      edits = [c for c in outside_page(window, 'Edit') if not is_address_bar(c)]
-                      if len(edits) == 2:
-                          user_fields = [edits[0]]
-                          pass_fields = [edits[1]]
-                  if user_fields and pass_fields:
-                      log(f'[{label}] Injecting credentials. User={PROXY_USER[:20]}...')
-                      window.set_focus(); time.sleep(0.5)
-                      try:
-                          user_fields[0].click_input(); time.sleep(0.2)
-                          send_keys('^a'); time.sleep(0.1)
-                          send_keys('{DELETE}'); time.sleep(0.1)
-                          user_fields[0].type_keys(PROXY_USER, with_spaces=True, pause=0.02)
-                          time.sleep(0.3)
-                      except Exception as eu:
-                          log(f'username type failed: {eu}')
-                      try:
-                          pass_fields[0].click_input(); time.sleep(0.2)
-                          send_keys('^a'); time.sleep(0.1)
-                          send_keys('{DELETE}'); time.sleep(0.1)
-                          pass_fields[0].type_keys(PROXY_PASS, with_spaces=True, pause=0.02)
-                          time.sleep(0.3)
-                      except Exception as ep:
-                          log(f'password type failed: {ep}')
-                      submit = find_submit_button(window)
-                      if submit:
-                          try:
-                              submit.click_input()
-                              log(f'[{label}] Submit button clicked.')
-                              mark_done("credentials submitted via fields")
-                              return True
-                          except Exception as eb:
-                              log(f'submit click failed: {eb}')
-                      try:
-                          pass_fields[0].click_input(); time.sleep(0.2)
-                          send_keys('{ENTER}')
-                          log(f'[{label}] ENTER fallback.')
-                          mark_done("credentials submitted via ENTER")
-                          return True
-                      except Exception as ek:
-                          log(f'ENTER fallback failed: {ek}')
-                  else:
-                      wt = ''
-                      try: wt = window.window_text() or ''
-                      except: pass
-                      if is_proxy_auth_dialog(wt):
-                          log(f'[{label}] No edit fields but dialog title matches - keyboard injection.')
-                          window.set_focus(); time.sleep(0.5)
-                          for ch in PROXY_USER:
-                              send_keys(ch if ch.isalnum() or ch in '.-_=@' else '{%s}' % ch)
-                              time.sleep(0.01)
-                          send_keys('{TAB}'); time.sleep(0.3)
-                          for ch in PROXY_PASS:
-                              send_keys(ch if ch.isalnum() or ch in '.-_=@' else '{%s}' % ch)
-                              time.sleep(0.01)
-                          send_keys('{ENTER}')
-                          log(f'[{label}] Keyboard-only auth submitted.')
-                          mark_done("keyboard-only submission")
-                          return True
-              except Exception as e:
-                  log(f'inject_auth error: {e}')
-              return False
-
-          def edge_has_proxy_prompt(w):
-              try:
-                  edits = [c for c in outside_page(w, 'Edit') if not is_address_bar(c)]
-                  if len(edits) == 2: return True
-                  for t in w.descendants(control_type='Text')[:300]:
-                      tt = t.window_text() or ''
-                      if tt and PROXY_HOST_HINT and PROXY_HOST_HINT.lower() in tt.lower(): return True
-              except: pass
-              return False
-
-          log(f'Monitor started (main10FA-style one-shot). PROXY_USER={PROXY_USER[:6]}*** HOST_HINT={PROXY_HOST_HINT}')
-          desktop = Desktop(backend='uia')
-          scan_count = 0
-          while True:
-              try:
-                  scan_count += 1
-                  now = time.time()
-                  for w in desktop.windows(visible_only=True):
-                      try:
-                          wt = w.window_text() or ''
-                      except: continue
-                      if 'Microsoft Edge' not in wt and is_proxy_auth_dialog(wt):
-                          log(f'Auth dialog window detected: "{wt}"')
-                          inject_auth(w, f'dialog:{wt[:30]}')
-                      elif 'Microsoft Edge' in wt and edge_has_proxy_prompt(w):
-                          log(f'Edge inline proxy prompt in: "{wt}"')
-                          inject_auth(w, f'edge:{wt[:30]}')
-                  if PROXY_AUTH_STATE["done"]:
-                      age = now - PROXY_AUTH_STATE["done_time"]
-                      if age <= LATE_PROMPT_WINDOW_SEC and PROXY_AUTH_STATE["late_reinjects"] < LATE_REINJECT_MAX:
-                          pass
-                      elif not PROXY_AUTH_STATE["valve_logged"]:
-                          PROXY_AUTH_STATE["valve_logged"] = True
-                          log("Late-prompt window closed - credential injection fully disabled.")
-              except Exception as ex:
-                  if scan_count % 30 == 0:
-                      log(f'scan error: {ex}')
-              time.sleep(1.2)
-          "@
-
+          $b64 = ""
+          $b64 += 'aW1wb3J0IHRpbWUsIHN5cywgb3MsIHVuaWNvZGVkYXRhLCByZQpmcm9tIHB5d2luYXV0byBpbXBvcnQgRGVza3RvcApmcm9tIHB5d2luYXV0by5rZXlib2Fy'
+          $b64 += 'ZCBpbXBvcnQgc2VuZF9rZXlzCgpQUk9YWV9VU0VSICAgPSBvcy5lbnZpcm9uLmdldCgiUFJPWFlfVVNFUl9NT04iLCAiIikKUFJPWFlfUEFTUyAgID0gb3Mu'
+          $b64 += 'ZW52aXJvbi5nZXQoIlBST1hZX1BBU1NfTU9OIiwgIiIpClBST1hZX1NFUlZFUiA9IG9zLmVudmlyb24uZ2V0KCJQUk9YWV9TRVJWRVJfTU9OIiwgIiIpCgpk'
+          $b64 += 'ZWYgbG9nKG1zZyk6CiAgICB0cyA9IHRpbWUuc3RyZnRpbWUoIiVIOiVNOiVTIikKICAgIHByaW50KCJbIiArIHRzICsgIl1bUHJveHlNb25dICIgKyBzdHIo'
+          $b64 += 'bXNnKSwgZmx1c2g9VHJ1ZSkKClBST1hZX0FVVEhfVElUTEVfS0VZV09SRFMgPSBbCiAgICAic2lnbiBpbiIsICJhdXRoZW50aWNhdGlvbiByZXF1aXJlZCIs'
+          $b64 += 'ICJwcm94eSBhdXRoZW50aWNhdGlvbiIsCiAgICAiY29ubmVjdCB0byIsICJlbnRlciBjcmVkZW50aWFscyIsICJuZXR3b3JrIGF1dGhlbnRpY2F0aW9uIiwK'
+          $b64 += 'ICAgICJwcm94eSBhdXRoIiwgImVudGVyIG5ldHdvcmsgY3JlZGVudGlhbHMiLCAiYXV0aGVudGljYXRpb24iLAogICAgInByb3h5IiwgImNyZWRlbnRpYWwi'
+          $b64 += 'LAogICAgImNvbm5leGlvbiIsICJhdXRoZW50aWZpY2F0aW9uIiwKICAgICJlbnRyYXIiLCAiYXV0ZW50aWNhY2FvIiwgImNvbmVjdGFyIiwKICAgICJhbm1l'
+          $b64 += 'bGRlbiIsICJhdXRoZW50aWZpemllcnVuZyIsCiAgICAiaW5pY2lhciBzZXNpb24iLCAiYXV0ZW50aWNhY2lvbiIsCiAgICAiYWNjZWRpIiwgImF1dGVudGlj'
+          $b64 += 'YXppb25lIiwKICAgICJhYW5tZWxkZW4iLCAiYXV0aGVudGljYXRpZSIsCiAgICAiemFsb2d1aiIsICJ1d2llcnp5dGVsbmlhbmllIiwKICAgICJkYW5nIG5o'
+          $b64 += 'YXAiLCAieGFjIHRodWMiLAogICAgIm1hc3VrIiwgImF1dGVudGlrYXNpIiwKXQpVU0VSTkFNRV9GSUVMRF9LRVlXT1JEUyA9IFsKICAgICJ1c2VybmFtZSIs'
+          $b64 += 'ICJ1c2VyIG5hbWUiLCAidXNlciIsICJsb2dpbiIsICJhY2NvdW50IiwgImVtYWlsIiwKICAgICJub20gZCB1dGlsaXNhdGV1ciIsICJ1dGlsaXNhdGV1ciIs'
+          $b64 += 'ICJpZGVudGlmaWFudCIsCiAgICAibm9tZSBkZSB1c3VhcmlvIiwgInVzdWFyaW8iLCAidXRpbGl6YWRvciIsCiAgICAiYmVudXR6ZXJuYW1lIiwgImJlbnV0'
+          $b64 += 'emVyIiwKICAgICJub21icmUgZGUgdXN1YXJpbyIsCiAgICAibm9tZSB1dGVudGUiLCAidXRlbnRlIiwKICAgICJnZWJydWlrZXJzbmFhbSIsCiAgICAibmF6'
+          $b64 += 'd2EgdXp5dGtvd25pa2EiLCAidXp5dGtvd25payIsCiAgICAidGVuIG5ndW9pIGR1bmciLAogICAgIm5hbWEgcGVuZ2d1bmEiLApdClBBU1NXT1JEX0ZJRUxE'
+          $b64 += 'X0tFWVdPUkRTID0gWwogICAgInBhc3N3b3JkIiwgInBhc3MiLCAicGFzc3dkIiwgInNlY3JldCIsICJwaW4iLAogICAgIm1vdCBkZSBwYXNzZSIsCiAgICAi'
+          $b64 += 'c2VuaGEiLCAicGFsYXZyYS1wYXNzZSIsCiAgICAicGFzc3dvcnQiLCAia2VubndvcnQiLAogICAgImNvbnRyYXNlbmEiLCAiY2xhdmUiLAogICAgInBhcm9s'
+          $b64 += 'YSBkIG9yZGluZSIsCiAgICAid2FjaHR3b29yZCIsCiAgICAiaGFzbG8iLAogICAgIm1hdCBraGF1IiwKICAgICJrYXRhIHNhbmRpIiwKXQpTVUJNSVRfQlVU'
+          $b64 += 'VE9OX0tFWVdPUkRTID0gWwogICAgInNpZ24gaW4iLCAib2siLCAiY29ubmVjdCIsICJsb2dpbiIsICJzdWJtaXQiLCAiYXV0aGVudGljYXRlIiwKICAgICJj'
+          $b64 += 'b250aW51ZSIsICJwcm9jZWVkIiwgImNvbmZpcm0iLCAiYWNjZXB0IiwKICAgICJjb25uZXhpb24iLCAiY29udGludWVyIiwgImNvbmZpcm1lciIsCiAgICAi'
+          $b64 += 'ZW50cmFyIiwgImNvbnRpbnVhciIsICJjb25maXJtYXIiLAogICAgImFubWVsZGVuIiwgIndlaXRlciIsICJiZXN0YXRpZ2VuIiwKICAgICJpbmljaWFyIHNl'
+          $b64 += 'c2lvbiIsICJhY2VwdGFyIiwKICAgICJhY2NlZGkiLCAiY29udGludWEiLAogICAgImFhbm1lbGRlbiIsICJkb29yZ2FhbiIsCiAgICAiemFsb2d1aiIsICJw'
+          $b64 += 'b2xhY3oiLCAia29udHludXVqIiwKICAgICJkYW5nIG5oYXAiLCAidGllcCB0dWMiLAogICAgIm1hc3VrIiwgImxhbmp1dGthbiIsCl0KQUREUkVTU19CQVJf'
+          $b64 += 'TkFNRVMgPSBbCiAgICAiYWRkcmVzcyBhbmQgc2VhcmNoIGJhciIsICJhZGRyZXNzIGJhciIsICJzZWFyY2ggYmFyIiwKICAgICJvbW5pYm94IiwgImxvY2F0'
+          $b64 += 'aW9uIGJhciIsICJ1cmwgYmFyIiwgImFkZHJlc3MiLAogICAgImJhcnJlIGQgYWRyZXNzZSIsICJiYXJyYSBkZSBlbmRlcmVjb3MiLCAiYWRyZXNzbGVpc3Rl'
+          $b64 += 'IiwKICAgICJiYXJyYSBkZSBkaXJlY2Npb25lcyIsICJiYXJyYSBkZWdsaSBpbmRpcml6emkiLAogICAgImFkcmVzYmFsayIsICJwYXNlayBhZHJlc3UiLCAi'
+          $b64 += 'dGhhbmggZGlhIGNoaSIsICJiaWxhaCBhbGFtYXQiLApdCkFERFJFU1NfQkFSX0FVVE9NQVRJT05fSURTID0gWwogICAgImFkZHJlc3NFZGl0Qm94IiwgImFk'
+          $b64 += 'ZHJlc3NGaWVsZCIsICJsb2NhdGlvbkJhciIsCiAgICAidmlld18xIiwgIm9tbmlib3giLApdCgpkZWYgZm9sZCh0ZXh0KToKICAgIGlmIG5vdCB0ZXh0Ogog'
+          $b64 += 'ICAgICAgIHJldHVybiAiIgogICAgbmZrZCA9IHVuaWNvZGVkYXRhLm5vcm1hbGl6ZSgiTkZLRCIsIHRleHQpCiAgICByZXR1cm4gIiIuam9pbihjaCBmb3Ig'
+          $b64 += 'Y2ggaW4gbmZrZCBpZiBub3QgdW5pY29kZWRhdGEuY29tYmluaW5nKGNoKSkubG93ZXIoKS5zdHJpcCgpCgpkZWYgbWF0Y2hlc19hbnkodGV4dCwga3dzKToK'
+          $b64 += 'ICAgIGlmIG5vdCB0ZXh0OgogICAgICAgIHJldHVybiBGYWxzZQogICAgdGwgPSBmb2xkKHRleHQpCiAgICByZXR1cm4gYW55KGZvbGQoaykgaW4gdGwgZm9y'
+          $b64 += 'IGsgaW4ga3dzKQoKZGVmIHByb3h5X2hvc3RfaGludCgpOgogICAgc3J2ID0gKFBST1hZX1NFUlZFUiBvciAiIikucmVwbGFjZSgiaHR0cDovLyIsICIiKS5y'
+          $b64 += 'ZXBsYWNlKCJodHRwczovLyIsICIiKQogICAgaG9zdCA9IHNydi5zcGxpdCgiQCIpWy0xXS5zcGxpdCgiOiIpWzBdLnN0cmlwKCkKICAgIHJldHVybiBob3N0'
+          $b64 += 'IGlmIGxlbihob3N0KSA+PSA0IGVsc2UgIiIKClBST1hZX0hPU1RfSElOVCA9IHByb3h5X2hvc3RfaGludCgpCgpkZWYgaXNfcHJveHlfYXV0aF9kaWFsb2co'
+          $b64 += 'd3QpOgogICAgaWYgbm90IHd0OgogICAgICAgIHJldHVybiBGYWxzZQogICAgcmV0dXJuIG1hdGNoZXNfYW55KHd0LCBQUk9YWV9BVVRIX1RJVExFX0tFWVdP'
+          $b64 += 'UkRTKSBvciAoYm9vbChQUk9YWV9IT1NUX0hJTlQpIGFuZCBQUk9YWV9IT1NUX0hJTlQubG93ZXIoKSBpbiB3dC5sb3dlcigpKQoKZGVmIGlzX2FkZHJlc3Nf'
+          $b64 += 'YmFyKGN0cmwpOgogICAgdHJ5OgogICAgICAgIHd0ID0gKGN0cmwud2luZG93X3RleHQoKSBvciAiIikubG93ZXIoKS5zdHJpcCgpCiAgICAgICAgYWlkID0g'
+          $b64 += 'IiIKICAgICAgICB0cnk6CiAgICAgICAgICAgIGFpZCA9IChjdHJsLmVsZW1lbnRfaW5mby5hdXRvbWF0aW9uX2lkIG9yICIiKS5sb3dlcigpCiAgICAgICAg'
+          $b64 += 'ZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICAgICAgcGFzcwogICAgICAgIGZvciBuYW1lIGluIEFERFJFU1NfQkFSX05BTUVTOgogICAgICAgICAgICBpZiBu'
+          $b64 += 'YW1lIGluIHd0IG9yIG5hbWUgaW4gYWlkOgogICAgICAgICAgICAgICAgcmV0dXJuIFRydWUKICAgICAgICBmb3IgYSBpbiBBRERSRVNTX0JBUl9BVVRPTUFU'
+          $b64 += 'SU9OX0lEUzoKICAgICAgICAgICAgaWYgYS5sb3dlcigpIGluIGFpZDoKICAgICAgICAgICAgICAgIHJldHVybiBUcnVlCiAgICBleGNlcHQgRXhjZXB0aW9u'
+          $b64 += 'OgogICAgICAgIHBhc3MKICAgIHJldHVybiBGYWxzZQoKZGVmIHBhZ2VfY3RybF9rZXlzKGNvbnRhaW5lciwgY3R5cGUpOgogICAga2V5cyA9IHNldCgpCiAg'
+          $b64 += 'ICB0cnk6CiAgICAgICAgZm9yIGRvYyBpbiBjb250YWluZXIuZGVzY2VuZGFudHMoY29udHJvbF90eXBlPSJEb2N1bWVudCIpOgogICAgICAgICAgICB0cnk6'
+          $b64 += 'CiAgICAgICAgICAgICAgICBmb3IgYyBpbiBkb2MuZGVzY2VuZGFudHMoY29udHJvbF90eXBlPWN0eXBlKToKICAgICAgICAgICAgICAgICAgICB0cnk6CiAg'
+          $b64 += 'ICAgICAgICAgICAgICAgICAgICAgIGtleXMuYWRkKHR1cGxlKGMuZWxlbWVudF9pbmZvLnJ1bnRpbWVfaWQpKQogICAgICAgICAgICAgICAgICAgIGV4Y2Vw'
+          $b64 += 'dCBFeGNlcHRpb246CiAgICAgICAgICAgICAgICAgICAgICAgIHBhc3MKICAgICAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICAgICAgICAgIHJl'
+          $b64 += 'dHVybiBrZXlzLCBGYWxzZQogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICByZXR1cm4ga2V5cywgRmFsc2UKICAgIHJldHVybiBrZXlzLCBUcnVlCgpk'
+          $b64 += 'ZWYgb3V0c2lkZV9wYWdlKGNvbnRhaW5lciwgY3R5cGUpOgogICAgdHJ5OgogICAgICAgIGFsbF9jID0gY29udGFpbmVyLmRlc2NlbmRhbnRzKGNvbnRyb2xf'
+          $b64 += 'dHlwZT1jdHlwZSkKICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgcmV0dXJuIFtdCiAgICBrZXlzLCBvayA9IHBhZ2VfY3RybF9rZXlzKGNvbnRhaW5l'
+          $b64 += 'ciwgY3R5cGUpCiAgICBpZiBub3Qgb2s6CiAgICAgICAgcmV0dXJuIFtdCiAgICBpZiBub3Qga2V5czoKICAgICAgICByZXR1cm4gbGlzdChhbGxfYykKICAg'
+          $b64 += 'IG91dCA9IFtdCiAgICBmb3IgYyBpbiBhbGxfYzoKICAgICAgICB0cnk6CiAgICAgICAgICAgIHJpZCA9IHR1cGxlKGMuZWxlbWVudF9pbmZvLnJ1bnRpbWVf'
+          $b64 += 'aWQpCiAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICAgICAgcmlkID0gTm9uZQogICAgICAgIGlmIHJpZCBpcyBub3QgTm9uZSBhbmQgcmlkIGlu'
+          $b64 += 'IGtleXM6CiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgb3V0LmFwcGVuZChjKQogICAgcmV0dXJuIG91dAoKZGVmIGZpbmRfdXNlcm5hbWVfZmllbGRz'
+          $b64 += 'KGNvbnRhaW5lcik6CiAgICByZXN1bHRzID0gW10KICAgIHRyeToKICAgICAgICBmb3IgY3RybCBpbiBvdXRzaWRlX3BhZ2UoY29udGFpbmVyLCAiRWRpdCIp'
+          $b64 += 'OgogICAgICAgICAgICBpZiBpc19hZGRyZXNzX2JhcihjdHJsKToKICAgICAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgICAgIHRyeToKICAgICAgICAg'
+          $b64 += 'ICAgICAgIHd0ID0gY3RybC53aW5kb3dfdGV4dCgpIG9yICIiCiAgICAgICAgICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgICAgICAgICB3dCA9ICIi'
+          $b64 += 'CiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgIG5hbWUgPSBjdHJsLmVsZW1lbnRfaW5mby5uYW1lIG9yICIiCiAgICAgICAgICAgIGV4Y2VwdCBF'
+          $b64 += 'eGNlcHRpb246CiAgICAgICAgICAgICAgICBuYW1lID0gIiIKICAgICAgICAgICAgaWYgbWF0Y2hlc19hbnkod3QgKyAiICIgKyBuYW1lLCBVU0VSTkFNRV9G'
+          $b64 += 'SUVMRF9LRVlXT1JEUyk6CiAgICAgICAgICAgICAgICByZXN1bHRzLmFwcGVuZChjdHJsKQogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICBwYXNzCiAg'
+          $b64 += 'ICByZXR1cm4gcmVzdWx0cwoKZGVmIGZpbmRfcGFzc3dvcmRfZmllbGRzKGNvbnRhaW5lcik6CiAgICByZXN1bHRzID0gW10KICAgIHRyeToKICAgICAgICBm'
+          $b64 += 'b3IgY3RybCBpbiBvdXRzaWRlX3BhZ2UoY29udGFpbmVyLCAiRWRpdCIpOgogICAgICAgICAgICBpZiBpc19hZGRyZXNzX2JhcihjdHJsKToKICAgICAgICAg'
+          $b64 += 'ICAgICAgIGNvbnRpbnVlCiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgIHd0ID0gY3RybC53aW5kb3dfdGV4dCgpIG9yICIiCiAgICAgICAgICAg'
+          $b64 += 'IGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgICAgICAgICB3dCA9ICIiCiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgIG5hbWUgPSBjdHJsLmVs'
+          $b64 += 'ZW1lbnRfaW5mby5uYW1lIG9yICIiCiAgICAgICAgICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgICAgICAgICBuYW1lID0gIiIKICAgICAgICAgICAg'
+          $b64 += 'aWYgbWF0Y2hlc19hbnkod3QgKyAiICIgKyBuYW1lLCBQQVNTV09SRF9GSUVMRF9LRVlXT1JEUyk6CiAgICAgICAgICAgICAgICByZXN1bHRzLmFwcGVuZChj'
+          $b64 += 'dHJsKQogICAgICAgICAgICAgICAgY29udGludWUKICAgICAgICAgICAgdHJ5OgogICAgICAgICAgICAgICAgc3RhdGUgPSBpbnQoKGN0cmwubGVnYWN5X3By'
+          $b64 += 'b3BlcnRpZXMoKS5nZXQoIlN0YXRlIiwgMCkgb3IgMCkpCiAgICAgICAgICAgICAgICBpZiBzdGF0ZSAmIDB4MjAwMDAwMDA6CiAgICAgICAgICAgICAgICAg'
+          $b64 += 'ICAgcmVzdWx0cy5hcHBlbmQoY3RybCkKICAgICAgICAgICAgICAgICAgICBjb250aW51ZQogICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uOgogICAgICAg'
+          $b64 += 'ICAgICAgICAgcGFzcwogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICBwYXNzCiAgICByZXR1cm4gcmVzdWx0cwoKZGVmIGZpbmRfc3VibWl0X2J1dHRv'
+          $b64 += 'bihjb250YWluZXIpOgogICAgdHJ5OgogICAgICAgIGZvciBidG4gaW4gb3V0c2lkZV9wYWdlKGNvbnRhaW5lciwgIkJ1dHRvbiIpOgogICAgICAgICAgICB0'
+          $b64 += 'cnk6CiAgICAgICAgICAgICAgICB3dCA9IGJ0bi53aW5kb3dfdGV4dCgpIG9yICIiCiAgICAgICAgICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgICAg'
+          $b64 += 'ICAgICB3dCA9ICIiCiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgIG5hbWUgPSBidG4uZWxlbWVudF9pbmZvLm5hbWUgb3IgIiIKICAgICAgICAg'
+          $b64 += 'ICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICAgICAgICAgIG5hbWUgPSAiIgogICAgICAgICAgICBpZiBtYXRjaGVzX2FueSh3dCArICIgIiArIG5hbWUs'
+          $b64 += 'IFNVQk1JVF9CVVRUT05fS0VZV09SRFMpOgogICAgICAgICAgICAgICAgcmV0dXJuIGJ0bgogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICBwYXNzCiAg'
+          $b64 += 'ICByZXR1cm4gTm9uZQoKUFJPWFlfQVVUSF9TVEFURSA9IHsKICAgICJkb25lIjogRmFsc2UsICJyZWFzb24iOiAiIiwgImRvbmVfdGltZSI6IDAuMCwKICAg'
+          $b64 += 'ICJsYXRlX3JlaW5qZWN0cyI6IDAsICJwYWdlX29rX3RpY2tzIjogMCwKICAgICJsYXN0X3Byb21wdF9zZWVuIjogMC4wLCAic3RhcnRlZCI6IHRpbWUudGlt'
+          $b64 += 'ZSgpLCAidmFsdmVfbG9nZ2VkIjogRmFsc2UKfQpMQVRFX1BST01QVF9XSU5ET1dfU0VDID0gOTAKTEFURV9SRUlOSkVDVF9NQVggPSAyCgpkZWYgbWFya19k'
+          $b64 += 'b25lKHJlYXNvbik6CiAgICBpZiBQUk9YWV9BVVRIX1NUQVRFWyJkb25lIl06CiAgICAgICAgcmV0dXJuCiAgICBQUk9YWV9BVVRIX1NUQVRFWyJkb25lIl0g'
+          $b64 += 'PSBUcnVlCiAgICBQUk9YWV9BVVRIX1NUQVRFWyJyZWFzb24iXSA9IHJlYXNvbgogICAgUFJPWFlfQVVUSF9TVEFURVsiZG9uZV90aW1lIl0gPSB0aW1lLnRp'
+          $b64 += 'bWUoKQogICAgbG9nKCJQUk9YWSBBVVRIIERPTkUgKCIgKyBzdHIocmVhc29uKSArICIpLiBDcmVkZW50aWFscyB3aWxsIG5vdCBiZSB0eXBlZCBpbnRvIHdl'
+          $b64 += 'Yi1wYWdlIGZpZWxkcy4iKQoKZGVmIGluamVjdF9hdXRoKHdpbmRvdywgbGFiZWw9IiIsIGFsbG93X2xhdGU9RmFsc2UpOgogICAgaWYgbm90IFBST1hZX1VT'
+          $b64 += 'RVIgb3Igbm90IFBST1hZX1BBU1M6CiAgICAgICAgcmV0dXJuIEZhbHNlCiAgICBpZiBQUk9YWV9BVVRIX1NUQVRFWyJkb25lIl0gYW5kIG5vdCBhbGxvd19s'
+          $b64 += 'YXRlOgogICAgICAgIHJldHVybiBGYWxzZQogICAgdHJ5OgogICAgICAgIHVzZXJfZmllbGRzID0gZmluZF91c2VybmFtZV9maWVsZHMod2luZG93KQogICAg'
+          $b64 += 'ICAgIHBhc3NfZmllbGRzID0gZmluZF9wYXNzd29yZF9maWVsZHMod2luZG93KQogICAgICAgIGlmIG5vdCB1c2VyX2ZpZWxkcyBvciBub3QgcGFzc19maWVs'
+          $b64 += 'ZHM6CiAgICAgICAgICAgIGVkaXRzID0gW2MgZm9yIGMgaW4gb3V0c2lkZV9wYWdlKHdpbmRvdywgIkVkaXQiKSBpZiBub3QgaXNfYWRkcmVzc19iYXIoYyld'
+          $b64 += 'CiAgICAgICAgICAgIGlmIGxlbihlZGl0cykgPT0gMjoKICAgICAgICAgICAgICAgIHVzZXJfZmllbGRzID0gW2VkaXRzWzBdXQogICAgICAgICAgICAgICAg'
+          $b64 += 'cGFzc19maWVsZHMgPSBbZWRpdHNbMV1dCiAgICAgICAgaWYgdXNlcl9maWVsZHMgYW5kIHBhc3NfZmllbGRzOgogICAgICAgICAgICBsb2coIlsiICsgbGFi'
+          $b64 += 'ZWwgKyAiXSBJbmplY3RpbmcgY3JlZGVudGlhbHMuIFVzZXI9IiArIFBST1hZX1VTRVJbOjIwXSArICIuLi4iKQogICAgICAgICAgICB3aW5kb3cuc2V0X2Zv'
+          $b64 += 'Y3VzKCkKICAgICAgICAgICAgdGltZS5zbGVlcCgwLjUpCiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgIHVzZXJfZmllbGRzWzBdLmNsaWNrX2lu'
+          $b64 += 'cHV0KCkKICAgICAgICAgICAgICAgIHRpbWUuc2xlZXAoMC4yKQogICAgICAgICAgICAgICAgc2VuZF9rZXlzKCJeYSIpCiAgICAgICAgICAgICAgICB0aW1l'
+          $b64 += 'LnNsZWVwKDAuMSkKICAgICAgICAgICAgICAgIHNlbmRfa2V5cygie0RFTEVURX0iKQogICAgICAgICAgICAgICAgdGltZS5zbGVlcCgwLjEpCiAgICAgICAg'
+          $b64 += 'ICAgICAgICB1c2VyX2ZpZWxkc1swXS50eXBlX2tleXMoUFJPWFlfVVNFUiwgd2l0aF9zcGFjZXM9VHJ1ZSwgcGF1c2U9MC4wMikKICAgICAgICAgICAgICAg'
+          $b64 += 'IHRpbWUuc2xlZXAoMC4zKQogICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGV1OgogICAgICAgICAgICAgICAgbG9nKCJ1c2VybmFtZSB0eXBlIGZh'
+          $b64 += 'aWxlZDogIiArIHN0cihldSkpCiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgIHBhc3NfZmllbGRzWzBdLmNsaWNrX2lucHV0KCkKICAgICAgICAg'
+          $b64 += 'ICAgICAgIHRpbWUuc2xlZXAoMC4yKQogICAgICAgICAgICAgICAgc2VuZF9rZXlzKCJeYSIpCiAgICAgICAgICAgICAgICB0aW1lLnNsZWVwKDAuMSkKICAg'
+          $b64 += 'ICAgICAgICAgICAgIHNlbmRfa2V5cygie0RFTEVURX0iKQogICAgICAgICAgICAgICAgdGltZS5zbGVlcCgwLjEpCiAgICAgICAgICAgICAgICBwYXNzX2Zp'
+          $b64 += 'ZWxkc1swXS50eXBlX2tleXMoUFJPWFlfUEFTUywgd2l0aF9zcGFjZXM9VHJ1ZSwgcGF1c2U9MC4wMikKICAgICAgICAgICAgICAgIHRpbWUuc2xlZXAoMC4z'
+          $b64 += 'KQogICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGVwOgogICAgICAgICAgICAgICAgbG9nKCJwYXNzd29yZCB0eXBlIGZhaWxlZDogIiArIHN0cihl'
+          $b64 += 'cCkpCiAgICAgICAgICAgIHN1Ym1pdCA9IGZpbmRfc3VibWl0X2J1dHRvbih3aW5kb3cpCiAgICAgICAgICAgIGlmIHN1Ym1pdDoKICAgICAgICAgICAgICAg'
+          $b64 += 'IHRyeToKICAgICAgICAgICAgICAgICAgICBzdWJtaXQuY2xpY2tfaW5wdXQoKQogICAgICAgICAgICAgICAgICAgIGxvZygiWyIgKyBsYWJlbCArICJdIFN1'
+          $b64 += 'Ym1pdCBidXR0b24gY2xpY2tlZC4iKQogICAgICAgICAgICAgICAgICAgIG1hcmtfZG9uZSgiY3JlZGVudGlhbHMgc3VibWl0dGVkIHZpYSBmaWVsZHMiKQog'
+          $b64 += 'ICAgICAgICAgICAgICAgICAgIHJldHVybiBUcnVlCiAgICAgICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGViOgogICAgICAgICAgICAgICAgICAg'
+          $b64 += 'IGxvZygic3VibWl0IGNsaWNrIGZhaWxlZDogIiArIHN0cihlYikpCiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgIHBhc3NfZmllbGRzWzBdLmNs'
+          $b64 += 'aWNrX2lucHV0KCkKICAgICAgICAgICAgICAgIHRpbWUuc2xlZXAoMC4yKQogICAgICAgICAgICAgICAgc2VuZF9rZXlzKCJ7RU5URVJ9IikKICAgICAgICAg'
+          $b64 += 'ICAgICAgIGxvZygiWyIgKyBsYWJlbCArICJdIEVOVEVSIGZhbGxiYWNrLiIpCiAgICAgICAgICAgICAgICBtYXJrX2RvbmUoImNyZWRlbnRpYWxzIHN1Ym1p'
+          $b64 += 'dHRlZCB2aWEgRU5URVIiKQogICAgICAgICAgICAgICAgcmV0dXJuIFRydWUKICAgICAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlazoKICAgICAgICAg'
+          $b64 += 'ICAgICAgIGxvZygiRU5URVIgZmFsbGJhY2sgZmFpbGVkOiAiICsgc3RyKGVrKSkKICAgICAgICBlbHNlOgogICAgICAgICAgICB3dCA9ICIiCiAgICAgICAg'
+          $b64 += 'ICAgIHRyeToKICAgICAgICAgICAgICAgIHd0ID0gd2luZG93LndpbmRvd190ZXh0KCkgb3IgIiIKICAgICAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAg'
+          $b64 += 'ICAgICAgICAgICAgIHBhc3MKICAgICAgICAgICAgaWYgaXNfcHJveHlfYXV0aF9kaWFsb2cod3QpOgogICAgICAgICAgICAgICAgbG9nKCJbIiArIGxhYmVs'
+          $b64 += 'ICsgIl0gTm8gZWRpdCBmaWVsZHMgYnV0IGRpYWxvZyB0aXRsZSBtYXRjaGVzIC0ga2V5Ym9hcmQgaW5qZWN0aW9uLiIpCiAgICAgICAgICAgICAgICB3aW5k'
+          $b64 += 'b3cuc2V0X2ZvY3VzKCkKICAgICAgICAgICAgICAgIHRpbWUuc2xlZXAoMC41KQogICAgICAgICAgICAgICAgZm9yIGNoIGluIFBST1hZX1VTRVI6CiAgICAg'
+          $b64 += 'ICAgICAgICAgICAgICAgaWYgY2guaXNhbG51bSgpIG9yIGNoIGluICIuLV89QCI6CiAgICAgICAgICAgICAgICAgICAgICAgIHNlbmRfa2V5cyhjaCkKICAg'
+          $b64 += 'ICAgICAgICAgICAgICAgICBlbHNlOgogICAgICAgICAgICAgICAgICAgICAgICBzZW5kX2tleXMoInsiICsgY2ggKyAifSIpCiAgICAgICAgICAgICAgICAg'
+          $b64 += 'ICAgdGltZS5zbGVlcCgwLjAxKQogICAgICAgICAgICAgICAgc2VuZF9rZXlzKCJ7VEFCfSIpCiAgICAgICAgICAgICAgICB0aW1lLnNsZWVwKDAuMykKICAg'
+          $b64 += 'ICAgICAgICAgICAgIGZvciBjaCBpbiBQUk9YWV9QQVNTOgogICAgICAgICAgICAgICAgICAgIGlmIGNoLmlzYWxudW0oKSBvciBjaCBpbiAiLi1fPUAiOgog'
+          $b64 += 'ICAgICAgICAgICAgICAgICAgICAgICBzZW5kX2tleXMoY2gpCiAgICAgICAgICAgICAgICAgICAgZWxzZToKICAgICAgICAgICAgICAgICAgICAgICAgc2Vu'
+          $b64 += 'ZF9rZXlzKCJ7IiArIGNoICsgIn0iKQogICAgICAgICAgICAgICAgICAgIHRpbWUuc2xlZXAoMC4wMSkKICAgICAgICAgICAgICAgIHNlbmRfa2V5cygie0VO'
+          $b64 += 'VEVSfSIpCiAgICAgICAgICAgICAgICBsb2coIlsiICsgbGFiZWwgKyAiXSBLZXlib2FyZC1vbmx5IGF1dGggc3VibWl0dGVkLiIpCiAgICAgICAgICAgICAg'
+          $b64 += 'ICBtYXJrX2RvbmUoImtleWJvYXJkLW9ubHkgc3VibWlzc2lvbiIpCiAgICAgICAgICAgICAgICByZXR1cm4gVHJ1ZQogICAgZXhjZXB0IEV4Y2VwdGlvbiBh'
+          $b64 += 'cyBlOgogICAgICAgIGxvZygiaW5qZWN0X2F1dGggZXJyb3I6ICIgKyBzdHIoZSkpCiAgICByZXR1cm4gRmFsc2UKCmRlZiBlZGdlX2hhc19wcm94eV9wcm9t'
+          $b64 += 'cHQodyk6CiAgICB0cnk6CiAgICAgICAgZWRpdHMgPSBbYyBmb3IgYyBpbiBvdXRzaWRlX3BhZ2UodywgIkVkaXQiKSBpZiBub3QgaXNfYWRkcmVzc19iYXIo'
+          $b64 += 'YyldCiAgICAgICAgaWYgbGVuKGVkaXRzKSA9PSAyOgogICAgICAgICAgICByZXR1cm4gVHJ1ZQogICAgICAgIGZvciB0IGluIHcuZGVzY2VuZGFudHMoY29u'
+          $b64 += 'dHJvbF90eXBlPSJUZXh0IilbOjMwMF06CiAgICAgICAgICAgIHR0ID0gdC53aW5kb3dfdGV4dCgpIG9yICIiCiAgICAgICAgICAgIGlmIHR0IGFuZCBQUk9Y'
+          $b64 += 'WV9IT1NUX0hJTlQgYW5kIFBST1hZX0hPU1RfSElOVC5sb3dlcigpIGluIHR0Lmxvd2VyKCk6CiAgICAgICAgICAgICAgICByZXR1cm4gVHJ1ZQogICAgZXhj'
+          $b64 += 'ZXB0IEV4Y2VwdGlvbjoKICAgICAgICBwYXNzCiAgICByZXR1cm4gRmFsc2UKCmxvZygiTW9uaXRvciBzdGFydGVkIChtYWluMTBGQS1zdHlsZSBvbmUtc2hv'
+          $b64 += 'dCkuIFBST1hZX1VTRVI9IiArIFBST1hZX1VTRVJbOjZdICsgIioqKiBIT1NUX0hJTlQ9IiArIHN0cihQUk9YWV9IT1NUX0hJTlQpKQpkZXNrdG9wID0gRGVz'
+          $b64 += 'a3RvcChiYWNrZW5kPSJ1aWEiKQpzY2FuX2NvdW50ID0gMAp3aGlsZSBUcnVlOgogICAgdHJ5OgogICAgICAgIHNjYW5fY291bnQgKz0gMQogICAgICAgIG5v'
+          $b64 += 'dyA9IHRpbWUudGltZSgpCiAgICAgICAgZm9yIHcgaW4gZGVza3RvcC53aW5kb3dzKHZpc2libGVfb25seT1UcnVlKToKICAgICAgICAgICAgdHJ5OgogICAg'
+          $b64 += 'ICAgICAgICAgICAgd3QgPSB3LndpbmRvd190ZXh0KCkgb3IgIiIKICAgICAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICAgICAgICAgIGNvbnRp'
+          $b64 += 'bnVlCiAgICAgICAgICAgIGlmICJNaWNyb3NvZnQgRWRnZSIgbm90IGluIHd0IGFuZCBpc19wcm94eV9hdXRoX2RpYWxvZyh3dCk6CiAgICAgICAgICAgICAg'
+          $b64 += 'ICBsb2coIkF1dGggZGlhbG9nIHdpbmRvdyBkZXRlY3RlZDogIiArIHd0KQogICAgICAgICAgICAgICAgaW5qZWN0X2F1dGgodywgImRpYWxvZzoiICsgd3Rb'
+          $b64 += 'OjMwXSkKICAgICAgICAgICAgZWxpZiAiTWljcm9zb2Z0IEVkZ2UiIGluIHd0IGFuZCBlZGdlX2hhc19wcm94eV9wcm9tcHQodyk6CiAgICAgICAgICAgICAg'
+          $b64 += 'ICBsb2coIkVkZ2UgaW5saW5lIHByb3h5IHByb21wdCBpbjogIiArIHd0KQogICAgICAgICAgICAgICAgaW5qZWN0X2F1dGgodywgImVkZ2U6IiArIHd0Wzoz'
+          $b64 += 'MF0pCiAgICAgICAgaWYgUFJPWFlfQVVUSF9TVEFURVsiZG9uZSJdOgogICAgICAgICAgICBhZ2UgPSBub3cgLSBQUk9YWV9BVVRIX1NUQVRFWyJkb25lX3Rp'
+          $b64 += 'bWUiXQogICAgICAgICAgICBpZiBhZ2UgPD0gTEFURV9QUk9NUFRfV0lORE9XX1NFQyBhbmQgUFJPWFlfQVVUSF9TVEFURVsibGF0ZV9yZWluamVjdHMiXSA8'
+          $b64 += 'IExBVEVfUkVJTkpFQ1RfTUFYOgogICAgICAgICAgICAgICAgcGFzcwogICAgICAgICAgICBlbGlmIG5vdCBQUk9YWV9BVVRIX1NUQVRFWyJ2YWx2ZV9sb2dn'
+          $b64 += 'ZWQiXToKICAgICAgICAgICAgICAgIFBST1hZX0FVVEhfU1RBVEVbInZhbHZlX2xvZ2dlZCJdID0gVHJ1ZQogICAgICAgICAgICAgICAgbG9nKCJMYXRlLXBy'
+          $b64 += 'b21wdCB3aW5kb3cgY2xvc2VkIC0gY3JlZGVudGlhbCBpbmplY3Rpb24gZnVsbHkgZGlzYWJsZWQuIikKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZXg6CiAg'
+          $b64 += 'ICAgICAgaWYgc2Nhbl9jb3VudCAlIDMwID09IDA6CiAgICAgICAgICAgIGxvZygic2NhbiBlcnJvcjogIiArIHN0cihleCkpCiAgICB0aW1lLnNsZWVwKDEu'
+          $b64 += 'MikK'
+          $scriptBytes = [System.Convert]::FromBase64String($b64)
+          $scriptContent = [System.Text.Encoding]::UTF8.GetString($scriptBytes)
           [System.IO.File]::WriteAllText($monScript, $scriptContent, [System.Text.UTF8Encoding]::new($false))
-          Write-Host "[pywinauto] Monitor script written to: $monScript"
+          Write-Host "[pywinauto] Monitor script written to: $monScript (base64 decoded)"
 
           # Set environment variables for the monitor process
           [System.Environment]::SetEnvironmentVariable('PROXY_USER_MON', $proxyUser,   [System.EnvironmentVariableTarget]::Machine)
