@@ -1,39 +1,37 @@
 # Save as: .github/workflows/gologin-signup.yml
-# USE A PRIVATE REPO — inputs, logs and artifacts contain the password and API keys.
-# Requires repo secret: GH_PAT (fine-grained: Variables read+write, Actions read+write, Contents read+write)
+# USE A PRIVATE REPO - inputs, logs and artifacts contain the password and API keys.
+# Requires repo secret: GH_PAT (fine-grained: Variables read+write, Actions read+write,
+#   Contents read+write, and **Workflows read+write** - without the Workflows permission
+#   GitHub rejects the auto-save push because it edits a file under .github/workflows/).
 #
-# PROXY INJECTION REDESIGN (v3):
+# HOW IT WORKS (v3.6)
+#   1. Edge is started by plain subprocess with --remote-debugging-port and (optionally)
+#      --proxy-server. No Playwright automation flags are added.
+#   2. Playwright attaches over CDP. Proxy credentials are answered silently over CDP
+#      (Fetch.authRequired). The pywinauto loop stays as a fallback for a native dialog.
+#   3. Before the sign-up, Edge loads an IP-echo page so a dead proxy fails fast instead
+#      of silently signing up from the runner's own IP.
+#   4. The API token is read from the Copy-token clipboard / input fields, then checked
+#      against https://api.gologin.com/user; the first token that returns 200 wins.
 #
-#   ROOT CAUSE of previous failures in Edge:
-#     1. page.on('dialog') only catches JavaScript dialogs (alert/confirm/prompt).
-#        Edge's HTTP proxy authentication popup is a NATIVE browser credential dialog —
-#        it is NOT a JS dialog and is completely invisible to page.on('dialog').
-#     2. page.authenticate() alone is insufficient for some proxy providers.
-#     3. --proxy-server in args conflicts with Playwright's proxy option.
+# CHANGES vs v3.5
+#   - FIX: signup.py crashed at line 105 (ValueError: string keys in translate table must
+#     be of length 1) - a duplicated _FOLD_SPECIAL_MAP held multi-character keys ('ss', 'ae').
+#   - FIX: signup.py was missing ~15 helpers that main() calls (type_human, click_first,
+#     find_visible, wait_any, tick_tos, solve_turnstile, dismiss_overlays, scan_page,
+#     read_clipboard, is_dashboard, add_candidate/rank_of/JWT, CDP_PORT, Edge launch).
+#   - FIX: run_proxy_auth_loop was called with 3 args but takes 1.
+#   - FIX: browser.close() ran after Playwright had stopped and could fail a good run.
+#   - FIX: ABSOLUTE_IDX was never set, so every device used the same proxy-key slot.
+#   - FIX: proxy_type / proxy_country inputs were ignored (country hard-coded to USA).
+#   - FIX: Windows console is cp1252 -> printing the check mark could crash; PYTHONUTF8=1.
+#   - FIX: cleanup step always exited 1 because $LASTEXITCODE leaked from taskkill/warp-cli.
+#   - FIX: signup jobs were skipped whenever the auto-save job failed.
+#   - REMOVED: steps 5b/5c (proxy-auth monitor + registry/cmdkey writes). The monitor never
+#     received the credentials (machine env vars are not seen by already-running processes),
+#     duplicated the in-process logic, and left the proxy password in the registry.
+#   - REMOVED: Node/npm Playwright install (the script uses Python Playwright over CDP).
 #
-#   NEW APPROACH — Four independent layers, any one of which is sufficient:
-#
-#     Layer 1 — Playwright proxy object (launchPersistentContext):
-#       Pass server/username/password as SEPARATE fields, never embedded in the URL.
-#       Playwright translates these to the correct Chromium flags internally.
-#       This handles most proxy providers automatically with zero popup.
-#
-#     Layer 2 — context.on('request') route interceptor + Proxy-Authorization header:
-#       For every outgoing request, inject the "Proxy-Authorization: Basic <b64>" header.
-#       This satisfies proxy authentication at the protocol level for HTTP proxies,
-#       bypassing the browser's credential dialog entirely.
-#
-#     Layer 3 — CDP Network.setExtraHTTPHeaders on every new page:
-#       Sets Proxy-Authorization on the low-level CDP session so even pre-navigation
-#       requests (favicon, service workers) carry the credential header.
-#
-#     Layer 4 — Windows PowerShell registry pre-auth (runs BEFORE Edge launches):
-#       Writes proxy credentials to the Windows Credential Manager so Edge's
-#       WinHTTP stack can silently authenticate without ever showing a popup.
-#       This is the same mechanism IE/Edge use for auto-login to intranet proxies.
-#
-#   Together these layers make the proxy popup impossible to appear because every
-#   path through which Edge could demand credentials is pre-answered.
 
 name: GoLogin Signup Automation
 
@@ -65,12 +63,12 @@ on:
         description: "How many GoLogin accounts to create (1-250)"
         required: true
         type: string
-        default: '1'
+        default: "1"
       concurrency:
         description: "How many devices run at the same time"
         required: true
         type: choice
-        default: '1'
+        default: "1"
         options: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
       use_cloudflare_warp:
         description: "Install + connect Cloudflare WARP (1.1.1.1) before opening Edge"
@@ -111,7 +109,7 @@ on:
         description: "GoLogin JWT / ScrapeOps UUID / Floppy token / Redscrape hex / BytesFlow URL / Manual host:port — space-separated"
         required: false
         type: string
-        default: 'http://user-3QwdjRHrc8zFwuZq-type-residential-session-yuT8QWTxe4SR-country-US:XNyyf4lf752Tm40J@geo.floppydata.com:10080'
+        default: ''
       use_without_proxy:
         description: "Use Without Proxy (skip all proxy injection)"
         required: false
@@ -121,17 +119,17 @@ on:
         description: "Getscreen.me account email. Blank = Getscreen disabled."
         required: false
         type: string
-        default: 'techx@ccmail.online'
+        default: ''
       getscreen_wait_minutes:
         description: "Pause N minutes after Getscreen connects (0-120)"
         required: false
         type: string
-        default: '0'
+        default: "0"
       keep_alive_minutes:
         description: "Keep each device alive N minutes AFTER it finishes/fails (0-120)"
         required: false
         type: string
-        default: '0'
+        default: "0"
 
 permissions:
   actions: write
@@ -144,6 +142,7 @@ jobs:
   save_inputs:
     name: Auto-Save Last Inputs
     runs-on: ubuntu-latest
+    continue-on-error: true   # a failed auto-save must never block the signup jobs
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -169,7 +168,7 @@ jobs:
           IN_KEEP:      ${{ inputs.keep_alive_minutes }}
           # gologin_email and gologin_password are intentionally NOT saved
         run: |
-          import os, re, glob
+          import os, re, glob, sys
 
           workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "GoLogin Signup Automation")
           workflow_dir  = ".github/workflows"
@@ -191,7 +190,7 @@ jobs:
 
           if not target_file:
               print(f"Could not find workflow file for '{workflow_name}' — skipping save.")
-              exit(0)
+              sys.exit(0)
 
           print(f"Saving inputs to: {target_file}")
 
@@ -368,6 +367,7 @@ jobs:
   signup:
     name: "Device ${{ matrix.index }} | ${{ matrix.email }}"
     needs: [save_inputs, prepare]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
     runs-on: ${{ inputs.runner_image }}
     timeout-minutes: ${{ fromJSON(needs.prepare.outputs.job_timeout || '60') }}
     strategy:
@@ -390,7 +390,10 @@ jobs:
       GS_EMAIL:          ${{ inputs.getscreen_email }}
       GS_WAIT:           ${{ inputs.getscreen_wait_minutes || '0' }}
       KEEP_MIN:          ${{ inputs.keep_alive_minutes || '0' }}
-      PLAYWRIGHT_VERSION: "1.55.0"
+      CDP_PORT:          "9222"
+      PYTHONUTF8:        "1"
+      PYTHONIOENCODING:  "utf-8"
+      PYTHONUNBUFFERED:  "1"
 
     steps:
 
@@ -584,11 +587,13 @@ jobs:
           GH_ENV         = os.environ.get("GITHUB_ENV", "")
           proxy_input    = os.environ.get("API_KEY_INPUT", "").strip()
           without_proxy  = os.environ.get("WITHOUT_PROXY", "false").lower() == "true"
-          absolute_idx   = int(os.environ.get("ABSOLUTE_IDX", "1"))
-          task_index     = int(os.environ.get("TASK_INDEX", "1"))
+          task_index     = int(os.environ.get("TASK_INDEX", "1") or "1")
+          absolute_idx   = int(os.environ.get("ABSOLUTE_IDX") or task_index)
           country_input  = os.environ.get("COUNTRY", "USA")
           fallback_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
-          mobile         = os.environ.get("MOBILE", "false").lower() == "true"
+          proxy_type_gl  = (os.environ.get("PROXY_TYPE_GL") or "residential").lower()
+          mobile         = proxy_type_gl == "mobile"
+          datacenter     = proxy_type_gl == "datacenter"
           sticky         = os.environ.get("STICKY", "true").lower() == "true"
 
           country_map = {
@@ -597,13 +602,15 @@ jobs:
               "Spain": "es", "Vietnam": "vn", "Switzerland": "ch",
               "Indonesia": "id", "Italy": "it", "Netherlands": "nl", "Poland": "pl",
           }
-          cc_primary  = country_map.get(country_input, "us").upper()
+          # The workflow's proxy_country input (ISO code) wins over the legacy COUNTRY name.
+          cc_primary  = (os.environ.get("PROXY_COUNTRY") or country_map.get(country_input, "us")).strip().upper()
           cc_fallback = None if fallback_input == "No Fallback" else country_map.get(fallback_input, "us").upper()
 
           def cc_to_locale(cc):
               m = {"US":"en-US","GB":"en-GB","CA":"en-CA","AU":"en-AU","DE":"de-DE",
                    "FR":"fr-FR","BR":"pt-BR","MX":"es-MX","ES":"es-ES","VN":"vi-VN",
-                   "CH":"de-CH","ID":"id-ID","IT":"it-IT","NL":"nl-NL","PL":"pl-PL"}
+                   "CH":"de-CH","ID":"id-ID","IT":"it-IT","NL":"nl-NL","PL":"pl-PL",
+                   "JP":"ja-JP","IN":"en-IN"}
               return m.get(cc.upper(), "en-US")
 
           def cc_to_keyboard(cc):
@@ -611,7 +618,8 @@ jobs:
                    "AU":"0C09:00000409","DE":"0407:00000407","FR":"040C:0000040C",
                    "BR":"0416:00000416","MX":"080A:0000080A","ES":"0C0A:0000080A",
                    "VN":"042A:0000042A","CH":"0807:00000807","ID":"0421:00000409",
-                   "IT":"0410:00000410","NL":"0413:00020409","PL":"0415:00000415"}
+                   "IT":"0410:00000410","NL":"0413:00020409","PL":"0415:00000415",
+                   "JP":"0411:00000411","IN":"4009:00004009"}
               return m.get(cc.upper(), "0409:00000409")
 
           def tz_to_win(iana):
@@ -625,7 +633,10 @@ jobs:
                    "Europe/Rome":"W. Europe Standard Time","Europe/Amsterdam":"W. Europe Standard Time",
                    "Europe/Warsaw":"Central European Standard Time",
                    "Asia/Ho_Chi_Minh":"SE Asia Standard Time","Europe/Zurich":"W. Europe Standard Time",
-                   "Asia/Jakarta":"SE Asia Standard Time","Australia/Sydney":"AUS Eastern Standard Time"}
+                   "Asia/Jakarta":"SE Asia Standard Time","Australia/Sydney":"AUS Eastern Standard Time",
+                   "Australia/Melbourne":"AUS Eastern Standard Time","Asia/Tokyo":"Tokyo Standard Time",
+                   "Asia/Kolkata":"India Standard Time","Asia/Calcutta":"India Standard Time",
+                   "America/Vancouver":"Pacific Standard Time","America/Detroit":"Eastern Standard Time"}
               return m.get(iana, "UTC")
 
           def rand_letters(n=6):
@@ -783,7 +794,7 @@ jobs:
 
           # --- GoLogin ---
           if not active and gologin_keys:
-              say(f"[GoLogin] country={cc_primary} mobile={mobile}")
+              say(f"[GoLogin] country={cc_primary} type={proxy_type_gl} idx={absolute_idx}")
               for attempt in range(MAX):
                   key  = gologin_keys[((absolute_idx-1) // 15 + attempt) % len(gologin_keys)]
                   name = f"{absolute_idx}-{cc_primary}-{rand_letters()}"
@@ -792,7 +803,7 @@ jobs:
                       r = requests.post(
                           "https://api.gologin.com/users-proxies/mobile-proxy",
                           headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                          json={"countryCode": cc_primary.lower(), "isMobile": mobile, "isDC": False, "customName": name},
+                          json={"countryCode": cc_primary.lower(), "isMobile": mobile, "isDC": datacenter, "customName": name},
                           timeout=25, verify=False,
                       )
                       say(f"  -> HTTP {r.status_code}")
@@ -813,7 +824,7 @@ jobs:
                           if res:
                               active = pinfo; commit(pinfo, res, "gologin"); break
                           else:
-                              say(f"  -> validation failed")
+                              say("  -> validation failed")
                       elif r.status_code == 429: say("  -> rate-limited 15s"); time.sleep(15)
                       elif r.status_code in (402, 403): say(f"  -> {r.status_code}: {r.text[:200]}"); time.sleep(4)
                       else: say(f"  -> {r.status_code}: {r.text[:150]}"); time.sleep(3)
@@ -898,272 +909,21 @@ jobs:
               set_no_proxy()
 
       # ================================================================
-      # STEP 5b — pywinauto proxy-auth monitor background setup
-      # Installs pywinauto and writes a companion script that monitors
-      # for Edge's native proxy auth dialog and auto-fills credentials.
-      # This is the same approach used in main10FA — the only reliable
-      # way to handle Edge's NATIVE (non-JS) proxy credential popups.
+      # STEP 6 - Install Python dependencies
       # ================================================================
-      - name: "[5b/11] Install pywinauto and write proxy-auth monitor"
-        if: ${{ env.USE_PROXY == 'true' }}
-        shell: python
-        env:
-          PROXY_USER:   ${{ env.PROXY_USER }}
-          PROXY_PASS:   ${{ env.PROXY_PASS }}
-          PROXY_SERVER: ${{ env.PROXY_SERVER }}
-          PROXY_TYPE:   ${{ env.PROXY_TYPE }}
-        run: |
-          import os, sys, subprocess, tempfile, winreg
-
-          # Install pywinauto
-          subprocess.check_call([sys.executable, "-m", "pip", "install",
-                                 "pywinauto", "keyboard", "--quiet"])
-          print("[pywinauto] Installed.")
-
-          proxy_user   = os.environ.get("PROXY_USER",   "")
-          proxy_pass   = os.environ.get("PROXY_PASS",   "")
-          proxy_server = os.environ.get("PROXY_SERVER", "")
-
-          # Mask password in logs
-          if proxy_pass and len(proxy_pass) >= 6:
-              print(f"::add-mask::{proxy_pass}", flush=True)
-
-          # --- Write monitor script using Python (avoids YAML heredoc issues) ---
-          mon_lines = [
-              "import time, sys, os, unicodedata, re",
-              "from pywinauto import Desktop",
-              "from pywinauto.keyboard import send_keys",
-              "",
-              "PROXY_USER   = os.environ.get('PROXY_USER_MON', '')",
-              "PROXY_PASS   = os.environ.get('PROXY_PASS_MON', '')",
-              "PROXY_SERVER = os.environ.get('PROXY_SERVER_MON', '')",
-              "",
-              "def log(msg): print(f'[ProxyMon] {msg}', flush=True)",
-              "",
-              "PROXY_AUTH_TITLE_KEYWORDS = [",
-              "    'sign in', 'authentication required', 'proxy authentication',",
-              "    'connect to', 'enter credentials', 'network authentication',",
-              "    'proxy auth', 'enter network credentials', 'authentication',",
-              "    'proxy', 'credential',",
-              "]",
-              "ADDRESS_BAR_NAMES = ['address and search bar','address bar','search bar','omnibox','location bar','url bar','address']",
-              "ADDRESS_BAR_AUTOMATION_IDS = ['addressEditBox','addressField','locationBar','view_1','omnibox']",
-              "USERNAME_FIELD_KEYWORDS = ['username','user name','user','login','account','email']",
-              "PASSWORD_FIELD_KEYWORDS = ['password','pass','passwd','secret','pin']",
-              "SUBMIT_BUTTON_KEYWORDS  = ['sign in','ok','connect','login','submit','authenticate']",
-              "",
-              "PROXY_AUTH_DONE = {'done': False}",
-              "",
-              "def fold(text):",
-              "    if not text: return ''",
-              "    import unicodedata as _u",
-              "    return ''.join(c for c in _u.normalize('NFKD',text) if not _u.combining(c)).lower().strip()",
-              "",
-              "def matches_any(text, kws):",
-              "    tl = fold(text)",
-              "    return any(fold(k) in tl for k in kws)",
-              "",
-              "def proxy_host_hint():",
-              "    srv = (PROXY_SERVER or '').replace('http://','').replace('https://','')",
-              "    host = srv.split('@')[-1].split(':')[0].strip()",
-              "    return host if len(host) >= 4 else ''",
-              "",
-              "PROXY_HOST_HINT = proxy_host_hint()",
-              "",
-              "def is_proxy_auth_dialog(wt):",
-              "    if not wt: return False",
-              "    return matches_any(wt, PROXY_AUTH_TITLE_KEYWORDS) or (bool(PROXY_HOST_HINT) and PROXY_HOST_HINT.lower() in wt.lower())",
-              "",
-              "def is_address_bar(ctrl):",
-              "    try:",
-              "        wt  = (ctrl.window_text() or '').lower().strip()",
-              "        aid = ''",
-              "        try: aid = (ctrl.element_info.automation_id or '').lower()",
-              "        except: pass",
-              "        for n in ADDRESS_BAR_NAMES:",
-              "            if n in wt or n in aid: return True",
-              "        for a in ADDRESS_BAR_AUTOMATION_IDS:",
-              "            if a.lower() in aid: return True",
-              "    except: pass",
-              "    return False",
-              "",
-              "def page_ctrl_keys(container, ctype):",
-              "    keys = set()",
-              "    try:",
-              "        for doc in container.descendants(control_type='Document'):",
-              "            try:",
-              "                for c in doc.descendants(control_type=ctype):",
-              "                    try: keys.add(tuple(c.element_info.runtime_id))",
-              "                    except: pass",
-              "            except: return keys, False",
-              "    except: return keys, False",
-              "    return keys, True",
-              "",
-              "def outside_page(container, ctype):",
-              "    try: all_c = container.descendants(control_type=ctype)",
-              "    except: return []",
-              "    keys, ok = page_ctrl_keys(container, ctype)",
-              "    if not ok: return []",
-              "    if not keys: return list(all_c)",
-              "    out = []",
-              "    for c in all_c:",
-              "        try: rid = tuple(c.element_info.runtime_id)",
-              "        except: rid = None",
-              "        if rid is not None and rid in keys: continue",
-              "        out.append(c)",
-              "    return out",
-              "",
-              "def inject_auth(window, label=''):",
-              "    if not PROXY_USER or not PROXY_PASS: return False",
-              "    if PROXY_AUTH_DONE['done']: return False",
-              "    try:",
-              "        edits = [c for c in outside_page(window, 'Edit') if not is_address_bar(c)]",
-              "        if len(edits) >= 2:",
-              "            log(f'[{label}] Injecting credentials...')",
-              "            window.set_focus()",
-              "            import time as _t; _t.sleep(0.5)",
-              "            edits[0].click_input(); _t.sleep(0.2)",
-              "            send_keys('^a'); _t.sleep(0.1); send_keys('{DELETE}'); _t.sleep(0.1)",
-              "            edits[0].type_keys(PROXY_USER, with_spaces=True, pause=0.02); _t.sleep(0.3)",
-              "            edits[1].click_input(); _t.sleep(0.2)",
-              "            send_keys('^a'); _t.sleep(0.1); send_keys('{DELETE}'); _t.sleep(0.1)",
-              "            edits[1].type_keys(PROXY_PASS, with_spaces=True, pause=0.02); _t.sleep(0.3)",
-              "            for btn in outside_page(window, 'Button'):",
-              "                try:",
-              "                    if matches_any(btn.window_text() or '', SUBMIT_BUTTON_KEYWORDS):",
-              "                        btn.click_input()",
-              "                        log(f'[{label}] Submit clicked.')",
-              "                        PROXY_AUTH_DONE['done'] = True",
-              "                        return True",
-              "                except: pass",
-              "            edits[1].click_input(); _t.sleep(0.2)",
-              "            send_keys('{ENTER}')",
-              "            log(f'[{label}] ENTER fallback.')",
-              "            PROXY_AUTH_DONE['done'] = True",
-              "            return True",
-              "        elif is_proxy_auth_dialog(window.window_text() or ''):",
-              "            window.set_focus()",
-              "            import time as _t; _t.sleep(0.5)",
-              "            for ch in PROXY_USER:",
-              "                send_keys(ch if ch.isalnum() or ch in '.-_=@' else '{%s}' % ch)",
-              "                _t.sleep(0.01)",
-              "            send_keys('{TAB}'); _t.sleep(0.3)",
-              "            for ch in PROXY_PASS:",
-              "                send_keys(ch if ch.isalnum() or ch in '.-_=@' else '{%s}' % ch)",
-              "                _t.sleep(0.01)",
-              "            send_keys('{ENTER}')",
-              "            log(f'[{label}] Keyboard-only auth submitted.')",
-              "            PROXY_AUTH_DONE['done'] = True",
-              "            return True",
-              "    except Exception as e: log(f'inject error: {e}')",
-              "    return False",
-              "",
-              "log(f'Monitor started. user={PROXY_USER[:6]}*** hint={PROXY_HOST_HINT}')",
-              "desktop = Desktop(backend='uia')",
-              "scan_n = 0",
-              "while True:",
-              "    try:",
-              "        scan_n += 1",
-              "        for w in desktop.windows(visible_only=True):",
-              "            try: wt = w.window_text() or ''",
-              "            except: continue",
-              "            if 'Microsoft Edge' not in wt and is_proxy_auth_dialog(wt):",
-              "                log(f'Dialog: \"{wt}\"')",
-              "                inject_auth(w, f'dialog:{wt[:30]}')",
-              "    except Exception as ex:",
-              "        if scan_n % 30 == 0: log(f'scan error: {ex}')",
-              "    import time as _t; _t.sleep(1.5)",
-          ]
-
-          mon_script = os.path.join(tempfile.gettempdir(), "proxy_auth_monitor.py")
-          with open(mon_script, "w", encoding="utf-8") as f:
-              f.write("\n".join(mon_lines) + "\n")
-          print(f"[pywinauto] Monitor script written: {mon_script}")
-
-          # --- Set machine-level env vars for the monitor process ---
-          import winreg
-          def set_machine_env(k, v):
-              try:
-                  key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
-                      r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
-                      0, winreg.KEY_SET_VALUE)
-                  winreg.SetValueEx(key, k, 0, winreg.REG_SZ, v)
-                  winreg.CloseKey(key)
-              except Exception as e:
-                  print(f"  set_machine_env({k}) failed: {e}")
-
-          set_machine_env("PROXY_USER_MON",   proxy_user)
-          set_machine_env("PROXY_PASS_MON",   proxy_pass)
-          set_machine_env("PROXY_SERVER_MON", proxy_server)
-          print("[pywinauto] Machine env vars set for monitor.")
-
-          # --- WinINet system proxy ---
-          proxy_host = proxy_server.replace("http://","").replace("https://","")
-          if proxy_host:
-              try:
-                  key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                      r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
-                      0, winreg.KEY_SET_VALUE)
-                  winreg.SetValueEx(key, "ProxyEnable",   0, winreg.REG_DWORD, 1)
-                  winreg.SetValueEx(key, "ProxyServer",   0, winreg.REG_SZ,    proxy_host)
-                  winreg.SetValueEx(key, "ProxyOverride", 0, winreg.REG_SZ,    "<local>")
-                  winreg.CloseKey(key)
-                  print(f"[WinINet] System proxy set: {proxy_host}")
-              except Exception as e:
-                  print(f"[WinINet] Failed: {e}")
-
-          # --- Windows Credential Manager (belt-and-braces) ---
-          if proxy_user and proxy_pass:
-              for target in [proxy_server, proxy_host, proxy_host.split(":")[0]]:
-                  if not target: continue
-                  ret = os.system(f'cmdkey /add:"{target}" /user:"{proxy_user}" /pass:"{proxy_pass}" >nul 2>&1')
-                  print(f"[CredMan] {target} -> exit {ret}")
-
-          print("[5b] Proxy pre-auth setup complete.")
-
-      - name: "[5c/11] Start proxy-auth background monitor"
-        if: ${{ env.USE_PROXY == 'true' }}
+      - name: "[6/11] Install Python deps"
         shell: pwsh
         run: |
-          $monScript = Join-Path $env:TEMP "proxy_auth_monitor.py"
-          $logFile   = Join-Path $env:TEMP "proxy_auth_monitor.log"
-          if (-not (Test-Path $monScript)) {
-              Write-Host "[Monitor] Script not found — skipping (no proxy or step 5b skipped)."
-              exit 0
-          }
-          $p = Start-Process python -ArgumentList $monScript `
-               -PassThru -NoNewWindow `
-               -RedirectStandardOutput $logFile `
-               -RedirectStandardError  "$logFile.err"
-          Write-Host "[Monitor] Proxy-auth monitor PID: $($p.Id) | log: $logFile"
-          # Store PID for cleanup
-          $p.Id | Out-File (Join-Path $env:TEMP "proxy_auth_monitor.pid") -Encoding utf8
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --upgrade pip --quiet
+          python -m pip install pywinauto requests urllib3 playwright --quiet
+          if ($LASTEXITCODE -ne 0) { throw "pip install failed ($LASTEXITCODE)" }
+          python -c "import pywinauto, playwright, requests; print('[Deps] imports OK')"
+          if ($LASTEXITCODE -ne 0) { throw "dependency import check failed" }
+          New-Item -ItemType Directory -Force -Path automation/out | Out-Null
+          # Browsers are NOT downloaded: Playwright only attaches to the installed Edge over CDP.
+          $global:LASTEXITCODE = 0
 
-
-            # ================================================================
-      # STEP 6 — Install Python dependencies (pywinauto + Playwright)
-      # Proxy injection uses subprocess --proxy-server + pywinauto
-      # (identical approach to main10FA which works reliably in prod).
-      # Playwright is used for GoLogin form automation only.
-      # ================================================================
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: "[6/11] Install Python deps + Playwright"
-        run: |
-          set -euo pipefail
-          echo "[Deps] Installing pywinauto, keyboard, requests..."
-          python -m pip install pywinauto keyboard requests urllib3 --quiet
-          echo "[Deps] Installing Playwright + msedge..."
-          mkdir -p automation/out
-          cd automation
-          cat > package.json <<'PKG'
-          {"name":"gologin-signup-automation","version":"1.0.0","private":true}
-          PKG
-          npm install --no-audit --no-fund "playwright@${PLAYWRIGHT_VERSION}"
-          node -e "const {chromium}=require('playwright'); chromium.launch({channel:'msedge',headless:true}).then(b=>{console.log('Edge ok',b.version());return b.close()}).catch(async()=>{const {execSync}=require('child_process');execSync('npx playwright install msedge',{stdio:'inherit'})})"
-          echo "[Deps] All installed."
 
       # ================================================================
       # STEP 7 — Write signup automation script (Python, main10FA style)
@@ -1181,26 +941,33 @@ jobs:
         run: |
           mkdir -p automation/out
           cat > automation/signup.py << 'PYEOF'
-          import os, sys, time, subprocess, tempfile, random, string, json, re
-          import datetime, unicodedata, threading, pathlib
+          import os, sys, time, subprocess, tempfile, random, json, re
+          import datetime, unicodedata, threading, pathlib, shutil, traceback
+          import urllib.request, urllib.error
+
+          # Windows consoles default to cp1252 when stdout is piped; make printing of
+          # characters such as the check mark safe so the final report can never crash.
+          for _stream in (sys.stdout, sys.stderr):
+              try:
+                  _stream.reconfigure(encoding="utf-8", errors="replace")
+              except Exception:
+                  pass
 
           # ---------------------------------------------------------------
-          # Dependencies check
+          # Dependencies check (the workflow installs these; this is a fallback)
           # ---------------------------------------------------------------
           try:
               from pywinauto import Desktop
               from pywinauto.keyboard import send_keys
           except ImportError:
-              subprocess.check_call([sys.executable, "-m", "pip", "install",
-                                     "pywinauto", "keyboard", "--quiet"])
+              subprocess.check_call([sys.executable, "-m", "pip", "install", "pywinauto", "--quiet"])
               from pywinauto import Desktop
               from pywinauto.keyboard import send_keys
 
           try:
               from playwright.sync_api import sync_playwright
           except ImportError:
-              subprocess.check_call([sys.executable, "-m", "pip", "install",
-                                     "playwright", "--quiet"])
+              subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright", "--quiet"])
               from playwright.sync_api import sync_playwright
 
           # ---------------------------------------------------------------
@@ -1212,11 +979,17 @@ jobs:
           OUT          = pathlib.Path(os.environ.get("OUT_DIR", "out")).resolve()
           OUT.mkdir(parents=True, exist_ok=True)
 
-          USE_PROXY    = os.environ.get("USE_PROXY",    "false").lower() == "true"
-          PROXY_SERVER = os.environ.get("PROXY_SERVER", "")  # e.g. http://host:port
-          PROXY_USER   = os.environ.get("PROXY_USER",   "")
-          PROXY_PASS   = os.environ.get("PROXY_PASS",   "")
-          PROXY_LABEL  = os.environ.get("PROXY_LABEL",  "none")
+          USE_PROXY    = os.environ.get("USE_PROXY", "false").lower() == "true"
+          PROXY_SERVER = os.environ.get("PROXY_SERVER", "")   # e.g. http://host:port
+          PROXY_USER   = os.environ.get("PROXY_USER", "")
+          PROXY_PASS   = os.environ.get("PROXY_PASS", "")
+          PROXY_LABEL  = os.environ.get("PROXY_LABEL", "none")
+          PROXY_REAL_IP = os.environ.get("PROXY_REAL_IP", "")
+
+          try:
+              CDP_PORT = int(os.environ.get("CDP_PORT", "9222") or "9222")
+          except ValueError:
+              CDP_PORT = 9222
 
           EDGE_EXE_CANDIDATES = [
               r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -1230,18 +1003,421 @@ jobs:
               print(f"[{time.strftime('%H:%M:%S')}][dev{IDX}][{tag}] {msg}", flush=True)
 
           def banner(title):
-              print(f"\n{'='*60}\n[dev{IDX}] {title}\n{'='*60}", flush=True)
+              print(f"\n{'=' * 60}\n[dev{IDX}] {title}\n{'=' * 60}", flush=True)
 
           shot_n = [0]
           def shot(page, label):
               try:
                   shot_n[0] += 1
                   page.screenshot(path=str(OUT / f"{shot_n[0]:02d}-{label}.png"))
-              except Exception: pass
+              except Exception:
+                  pass
 
           # ---------------------------------------------------------------
-          # Proxy auth keywords (ported verbatim from main10FA)
+          # Token capture
           # ---------------------------------------------------------------
+          JWT = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
+          candidates = []
+
+          def rank_of(source):
+              """Lower = more trustworthy as an *API* token (clipboard of the Copy button
+              beats an input field, which beats anything merely found in page/storage)."""
+              s = (source or "").lower()
+              if s.startswith(("clipboard", "copied")):
+                  return 0
+              if s.startswith("input"):
+                  return 1
+              if s.startswith(("page", "storage")):
+                  return 3
+              if s.startswith("network"):
+                  return 4
+              return 5
+
+          def add_candidate(tok, source):
+              if not tok:
+                  return
+              for c in candidates:
+                  if c["token"] == tok:
+                      if rank_of(source) < rank_of(c["source"]):
+                          c["source"] = source
+                      return
+              candidates.append({"token": tok, "source": source})
+              log("Token", f"candidate from {source}: ...{tok[-8:]} (rank {rank_of(source)})")
+
+          def scan_page(pg, tag):
+              data = {"inputs": [], "copied": [], "storage": []}
+              try:
+                  data = pg.evaluate("""() => {
+                      const out = {inputs: [], copied: [], storage: []};
+                      try { document.querySelectorAll('input, textarea').forEach(e => { if (e.value) out.inputs.push(String(e.value)); }); } catch (e) {}
+                      try { out.copied = (window.__copied || []).map(String); } catch (e) {}
+                      try {
+                          for (const s of [window.localStorage, window.sessionStorage]) {
+                              for (let i = 0; i < s.length; i++) out.storage.push(String(s.getItem(s.key(i))));
+                          }
+                      } catch (e) {}
+                      return out;
+                  }""") or data
+              except Exception as e:
+                  log("Token", f"scan_page({tag}) evaluate failed: {e}")
+              for kind, label in (("copied", "copied"), ("inputs", "input"), ("storage", "storage")):
+                  for text in data.get(kind, []):
+                      for m in JWT.findall(text or ""):
+                          add_candidate(m, f"{label}:{tag}")
+              try:
+                  for m in JWT.findall(pg.content()):
+                      add_candidate(m, f"page:{tag}")
+              except Exception:
+                  pass
+
+          def read_clipboard(pg):
+              try:
+                  txt = pg.evaluate("() => navigator.clipboard.readText()")
+                  for m in JWT.findall(txt or ""):
+                      add_candidate(m, "clipboard")
+              except Exception as e:
+                  log("Token", f"clipboard read failed (falling back to copy hook): {e}")
+              scan_page(pg, "after-copy")
+
+          def rest_status(token):
+              try:
+                  req = urllib.request.Request(
+                      "https://api.gologin.com/user",
+                      headers={"Authorization": f"Bearer {token}", "Accept": "application/json",
+                               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+                  )
+                  with urllib.request.urlopen(req, timeout=20) as resp:
+                      return resp.status
+              except urllib.error.HTTPError as e:
+                  return e.code
+              except Exception as e:
+                  return f"error: {e}"
+
+          # ---------------------------------------------------------------
+          # Generic Playwright helpers
+          # ---------------------------------------------------------------
+          def find_visible(page, locators, timeout_ms=5000):
+              end = time.time() + timeout_ms / 1000.0
+              while True:
+                  for loc in locators:
+                      try:
+                          el = loc.first
+                          if el.is_visible():
+                              return el
+                      except Exception:
+                          pass
+                  if time.time() >= end:
+                      return None
+                  time.sleep(0.25)
+
+          def click_first(page, locators, timeout_ms=5000):
+              el = find_visible(page, locators, timeout_ms)
+              if el is None:
+                  return False
+              try:
+                  el.click(timeout=5000)
+                  return True
+              except Exception as e:
+                  log("Click", f"normal click failed ({e}); retrying with force")
+                  try:
+                      el.click(timeout=3000, force=True)
+                      return True
+                  except Exception as e2:
+                      log("Click", f"forced click failed: {e2}")
+                      return False
+
+          def wait_any(conditions, timeout_ms=30000):
+              """conditions: [[name, callable], ...]. Returns the first name whose callable
+              is truthy, or None on timeout. Callables may raise (page navigating)."""
+              end = time.time() + timeout_ms / 1000.0
+              while time.time() < end:
+                  for name, fn in conditions:
+                      try:
+                          if fn():
+                              return name
+                      except Exception:
+                          pass
+                  time.sleep(0.5)
+              return None
+
+          def type_human(locator, text):
+              locator.click()
+              try:
+                  locator.fill("")
+              except Exception:
+                  pass
+              locator.press_sequentially(text, delay=random.randint(55, 130))
+              try:
+                  if locator.input_value() != text:
+                      locator.fill(text)
+              except Exception:
+                  pass
+
+          def tick_tos(page):
+              """Tick every unchecked consent checkbox. Never clicks text/links (a click on
+              'Terms' would navigate away)."""
+              ticked = 0
+              for sel_loc in (page.get_by_role("checkbox"), page.locator('input[type="checkbox"]')):
+                  try:
+                      n = sel_loc.count()
+                  except Exception:
+                      continue
+                  for i in range(n):
+                      box = sel_loc.nth(i)
+                      try:
+                          if box.is_checked():
+                              continue
+                          try:
+                              box.check(timeout=3000, force=True)
+                          except Exception:
+                              box.click(timeout=3000, force=True)
+                          ticked += 1
+                      except Exception:
+                          pass
+                  if ticked:
+                      break
+              if not ticked:
+                  try:
+                      lab = page.locator("label:has(input[type='checkbox'])").first
+                      if lab.is_visible():
+                          lab.click(position={"x": 8, "y": 8}, timeout=3000)
+                          ticked += 1
+                  except Exception:
+                      pass
+              log("Main", f"consent checkboxes ticked: {ticked}")
+              return ticked
+
+          _OVERLAY_BTN = re.compile(
+              r"^(\u00d7|\u2715|x|close|got it|accept( all)?( cookies)?|maybe later|no,? thanks|not now|dismiss)$", re.I)
+
+          def dismiss_overlays(page, tries=5):
+              for _ in range(tries):
+                  closed = False
+                  for loc in (
+                      page.locator('[role="dialog"] [aria-label="Close" i], [role="dialog"] button[class*="close" i]'),
+                      page.locator('[aria-label="Close" i]'),
+                      page.get_by_role("button", name=_OVERLAY_BTN),
+                  ):
+                      try:
+                          el = loc.first
+                          if el.is_visible():
+                              el.click(timeout=2000)
+                              closed = True
+                              time.sleep(0.8)
+                              break
+                      except Exception:
+                          pass
+                  if not closed:
+                      break
+
+          def is_dashboard(page):
+              try:
+                  u = page.url.lower()
+                  if "sign_up" in u or "login" in u or "download-installer" in u:
+                      return False
+                  if "profilelist" in u or "dashboard" in u:
+                      return True
+                  return page.get_by_role("button", name="Run", exact=True).first.is_visible()
+              except Exception:
+                  return False
+
+          def solve_turnstile(page, tag, timeout_ms=45000):
+              """WAIT-ONLY helper. In a normal browser the Cloudflare Turnstile widget
+              usually completes by itself. This waits for its response token to be filled;
+              it does not click inside the widget or try to bypass anything. If an
+              interactive challenge is shown, it times out and the run fails with a
+              screenshot instead."""
+              widget = ('iframe[src*="challenges.cloudflare.com"], [class*="cf-turnstile"], '
+                        'input[name="cf-turnstile-response"]')
+              try:
+                  if page.locator(widget).count() == 0:
+                      log("Turnstile", f"[{tag}] no widget present")
+                      return True
+              except Exception:
+                  return True
+              log("Turnstile", f"[{tag}] widget present - waiting up to {timeout_ms // 1000}s for it to complete")
+              end = time.time() + timeout_ms / 1000.0
+              while time.time() < end:
+                  try:
+                      tok = page.evaluate(
+                          "() => { const e = document.querySelector(\"input[name='cf-turnstile-response']\"); return e ? e.value : ''; }")
+                      if tok:
+                          log("Turnstile", f"[{tag}] completed")
+                          return True
+                  except Exception:
+                      pass
+                  time.sleep(1)
+              log("Turnstile", f"[{tag}] WARNING: not completed within timeout")
+              shot(page, f"turnstile-timeout-{tag}")
+              return False
+
+          # ---------------------------------------------------------------
+          # Edge launch (plain subprocess + CDP port; no automation flags)
+          # ---------------------------------------------------------------
+          EDGE_PROC = None
+
+          def find_edge():
+              for p in EDGE_EXE_CANDIDATES:
+                  if os.path.exists(p):
+                      return p
+              return shutil.which("msedge")
+
+          def kill_edge():
+              try:
+                  subprocess.run(["taskkill", "/F", "/IM", "msedge.exe", "/T"],
+                                 capture_output=True, timeout=30)
+              except Exception:
+                  pass
+
+          def cdp_ready(timeout=30):
+              end = time.time() + timeout
+              while time.time() < end:
+                  try:
+                      with urllib.request.urlopen(f"http://127.0.0.1:{CDP_PORT}/json/version", timeout=2) as r:
+                          if r.status == 200:
+                              return True
+                  except Exception:
+                      pass
+                  time.sleep(0.5)
+              return False
+
+          def launch_edge_with_retries(attempts=3):
+              global EDGE_PROC
+              exe = find_edge()
+              if not exe:
+                  raise RuntimeError("msedge.exe not found in the standard install paths or PATH.")
+              log("Edge", f"using {exe}")
+              if USE_PROXY and PROXY_SERVER.lower().startswith("socks") and PROXY_USER:
+                  log("Edge", "WARNING: Chromium/Edge cannot authenticate to SOCKS proxies; use an HTTP proxy.")
+              for n in range(1, attempts + 1):
+                  kill_edge()
+                  time.sleep(1)
+                  profile = tempfile.mkdtemp(prefix="edge-profile-")
+                  args = [
+                      exe,
+                      f"--remote-debugging-port={CDP_PORT}",
+                      "--remote-debugging-address=127.0.0.1",
+                      f"--user-data-dir={profile}",
+                      "--no-first-run", "--no-default-browser-check",
+                      "--disable-sync", "--password-store=basic",
+                      "--disable-save-password-bubble",
+                      "--window-size=1366,900",
+                  ]
+                  if USE_PROXY and PROXY_SERVER:
+                      args.append(f"--proxy-server={PROXY_SERVER}")
+                  args.append("about:blank")
+                  log("Edge", f"launch attempt {n}/{attempts} (proxy={'yes' if USE_PROXY and PROXY_SERVER else 'no'})")
+                  EDGE_PROC = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                  if cdp_ready(30):
+                      log("Edge", f"CDP ready on 127.0.0.1:{CDP_PORT}")
+                      return
+                  log("Edge", "CDP endpoint did not come up in 30s")
+              raise RuntimeError(f"Could not start Edge with a CDP endpoint after {attempts} attempts.")
+
+          def connect_cdp(pw, attempts=3):
+              last = None
+              for n in range(1, attempts + 1):
+                  try:
+                      return pw.chromium.connect_over_cdp(f"http://127.0.0.1:{CDP_PORT}", timeout=30000)
+                  except Exception as e:
+                      last = e
+                      log("CDP", f"connect attempt {n}/{attempts} failed: {e}")
+                      time.sleep(2)
+              raise RuntimeError(f"Playwright could not attach to Edge over CDP: {last}")
+
+          # ---------------------------------------------------------------
+          # Proxy auth over CDP (primary, silent) - the pywinauto loop below is the
+          # fallback for a native credential dialog.
+          # ---------------------------------------------------------------
+          _CDP_AUTH_ANSWERS = [0]
+          _CDP_AUTH_MAX = 6
+
+          def install_cdp_proxy_auth(context, page):
+              if not (USE_PROXY and PROXY_USER):
+                  return
+              try:
+                  client = context.new_cdp_session(page)
+              except Exception as e:
+                  log("ProxyAuth", f"could not open CDP session for proxy auth: {e}")
+                  return
+
+              def on_paused(ev):
+                  try:
+                      client.send("Fetch.continueRequest", {"requestId": ev["requestId"]})
+                  except Exception:
+                      pass
+
+              def on_auth(ev):
+                  try:
+                      source = (ev.get("authChallenge") or {}).get("source", "")
+                      if source == "Proxy" and _CDP_AUTH_ANSWERS[0] < _CDP_AUTH_MAX:
+                          _CDP_AUTH_ANSWERS[0] += 1
+                          client.send("Fetch.continueWithAuth", {
+                              "requestId": ev["requestId"],
+                              "authChallengeResponse": {
+                                  "response": "ProvideCredentials",
+                                  "username": PROXY_USER, "password": PROXY_PASS,
+                              },
+                          })
+                          log("ProxyAuth", f"answered proxy 407 over CDP ({_CDP_AUTH_ANSWERS[0]}/{_CDP_AUTH_MAX})")
+                          _mark_proxy_auth_done("answered over CDP Fetch.authRequired")
+                      else:
+                          client.send("Fetch.continueWithAuth", {
+                              "requestId": ev["requestId"],
+                              "authChallengeResponse": {"response": "CancelAuth" if source == "Proxy" else "Default"},
+                          })
+                          if source == "Proxy":
+                              log("ProxyAuth", "proxy keeps rejecting the credentials - cancelled (check proxy user/pass)")
+                  except Exception as e:
+                      log("ProxyAuth", f"CDP auth handler error: {e}")
+
+              try:
+                  client.on("Fetch.requestPaused", on_paused)
+                  client.on("Fetch.authRequired", on_auth)
+                  client.send("Fetch.enable", {"handleAuthRequests": True, "patterns": [{"urlPattern": "*"}]})
+                  log("ProxyAuth", "CDP proxy-auth handler installed")
+              except Exception as e:
+                  log("ProxyAuth", f"Fetch.enable failed: {e}")
+
+          def verify_proxy_ip(page):
+              """Load an IP-echo page through Edge. Fails the run if the proxy is unusable
+              (so we never sign up from the runner's own IP by mistake)."""
+              urls = ["https://api.ipify.org?format=json", "https://ifconfig.me/ip", "https://api.ipify.org"]
+              last = None
+              for attempt in range(1, 7):
+                  url = urls[(attempt - 1) % len(urls)]
+                  try:
+                      page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                      body = (page.inner_text("body", timeout=5000) or "").strip()
+                      m = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})|([0-9a-fA-F:]{6,})", body)
+                      if not m:
+                          raise RuntimeError(f"no IP in response: {body[:80]!r}")
+                      ip = m.group(0)
+                      log("Proxy", f"Edge exit IP: {ip}" + (f" (provisioned: {PROXY_REAL_IP})" if PROXY_REAL_IP else ""))
+                      if PROXY_REAL_IP and PROXY_REAL_IP not in ("direct", ip):
+                          log("Proxy", "note: exit IP differs from the provisioning IP (normal for rotating proxies)")
+                      return ip
+                  except Exception as e:
+                      last = e
+                      log("Proxy", f"IP check {attempt}/6 failed: {str(e)[:160]}")
+                      time.sleep(4)
+              raise RuntimeError(f"Proxy not usable from Edge after 6 attempts: {last}")
+
+          INIT_JS = """
+          (() => {
+            const rec = t => { try { (window.__copied = window.__copied || []).push(String(t)); } catch (e) {} };
+            try {
+              const cb = navigator.clipboard;
+              if (cb && cb.writeText) {
+                const orig = cb.writeText.bind(cb);
+                cb.writeText = t => { rec(t); return orig(t).catch(() => Promise.resolve()); };
+              }
+            } catch (e) {}
+            document.addEventListener('copy', () => { try { rec(String(window.getSelection())); } catch (e) {} }, true);
+          })();
+          """
+
+
           # ---------------------------------------------------------------
           # Proxy auth keywords + helpers (ported VERBATIM from main10FA)
           # ---------------------------------------------------------------
@@ -1285,10 +1461,6 @@ jobs:
               "addressEditBox", "addressField", "locationBar", "view_1", "omnibox",
           ]
 
-          _FOLD_SPECIAL_MAP = str.maketrans({
-              'l': 'l', 'd': 'd', 'o': 'o', 'O': 'O',
-              'ss': 'ss', 'ae': 'ae', 'AE': 'AE', 'oe': 'oe', 'OE': 'OE', 'i': 'i',
-          })
           _FOLD_SPECIAL_MAP = str.maketrans({
               '\u0142': 'l', '\u0141': 'L', '\u0111': 'd', '\u0110': 'D',
               '\u00f8': 'o', '\u00d8': 'O', '\u00df': 'ss', '\u00e6': 'ae',
@@ -1802,6 +1974,304 @@ jobs:
               log("ProxyAuthLoop", "Background proxy-auth thread stopped.")
 
 
+
+
+          # ---------------------------------------------------------------
+          # GoLogin token page flow
+          # ---------------------------------------------------------------
+          def token_via_settings(pg):
+              pg.goto("https://app.gologin.com/#/personalArea/TokenApi",
+                      wait_until="domcontentloaded", timeout=30000)
+              time.sleep(3)
+              dismiss_overlays(pg, 3)
+              new_btn = find_visible(pg, [
+                  pg.get_by_role("button", name=re.compile(r"new token", re.I)),
+                  pg.get_by_role("button", name=re.compile(r"(create|generate).{0,12}token", re.I)),
+              ], 8000)
+              if not new_btn:
+                  click_first(pg, [
+                      pg.get_by_text(re.compile(r"API\s*&\s*MCP", re.I)),
+                      pg.get_by_role("link", name=re.compile(r"^api", re.I)),
+                  ], 4000)
+                  time.sleep(2.5)
+                  dismiss_overlays(pg, 2)
+                  new_btn = find_visible(pg, [pg.get_by_role("button", name=re.compile(r"new token", re.I))], 8000)
+              scan_page(pg, "settings-existing")
+              shot(pg, "api-page")
+              if not new_btn:
+                  log("Token", "no 'New token' button found on the API page")
+                  return
+              new_btn.click()
+              time.sleep(1.5)
+              try:
+                  name_input = pg.locator(
+                      '[role="dialog"] input[type="text"], [class*="modal" i] input[type="text"]').first
+                  if name_input.is_visible():
+                      name_input.fill(f"actions-{IDX}")
+              except Exception:
+                  pass
+              click_first(pg, [pg.get_by_role(
+                  "button", name=re.compile(r"^(create|generate|save|confirm|ok|done|continue)\b", re.I))], 3000)
+              time.sleep(2.5)
+              scan_page(pg, "settings-new")
+              click_first(pg, [
+                  pg.get_by_role("button", name=re.compile(r"copy", re.I)),
+                  pg.get_by_text(re.compile(r"^copy( token)?$", re.I)),
+              ], 2000)
+              read_clipboard(pg)
+              shot(pg, "settings-after-new-token")
+
+
+          def run_flow(pw, result, page_ref):
+              try:
+                  browser = connect_cdp(pw)
+                  context = browser.contexts[0] if browser.contexts else browser.new_context()
+                  try:
+                      context.grant_permissions(["clipboard-read", "clipboard-write"])
+                  except Exception as e:
+                      log("Main", f"clipboard permission grant skipped: {e}")
+
+                  def on_response(r):
+                      try:
+                          if "gologin.com" not in r.url or "token" not in r.url.lower():
+                              return
+                          ct = r.headers.get("content-type", "")
+                          if "json" not in ct and "text" not in ct:
+                              return
+                          for m in JWT.findall(r.text()):
+                              add_candidate(m, "network:" + r.url.split("?")[0][-40:])
+                      except Exception:
+                          pass
+
+                  context.on("response", on_response)
+                  context.add_init_script(INIT_JS)
+
+                  page = context.pages[0] if context.pages else context.new_page()
+                  page_ref[0] = page
+                  page.set_default_timeout(25000)
+
+                  # Proxy auth must be armed BEFORE the first navigation.
+                  install_cdp_proxy_auth(context, page)
+                  context.on("page", lambda p: install_cdp_proxy_auth(context, p))
+
+                  if USE_PROXY:
+                      verify_proxy_ip(page)
+
+                  banner("Phase 2 - Open sign-up page and fill the form")
+                  page.goto("https://app.gologin.com/sign_up", wait_until="domcontentloaded", timeout=60000)
+
+                  email_field = find_visible(page, [
+                      page.get_by_placeholder(re.compile(r"your email", re.I)),
+                      page.locator('input[type="email"]'),
+                      page.locator('input[name="email"]'),
+                  ], 30000)
+                  if not email_field:
+                      shot(page, "no-email-field")
+                      raise RuntimeError("Sign-up email field not found. Check the screenshot.")
+                  time.sleep(random.uniform(1.5, 2.5))
+                  shot(page, "signup-page")
+
+                  log("Main", f"Entering email: {EMAIL}")
+                  type_human(email_field, EMAIL)
+                  time.sleep(random.uniform(2, 4))
+                  shot(page, "email-entered")
+
+                  tick_tos(page)
+                  time.sleep(random.uniform(1.2, 2.0))
+                  shot(page, "tos-ticked")
+
+                  click_first(page, [
+                      page.get_by_role("button", name=re.compile(r"try 7 days for free", re.I)),
+                      page.get_by_role("button", name=re.compile(r"try.*free", re.I)),
+                      page.get_by_role("button", name=re.compile(r"continue", re.I)),
+                  ], 10000)
+                  time.sleep(random.uniform(2, 3.5))
+
+                  banner("Phase 3 - Password page")
+
+                  def password_visible():
+                      return (page.locator('input[type="password"]').first.is_visible()
+                              or page.get_by_placeholder(re.compile(r"your password", re.I)).first.is_visible())
+
+                  stage1 = wait_any([
+                      ["password", password_visible],
+                      ["error", lambda: page.get_by_text(re.compile(
+                          r"already (registered|exists|in use|taken)|invalid email|too many|something went wrong", re.I)
+                      ).first.is_visible()],
+                  ], 45000)
+                  shot(page, "after-email-submit")
+                  if stage1 != "password":
+                      raise RuntimeError(f"Password step not reached (stage={stage1}). Check the screenshot.")
+
+                  pass_field = page.get_by_placeholder(re.compile(r"your password", re.I)).first
+                  confirm_field = page.get_by_placeholder(re.compile(r"confirm password", re.I)).first
+                  try:
+                      if not (pass_field.is_visible() and confirm_field.is_visible()):
+                          raise ValueError("placeholders not found")
+                  except Exception:
+                      pw_inputs = page.locator('input[type="password"]')
+                      pass_field = pw_inputs.nth(0)
+                      confirm_field = pw_inputs.nth(1) if pw_inputs.count() > 1 else None
+
+                  type_human(pass_field, PASSWORD)
+                  time.sleep(random.uniform(0.6, 1.0))
+                  if confirm_field is not None:
+                      type_human(confirm_field, PASSWORD)
+                  time.sleep(random.uniform(0.8, 1.5))
+                  shot(page, "password-filled")
+
+                  solve_turnstile(page, "before-create")
+                  shot(page, "before-create-account")
+
+                  create_re = re.compile(r"create an account", re.I)
+                  click_first(page, [page.get_by_role("button", name=create_re)], 10000)
+                  time.sleep(random.uniform(1.5, 2.5))
+                  solve_turnstile(page, "after-create")
+
+                  try:
+                      create_btn = page.get_by_role("button", name=create_re).first
+                      if create_btn.is_visible() and create_btn.is_enabled():
+                          create_btn.click(timeout=5000)
+                          time.sleep(random.uniform(1.5, 2.5))
+                  except Exception:
+                      pass  # page already moved on - that is the success path
+
+                  stage2 = wait_any([
+                      ["survey", lambda: page.get_by_text(re.compile(r"have you ever used antidetect", re.I)).first.is_visible()],
+                      ["allset", lambda: page.get_by_text(re.compile(r"all set", re.I)).first.is_visible()],
+                      ["dashboard", lambda: is_dashboard(page)],
+                      ["installer", lambda: "download-installer" in page.url],
+                      ["error", lambda: page.get_by_text(re.compile(
+                          r"already (registered|exists|in use|taken)|password is too|something went wrong", re.I)
+                      ).first.is_visible()],
+                  ], 90000)
+                  shot(page, "after-create-account")
+
+                  if stage2 in ("error", None):
+                      raise RuntimeError(f"Account creation failed (stage={stage2}). Check the screenshot.")
+                  result["signup"] = True
+                  log("Main", f"ACCOUNT CREATED: {EMAIL} (stage={stage2})")
+
+                  banner("Phase 4 - Onboarding")
+                  for _ in range(5):
+                      close_btn = find_visible(page, [
+                          page.locator('[aria-label="Close" i]'),
+                          page.locator('button.close, button[class*="close" i]'),
+                          page.get_by_role("button", name=re.compile(r"^\u00d7$|^close$", re.I)),
+                      ], 3000)
+                      if close_btn:
+                          try:
+                              close_btn.click()
+                              log("Main", "closed onboarding modal")
+                          except Exception:
+                              pass
+                          time.sleep(1.2)
+                          break
+                      if "download-installer" in page.url:
+                          page.goto("https://app.gologin.com/profileList",
+                                    wait_until="domcontentloaded", timeout=30000)
+                          time.sleep(2)
+                          break
+                      time.sleep(0.8)
+                  for _ in range(4):
+                      skip = find_visible(page, [
+                          page.get_by_text(re.compile(r"skip recommended setup", re.I)),
+                          page.get_by_role("link", name=re.compile(r"skip", re.I)),
+                          page.get_by_role("button", name=re.compile(r"skip", re.I)),
+                      ], 3000)
+                      if skip:
+                          try:
+                              skip.click()
+                              log("Main", "clicked Skip")
+                          except Exception:
+                              pass
+                          time.sleep(1.5)
+                          break
+                      time.sleep(0.6)
+                  dismiss_overlays(page, 8)
+                  shot(page, "after-onboarding")
+                  if not is_dashboard(page):
+                      page.goto("https://app.gologin.com/profileList",
+                                wait_until="domcontentloaded", timeout=30000)
+                      time.sleep(3)
+                      dismiss_overlays(page, 5)
+                  shot(page, "dashboard")
+                  log("Main", "Reached GoLogin dashboard.")
+
+                  banner("Phase 5 - Run -> API control -> Copy token")
+                  run_btn = find_visible(page, [page.get_by_role("button", name="Run", exact=True)], 20000)
+
+                  if not run_btn:
+                      log("Main", "No Run button - going to Settings API page")
+                      token_via_settings(page)
+                  else:
+                      run_btn.click()
+                      log("Main", "clicked Run")
+                      time.sleep(random.uniform(1, 1.8))
+                      shot(page, "run-menu")
+                      api_clicked = click_first(page, [
+                          page.get_by_text(re.compile(r"api control", re.I)),
+                          page.get_by_role("menuitem", name=re.compile(r"api control", re.I)),
+                      ], 10000)
+                      if not api_clicked:
+                          log("Main", '"API control" not found - going to Settings')
+                          token_via_settings(page)
+                      else:
+                          log("Main", 'clicked "API control"')
+                          time.sleep(random.uniform(2, 3.5))
+                          shot(page, "api-control-page")
+                          scan_page(page, "cloud-api-control")
+                          copy_el = find_visible(page, [
+                              page.get_by_text(re.compile(r"copy token", re.I)),
+                              page.get_by_role("button", name=re.compile(r"copy token", re.I)),
+                          ], 20000)
+                          if copy_el:
+                              copy_el.click()
+                              log("Main", "clicked Copy token")
+                              time.sleep(random.uniform(1, 1.5))
+                              read_clipboard(page)
+                              shot(page, "after-copy-token")
+                          else:
+                              log("Main", '"Copy token" not found - scanning page source')
+                              scan_page(page, "cloud-api-control-scan")
+
+                  if not [c for c in candidates if rank_of(c["source"]) <= 2]:
+                      log("Main", "No trusted token yet - trying the Settings API page")
+                      token_via_settings(page)
+
+                  if not candidates:
+                      shot(page, "no-token")
+                      raise RuntimeError("Signup succeeded but no API token extracted.")
+
+                  ordered = sorted(candidates, key=lambda c: rank_of(c["source"]))
+                  pick = None
+                  for c in ordered[:5]:
+                      st = rest_status(c["token"])
+                      log("Main", f"REST /user check for {c['source']}: {st}")
+                      if st == 200:
+                          pick = c
+                          result["restStatus"] = st
+                          break
+                      if result["restStatus"] is None:
+                          result["restStatus"] = st
+                  if pick is None:
+                      pick = ordered[0]
+                      log("Main", "WARNING: no candidate passed the REST check - keeping the best-ranked one")
+
+                  result["token"] = pick["token"]
+                  result["tokenSource"] = pick["source"]
+                  (OUT / "token.txt").write_text(pick["token"] + "\n", encoding="utf-8")
+
+                  try:
+                      browser.close()   # detaches from Edge; Edge itself is killed in finally
+                  except Exception:
+                      pass
+              except Exception:
+                  if page_ref[0] is not None:
+                      shot(page_ref[0], "error")
+                  raise
+
+
           def main():
               proxy_display = (f"{PROXY_LABEL}:{PROXY_SERVER} user={PROXY_USER[:6]}***"
                                if USE_PROXY else "none")
@@ -1814,327 +2284,79 @@ jobs:
 
               stop_event = threading.Event()
               auth_thread = None
+              page_ref = [None]
 
               try:
-                  banner("Phase 0 — Launch Edge + inject proxy (main10FA pattern)")
+                  if not EMAIL or not PASSWORD:
+                      raise RuntimeError("ACC_EMAIL / ACC_PASSWORD are empty.")
+
+                  banner("Phase 0 - Launch Edge")
                   log("Main", f"Proxy: {proxy_display}")
-                  log("Main", f"Edge will be launched with --proxy-server (subprocess), not Playwright proxy object")
+                  launch_edge_with_retries()
 
-                  # --- Launch Edge with --proxy-server exactly as main10FA does ---
-                  if not verify_edge_launch_with_proxy_auth("https://app.gologin.com/sign_up"):
-                      raise RuntimeError("Could not verify Edge launch after 5 attempts.")
+                  # Fallback for a native (non-CDP) credential dialog. One-shot + page-safe.
+                  if USE_PROXY and PROXY_USER and PROXY_PASS:
+                      _reset_proxy_auth_state()
+                      auth_thread = threading.Thread(target=run_proxy_auth_loop,
+                                                     args=(stop_event,), daemon=True)
+                      auth_thread.start()
 
-                  # --- Start background proxy-auth polling thread ---
-                  auth_thread = threading.Thread(
-                      target=run_proxy_auth_loop,
-                      args=(None, None, stop_event),
-                      daemon=True,
-                  )
-                  auth_thread.start()
-
-                  # Wait for proxy auth to complete before Playwright attaches
-                  if USE_PROXY and PROXY_USER:
-                      log("Main", "Waiting up to 30s for proxy auth to complete before Playwright attaches...")
-                      for _ in range(30):
-                          if PROXY_AUTH_STATE["done"]: break
-                          time.sleep(1)
-                      if PROXY_AUTH_STATE["done"]:
-                          log("Main", f"Proxy auth done ({PROXY_AUTH_STATE['reason']}). Attaching Playwright via CDP.")
-                      else:
-                          log("Main", "WARNING: Proxy auth not marked done in 30s — attaching anyway.")
-                  else:
-                      log("Main", "No proxy auth needed. Attaching Playwright via CDP immediately.")
-                      time.sleep(3)
-
-                  # --- Playwright attaches to the already-running Edge via CDP ---
-                  banner("Phase 1 — Playwright attaches to Edge via CDP")
+                  banner("Phase 1 - Playwright attaches to Edge via CDP")
                   with sync_playwright() as pw:
-                      browser = pw.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
-                      context = browser.contexts[0]
-                      context.grant_permissions(["clipboard-read", "clipboard-write"])
-
-                      # Intercept network responses for token scanning
-                      def on_response(r):
-                          try:
-                              if "gologin.com" not in r.url: return
-                              if "token" not in r.url.lower(): return
-                              ct = r.headers.get("content-type","")
-                              if "json" not in ct and "text" not in ct: return
-                              for m in JWT.findall(r.text()):
-                                  add_candidate(m, "network:"+r.url.split("?")[0][-40:])
-                          except: pass
-
-                      context.on("response", on_response)
-
-                      # Clipboard intercept init script
-                      context.add_init_script("""
-                          const rec = t => {
-                              try { window.__gl_copy?.(String(t)); } catch {}
-                              (window.__copied = window.__copied||[]).push(String(t));
-                          };
-                          try {
-                              const orig = navigator.clipboard.writeText.bind(navigator.clipboard);
-                              navigator.clipboard.writeText = t => { rec(t); return orig(t).catch(()=>Promise.resolve()); };
-                          } catch {}
-                          document.addEventListener('copy', ()=>{ try { rec(String(window.getSelection())); } catch {} }, true);
-                      """)
-
-                      pages = context.pages
-                      page = pages[0] if pages else context.new_page()
-                      page.set_default_timeout(25000)
-
-                      # Navigate to sign_up if not already there
-                      if "sign_up" not in page.url:
-                          log("Main", "Navigating to sign_up page...")
-                          page.goto("https://app.gologin.com/sign_up",
-                                    wait_until="domcontentloaded", timeout=60000)
-
-                      email_field = page.get_by_placeholder(re.compile(r"your email", re.I)).first
-                      email_field.wait_for(state="visible", timeout=30000)
-                      time.sleep(random.uniform(1.5, 2.5))
-                      shot(page, "01-signup-page")
-
-                      banner("Phase 2 — Fill signup form")
-                      log("Main", f"Entering email: {EMAIL}")
-                      type_human(email_field, EMAIL)
-                      time.sleep(random.uniform(5, 8))
-                      shot(page, "02-email-entered")
-
-                      tick_tos(page)
-                      time.sleep(random.uniform(1.2, 2.0))
-                      shot(page, "03-tos-ticked")
-
-                      click_first(page, [
-                          page.get_by_role("button", name=re.compile(r"try 7 days for free", re.I)),
-                          page.get_by_role("button", name=re.compile(r"try.*free", re.I)),
-                          page.get_by_role("button", name=re.compile(r"continue", re.I)),
-                      ], 10000)
-                      time.sleep(random.uniform(2, 3.5))
-
-                      banner("Phase 3 — Password page")
-                      pass_field = page.get_by_placeholder(re.compile(r"your password", re.I)).first
-                      stage1 = wait_any([
-                          ["password", lambda: pass_field.is_visible()],
-                          ["error",    lambda: page.get_by_text(re.compile(r"already (registered|exists|in use|taken)|invalid email|too many|something went wrong", re.I)).first.is_visible()],
-                      ], 45000)
-                      shot(page, "04-after-email-submit")
-                      if stage1 != "password":
-                          raise RuntimeError(f"Password step not reached (stage={stage1}). Check screenshot 04.")
-
-                      type_human(pass_field, PASSWORD)
-                      time.sleep(random.uniform(0.6, 1.0))
-                      confirm_field = page.get_by_placeholder(re.compile(r"confirm password", re.I)).first
-                      type_human(confirm_field, PASSWORD)
-                      time.sleep(random.uniform(0.8, 1.5))
-                      shot(page, "05-password-filled")
-
-                      solve_turnstile(page, "before-create")
-                      shot(page, "06-before-create-account")
-
-                      click_first(page, [page.get_by_role("button", name=re.compile(r"create an account", re.I))], 10000)
-                      time.sleep(random.uniform(1.5, 2.5))
-                      solve_turnstile(page, "after-create")
-
-                      create_btn = page.get_by_role("button", name=re.compile(r"create an account", re.I)).first
-                      if create_btn.is_visible() and create_btn.is_enabled():
-                          create_btn.click(timeout=5000)
-                          time.sleep(random.uniform(1.5, 2.5))
-
-                      stage2 = wait_any([
-                          ["survey",    lambda: page.get_by_text(re.compile(r"have you ever used antidetect", re.I)).first.is_visible()],
-                          ["allset",    lambda: page.get_by_text(re.compile(r"all set", re.I)).first.is_visible()],
-                          ["dashboard", lambda: is_dashboard(page)],
-                          ["installer", lambda: "download-installer" in page.url],
-                          ["error",     lambda: page.get_by_text(re.compile(r"already (registered|exists|in use|taken)|password is too|something went wrong", re.I)).first.is_visible()],
-                      ], 90000)
-                      shot(page, "07-after-create-account")
-
-                      if stage2 in ("error", None):
-                          raise RuntimeError(f"Account creation failed (stage={stage2}). Check screenshot 07.")
-                      result["signup"] = True
-                      log("Main", f"ACCOUNT CREATED: {EMAIL} (stage={stage2})")
-
-                      banner("Phase 4 — Onboarding")
-                      for _ in range(5):
-                          close_btn = find_visible(page, [
-                              page.locator('[aria-label="Close" i], [aria-label="close" i]').first,
-                              page.locator('button.close, button[class*="close" i]').first,
-                              page.get_by_role("button", name=re.compile(r"^×$|^close$", re.I)).first,
-                              page.locator('a[href*="profileList"], a[href*="dashboard"]').first,
-                          ], 3000)
-                          if close_btn:
-                              close_btn.click(); log("Main", "closed onboarding modal"); time.sleep(1.2); break
-                          if "download-installer" in page.url:
-                              page.goto("https://app.gologin.com/profileList",
-                                        wait_until="domcontentloaded", timeout=30000)
-                              time.sleep(2); break
-                          time.sleep(0.8)
-                      for _ in range(4):
-                          skip = find_visible(page, [
-                              page.get_by_text(re.compile(r"skip recommended setup", re.I)),
-                              page.get_by_role("link",   name=re.compile(r"skip", re.I)),
-                              page.get_by_role("button", name=re.compile(r"skip", re.I)),
-                          ], 3000)
-                          if skip: skip.click(); log("Main","clicked Skip"); time.sleep(1.5); break
-                          time.sleep(0.6)
-                      dismiss_overlays(page, 8)
-                      shot(page, "08-after-onboarding")
-                      if not is_dashboard(page):
-                          page.goto("https://app.gologin.com/profileList",
-                                    wait_until="domcontentloaded", timeout=30000)
-                          time.sleep(3); dismiss_overlays(page, 5)
-                      shot(page, "09-dashboard")
-                      log("Main", "Reached GoLogin dashboard.")
-
-                      banner("Phase 5 — Run → API control → Copy token")
-                      run_btn = find_visible(page, [page.get_by_role("button", name="Run", exact=True)], 20000)
-
-                      async def token_via_settings(pg):
-                          pg.goto("https://app.gologin.com/#/personalArea/TokenApi",
-                                  wait_until="domcontentloaded", timeout=30000)
-                          time.sleep(3); dismiss_overlays(pg, 3)
-                          new_btn = find_visible(pg, [
-                              pg.get_by_role("button", name=re.compile(r"new token", re.I)),
-                              pg.get_by_role("button", name=re.compile(r"(create|generate).{0,12}token", re.I)),
-                          ], 8000)
-                          if not new_btn:
-                              click_first(pg, [pg.get_by_text(re.compile(r"API\s*&\s*MCP", re.I)),
-                                               pg.get_by_role("link", name=re.compile(r"^api", re.I))], 4000)
-                              time.sleep(2.5); dismiss_overlays(pg, 2)
-                              new_btn = find_visible(pg, [pg.get_by_role("button", name=re.compile(r"new token", re.I))], 8000)
-                          scan_page(pg, "settings-existing")
-                          shot(pg, "13-api-page")
-                          if not new_btn: return
-                          new_btn.click(); time.sleep(1.5)
-                          name_input = pg.locator('[role="dialog"] input[type="text"], [class*="modal" i] input[type="text"]').first
-                          if name_input.is_visible(): name_input.fill(f"actions-{IDX}")
-                          click_first(pg, [pg.get_by_role("button", name=re.compile(r"^(create|generate|save|confirm|ok|done|continue)\b", re.I))], 3000)
-                          time.sleep(2.5); scan_page(pg, "settings-new")
-                          click_first(pg, [pg.get_by_role("button", name=re.compile(r"copy", re.I)),
-                                           pg.get_by_text(re.compile(r"^copy( token)?$", re.I))], 2000)
-                          read_clipboard(pg); shot(pg, "14-settings-after-new-token")
-
-                      def token_via_settings_sync(pg):
-                          pg.goto("https://app.gologin.com/#/personalArea/TokenApi",
-                                  wait_until="domcontentloaded", timeout=30000)
-                          time.sleep(3); dismiss_overlays(pg, 3)
-                          new_btn = find_visible(pg, [
-                              pg.get_by_role("button", name=re.compile(r"new token", re.I)),
-                              pg.get_by_role("button", name=re.compile(r"(create|generate).{0,12}token", re.I)),
-                          ], 8000)
-                          if not new_btn:
-                              click_first(pg, [pg.get_by_text(re.compile(r"API\s*&\s*MCP", re.I)),
-                                               pg.get_by_role("link", name=re.compile(r"^api", re.I))], 4000)
-                              time.sleep(2.5); dismiss_overlays(pg, 2)
-                              new_btn = find_visible(pg, [pg.get_by_role("button", name=re.compile(r"new token", re.I))], 8000)
-                          scan_page(pg, "settings-existing")
-                          shot(pg, "13-api-page")
-                          if not new_btn: return
-                          new_btn.click(); time.sleep(1.5)
-                          name_input = pg.locator('[role="dialog"] input[type="text"], [class*="modal" i] input[type="text"]').first
-                          if name_input.is_visible(): name_input.fill(f"actions-{IDX}")
-                          click_first(pg, [pg.get_by_role("button", name=re.compile(r"^(create|generate|save|confirm|ok|done|continue)\b", re.I))], 3000)
-                          time.sleep(2.5); scan_page(pg, "settings-new")
-                          click_first(pg, [pg.get_by_role("button", name=re.compile(r"copy", re.I)),
-                                           pg.get_by_text(re.compile(r"^copy( token)?$", re.I))], 2000)
-                          read_clipboard(pg); shot(pg, "14-settings-after-new-token")
-
-                      if not run_btn:
-                          log("Main", "No Run button — going to Settings API page")
-                          token_via_settings_sync(page)
-                      else:
-                          run_btn.click(); log("Main", "clicked Run"); time.sleep(random.uniform(1,1.8))
-                          shot(page, "10-run-menu")
-                          api_clicked = click_first(page, [
-                              page.get_by_text(re.compile(r"api control", re.I)),
-                              page.get_by_role("menuitem", name=re.compile(r"api control", re.I)),
-                          ], 10000)
-                          if not api_clicked:
-                              log("Main", '"API control" not found — going to Settings')
-                              token_via_settings_sync(page)
-                          else:
-                              log("Main", 'clicked "API control"')
-                              time.sleep(random.uniform(2, 3.5)); shot(page, "11-api-control-page")
-                              scan_page(page, "cloud-api-control")
-                              copy_el = find_visible(page, [
-                                  page.get_by_text(re.compile(r"copy token", re.I)),
-                                  page.get_by_role("button", name=re.compile(r"copy token", re.I)),
-                              ], 20000)
-                              if copy_el:
-                                  copy_el.click(); log("Main","clicked Copy token"); time.sleep(random.uniform(1,1.5))
-                                  read_clipboard(page); shot(page, "12-after-copy-token")
-                              else:
-                                  log("Main", '"Copy token" not found — scanning page source')
-                                  scan_page(page, "cloud-api-control-scan")
-
-                      primary = [c for c in candidates if rank_of(c["source"]) <= 2]
-                      if not primary: token_via_settings_sync(page)
-
-                      pick = sorted(candidates, key=lambda c: rank_of(c["source"]))[0] if candidates else None
-                      if not pick:
-                          raise RuntimeError("Signup succeeded but no API token extracted.")
-
-                      result["token"]       = pick["token"]
-                      result["tokenSource"] = pick["source"]
-
-                      try:
-                          import urllib.request
-                          req = urllib.request.Request(
-                              "https://api.gologin.com/user",
-                              headers={"Authorization": f"Bearer {pick['token']}", "Accept": "application/json"},
-                          )
-                          with urllib.request.urlopen(req, timeout=20) as resp:
-                              result["restStatus"] = resp.status
-                          log("Main", f"REST /user validation: HTTP {result['restStatus']}")
-                      except Exception as e: result["restStatus"] = f"error: {e}"
-
-                      (OUT / "token.txt").write_text(pick["token"] + "\n")
-
-                  browser.close()
+                      run_flow(pw, result, page_ref)
 
               except Exception as e:
                   result["error"] = str(e)
                   print(f"::error::Device {IDX} ({EMAIL}): {e}", flush=True)
-                  import traceback; traceback.print_exc()
+                  traceback.print_exc()
                   sys.exit(1)
 
               finally:
                   stop_event.set()
                   if auth_thread and auth_thread.is_alive():
                       auth_thread.join(timeout=5)
-                  result["finishedAt"] = datetime.datetime.utcnow().isoformat() + "Z"
-                  (OUT / "result.json").write_text(json.dumps(result, indent=2))
+                  try:
+                      if EDGE_PROC and EDGE_PROC.poll() is None:
+                          EDGE_PROC.terminate()
+                  except Exception:
+                      pass
+                  kill_edge()
+                  result["finishedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                  (OUT / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
 
-                  print("\n" + "="*60)
+                  print("\n" + "=" * 60)
                   print("GOLOGIN SIGNUP RESULT")
-                  print("="*60)
+                  print("=" * 60)
                   print(f"device  : {IDX}")
                   print(f"email   : {EMAIL}")
-                  print(f"signup  : {'OK ✓' if result['signup'] else 'FAILED ✗'}")
+                  print(f"signup  : {'OK' if result['signup'] else 'FAILED'}")
                   print(f"proxy   : {result['proxy']}")
                   print(f"source  : {result.get('tokenSource') or '-'}")
                   print(f"REST /user: {result.get('restStatus') or '-'}")
-                  print(f"\nAPI KEY (copy the line below):")
+                  print("\nAPI KEY (copy the line below):")
                   print(result.get("token") or "(not captured)")
-                  print("="*60 + "\n")
+                  print("=" * 60 + "\n")
 
                   if result.get("token"):
-                      print(f"::notice title=GoLogin API key (device {IDX} · {EMAIL})::{result['token']}", flush=True)
+                      print(f"::notice title=GoLogin API key (device {IDX} - {EMAIL})::{result['token']}", flush=True)
 
                   summ = os.environ.get("GITHUB_STEP_SUMMARY")
                   if summ:
                       md = "\n".join([
                           f"### Device {IDX}: {EMAIL}",
-                          f"- Signup: **{'OK ✓' if result['signup'] else 'FAILED ✗'}**",
+                          f"- Signup: **{'OK' if result['signup'] else 'FAILED'}**",
                           f"- Proxy: {result['proxy']}",
                           f"- API key: `{result.get('token') or 'not captured'}`",
                           f"- Source: {result.get('tokenSource') or '-'}  |  REST: {result.get('restStatus') or '-'}",
                           (f"- Error: {result['error']}" if result.get("error") else ""),
                           "",
                       ])
-                      open(summ, "a").write(md + "\n")
+                      with open(summ, "a", encoding="utf-8") as fh:
+                          fh.write(md + "\n")
 
-          main()
+
+          if __name__ == "__main__":
+              main()
           PYEOF
 
       # ================================================================
@@ -2152,9 +2374,8 @@ jobs:
             $v = (Get-Item $edge).VersionInfo.ProductVersion
             Write-Host "[Edge] Version: $v"
           } else {
-            Write-Host "[Edge] Not found in standard paths — installing via Playwright..."
-            cd automation
-            npx playwright install msedge
+            Write-Host "::error::Microsoft Edge not found in the standard install paths."
+            exit 1
           }
 
       # ================================================================
@@ -2166,6 +2387,8 @@ jobs:
         timeout-minutes: 20
         env:
           OUT_DIR:       out
+          CDP_PORT:      ${{ env.CDP_PORT }}
+          PROXY_REAL_IP: ${{ env.PROXY_REAL_IP }}
           USE_PROXY:     ${{ env.USE_PROXY }}
           PROXY_SERVER:  ${{ env.PROXY_SERVER }}
           PROXY_HOST:    ${{ env.PROXY_HOST }}
@@ -2204,35 +2427,23 @@ jobs:
       # ================================================================
       # CLEANUP
       # ================================================================
-      - name: "Cleanup — close Edge, kill monitor, disconnect WARP"
+      - name: "Cleanup - close Edge, disconnect WARP"
         if: always()
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Continue'
           Write-Host "Closing Edge..."
-          taskkill /F /IM msedge.exe /T 2>$null; $true
-
-          # Kill proxy-auth monitor if running
-          $pidFile = Join-Path $env:TEMP "proxy_auth_monitor.pid"
-          if (Test-Path $pidFile) {
-            $monPid = (Get-Content $pidFile -ErrorAction SilentlyContinue).Trim()
-            if ($monPid -match '^\d+$') {
-              try { Stop-Process -Id ([int]$monPid) -Force -ErrorAction Stop; Write-Host "Monitor PID $monPid stopped." }
-              catch { Write-Host "Monitor PID $monPid already gone." }
-            }
-            Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-          }
-          # Also print monitor log for debugging
-          $logFile = Join-Path $env:TEMP "proxy_auth_monitor.log"
-          if (Test-Path $logFile) {
-            Write-Host "--- proxy_auth_monitor.log ---"
-            Get-Content $logFile -ErrorAction SilentlyContinue | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }
-          }
+          & taskkill /F /IM msedge.exe /T 2>&1 | Out-Null
 
           if ($env:WARP_ON -eq "true") {
             $cli = "C:\Program Files\Cloudflare\Cloudflare WARP\warp-cli.exe"
-            if (Test-Path $cli) { & $cli '--accept-tos' 'disconnect' 2>$null; $true }
+            if (Test-Path $cli) { & $cli '--accept-tos' 'disconnect' 2>&1 | Out-Null }
           }
           Write-Host "Device $($env:ACC_INDEX) ($($env:ACC_EMAIL)) done."
+          # Native commands above leave a non-zero $LASTEXITCODE when there was nothing to
+          # close; without this reset the step (and the whole job) would be reported failed.
+          $global:LASTEXITCODE = 0
+          exit 0
 
 # =============================================================================
 # JOB 4 — REPORT: combined summary of all accounts + API keys
@@ -2280,60 +2491,3 @@ jobs:
           path: all-results.json
           if-no-files-found: ignore
           retention-days: 7
-
-# =============================================================================
-# NOTES — Proxy Injection Design (v3)
-# =============================================================================
-#
-# WHY THE OLD page.on('dialog') APPROACH FAILED:
-#   Edge's HTTP proxy authentication popup is a NATIVE BROWSER dialog,
-#   not a JavaScript dialog. page.on('dialog') only catches:
-#     - window.alert()
-#     - window.confirm()
-#     - window.prompt()
-#     - beforeunload dialogs
-#   The native proxy credential dialog is rendered by the browser chrome (OS),
-#   completely outside of any JavaScript context, so Playwright's dialog
-#   event never fires for it. This is why the previous fix didn't work.
-#
-# THE NEW 4-LAYER APPROACH:
-#
-#   Layer 1 — Playwright proxy object (launchPersistentContext.proxy):
-#     server   = "http://host:port"   (bare URL — NEVER include credentials here)
-#     username = "user"               (separate field)
-#     password = "pass"               (separate field)
-#     Playwright converts these to the correct --proxy-server and
-#     --proxy-auth Chromium flags internally. This alone handles most
-#     proxy providers and prevents any popup from appearing.
-#     Chromium silently ignores http://user:pass@host:port in the URL.
-#
-#   Layer 2 — context.route() Proxy-Authorization header injection:
-#     Every outgoing HTTP/HTTPS request gets "Proxy-Authorization: Basic <b64>"
-#     injected by Playwright's routing layer. The proxy receives the credential
-#     on the first request and never needs to issue a 407 challenge.
-#     This operates at the Playwright level and applies to all pages.
-#
-#   Layer 3 — CDP Network.setExtraHTTPHeaders per page:
-#     Opens a CDP (Chrome DevTools Protocol) session per page and sets
-#     Proxy-Authorization as an extra header at the network layer.
-#     This covers requests that bypass Playwright's routing (service workers,
-#     pre-navigation favicon requests, etc.). Applied before every navigation.
-#
-#   Layer 4 — page.authenticate() on every page:
-#     Playwright's built-in mechanism for handling 407 challenges.
-#     Pre-supplies credentials so the browser auto-responds to any residual
-#     407 without showing the user a popup.
-#
-#   Step 5b — Windows Credential Manager pre-population:
-#     Runs BEFORE Edge launches. Uses cmdkey.exe to store the proxy
-#     credentials in the Windows Credential Manager and also sets the
-#     system-wide WinINet/WinHTTP proxy. Edge's underlying network stack
-#     reads from Credential Manager automatically for proxy auth.
-#     This covers any auth path that bypasses all Playwright mechanisms.
-#
-# WHAT ABOUT --proxy-server IN LAUNCH ARGS?
-#   DO NOT pass --proxy-server when also using Playwright's proxy option.
-#   Playwright adds --proxy-server internally when proxy is set.
-#   Passing it twice causes a conflict and can break authentication.
-#
-# =============================================================================
