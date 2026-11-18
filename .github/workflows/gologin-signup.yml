@@ -2,33 +2,29 @@
 # USE A PRIVATE REPO — inputs, logs and artifacts contain the password and API keys.
 # Requires repo secret: GH_PAT (fine-grained: Variables read+write, Actions read+write, Contents read+write)
 #
-# PROXY INJECTION + AUTH (v4) — transplanted from working main10.9FA / mx10FA
+# PROXY FIX (taken from working Parallel mx10.9FA / main109FA_fixed.yml):
+#   Chromium/Edge silently ignores credentials embedded in a proxy URL
+#   (http://user:pass@host:port). Playwright's proxy object + page.authenticate()
+#   also frequently fail to suppress the native Windows auth dialog on headed Edge.
 #
-# The previous Playwright-only layers were insufficient for many residential /
-# mobile HTTP proxies on Windows Edge. Native OS credential dialogs are invisible
-# to page.on('dialog') and often bypass page.authenticate() / route headers.
+#   Solution used here (identical pattern to the working mx10FA runner):
+#     1. Launch Edge with --proxy-server=http://HOST:PORT  (NO credentials in the URL)
+#     2. A background Python process (pywinauto) watches for the native auth dialog
+#        and injects username + password once (one-shot), exactly like mx10FA's
+#        inject_proxy_auth + PROXY_AUTH_STATE.
+#     3. Only after the dialog is handled (or confirmed absent) does the main
+#        Playwright script navigate to the GoLogin signup page.
+#     4. Proxy generation / validation / country matching is also aligned with
+#        the robust logic from the mx10FA proxy pool generator.
 #
-# This version takes the proven approach from the working Parallel mx10.9FA workflow:
-#
-#   1. Multi-provider proxy generation + exit-IP/country validation
-#      (GoLogin mobile-proxy API, BytesFlow, ScrapeOps, Floppy, Redscrape, manual)
-#   2. BEFORE any browser launch:
-#        - WinINet system proxy (registry)
-#        - Windows Credential Manager (cmdkey) for the proxy host
-#        - Robust pywinauto one-shot native-dialog injector (multi-language keywords,
-#          outside-Document protection so web forms are never typed into,
-#          late-prompt valve, continuous scan)
-#   3. Playwright 4 layers kept as secondary defence (proxy object, route header,
-#      CDP extra headers, page.authenticate)
-#   4. Explicit warm-up navigation to an IP-check endpoint FIRST.
-#      The monitor is given time to clear any native dialog before the real
-#      target URL (app.gologin.com) is ever opened.
-#
-# Authentication therefore completes before the GoLogin signup page is touched.
+# Other fixes retained from previous versions:
+#   - No secrets in job outputs (prevents the strategy/fromJSON crash)
+#   - max-parallel is a real number via fromJSON(inputs.concurrency)
+#   - GoLogin proxy API supports residential / mobile / datacenter + country
 
-name: GoLogin Signup Automation (v4 robust proxy)
+name: GoLogin Signup Automation
 
-run-name: "GoLogin signup v4 | warp=${{ inputs.use_cloudflare_warp }} | devices=${{ inputs.account_count }}"
+run-name: "GoLogin signup | warp=${{ inputs.use_cloudflare_warp }} | devices=${{ inputs.account_count }}"
 
 on:
   workflow_dispatch:
@@ -273,6 +269,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
+      # ONLY non-sensitive values go through job outputs.
       matrix:      ${{ steps.resolve.outputs.matrix }}
       job_timeout: ${{ steps.resolve.outputs.job_timeout }}
     steps:
@@ -388,7 +385,7 @@ jobs:
       # ================================================================
       # STEP 1 — Getscreen.me
       # ================================================================
-      - name: "[1/11] Getscreen.me — install and link (Windows)"
+      - name: "[1/12] Getscreen.me — install and link (Windows)"
         if: ${{ env.GS_EMAIL != '' }}
         continue-on-error: true
         shell: pwsh
@@ -445,7 +442,7 @@ jobs:
       # ================================================================
       # STEP 2 — Getscreen pause
       # ================================================================
-      - name: "[2/11] Getscreen.me — pause before automation"
+      - name: "[2/12] Getscreen.me — pause before automation"
         if: ${{ env.GS_EMAIL != '' && env.GS_WAIT != '0' }}
         run: |
           total=$GS_WAIT
@@ -455,7 +452,7 @@ jobs:
       # ================================================================
       # STEP 3 — Runner info
       # ================================================================
-      - name: "[3/11] Runner info + public IP"
+      - name: "[3/12] Runner info + public IP"
         run: |
           echo "Runner OS: $RUNNER_OS  Arch: $RUNNER_ARCH  Image: ${ImageOS:-n/a} ${ImageVersion:-}"
           echo "Public IP (before WARP): $(curl -fsS --max-time 15 https://api.ipify.org || echo unknown)"
@@ -463,7 +460,7 @@ jobs:
       # ================================================================
       # STEP 4 — Cloudflare WARP
       # ================================================================
-      - name: "[4/11] Cloudflare WARP — install and connect (Windows)"
+      - name: "[4/12] Cloudflare WARP — install and connect (Windows)"
         if: ${{ env.WARP_ON == 'true' }}
         continue-on-error: true
         shell: pwsh
@@ -518,7 +515,7 @@ jobs:
           }
           [void](W @('status'))
 
-      - name: "[4b/11] Cloudflare WARP — verify connection"
+      - name: "[4b/12] Cloudflare WARP — verify connection"
         if: ${{ env.WARP_ON == 'true' }}
         run: |
           set -uo pipefail
@@ -543,23 +540,16 @@ jobs:
           fi
 
       # ================================================================
-      # STEP 5 — Proxy provisioning (ported from main10FA — multi-provider,
-      # validates country + timezone metadata, same logic that works in prod)
-      # Outputs PROXY_SERVER / PROXY_USER / PROXY_PASS / PROXY_TYPE /
-      #         USE_PROXY / PROXY_COUNTRY_CODE / PROXY_REAL_IP / TIMEZONE_WINDOWS /
-      #         TIMEZONE_IANA / WINDOWS_LOCALE / WINDOWS_KEYBOARD as env vars.
+      # STEP 5 — Proxy provisioning (aligned with mx10FA generator)
       # ================================================================
-      - name: "[5/11] Proxy provisioning"
+      - name: "[5/12] Proxy provisioning (mx10FA-style)"
         shell: python
         env:
-          API_KEY_INPUT:     ${{ env.PROXY_INPUT }}
-          WITHOUT_PROXY:     ${{ env.USE_WITHOUT_PROXY }}
-          COUNTRY:           "USA"
-          FALLBACK_COUNTRY:  "No Fallback"
-          MOBILE:            "false"
-          STICKY:            "true"
-          TASK_INDEX:        ${{ matrix.index }}
-          ABSOLUTE_IDX:      ${{ matrix.index }}
+          PROXY_INPUT:       ${{ env.PROXY_INPUT }}
+          PROXY_TYPE_GL:     ${{ env.PROXY_TYPE_GL }}
+          PROXY_COUNTRY:     ${{ env.PROXY_COUNTRY }}
+          USE_WITHOUT_PROXY: ${{ env.USE_WITHOUT_PROXY }}
+          ACC_INDEX:         ${{ matrix.index }}
         run: |
           import os, re, sys, time, json, random, string
 
@@ -573,84 +563,35 @@ jobs:
           urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
           GH_ENV         = os.environ.get("GITHUB_ENV", "")
-          proxy_input    = os.environ.get("API_KEY_INPUT", "").strip()
-          without_proxy  = os.environ.get("WITHOUT_PROXY", "false").lower() == "true"
-          absolute_idx   = int(os.environ.get("ABSOLUTE_IDX", "1"))
-          task_index     = int(os.environ.get("TASK_INDEX", "1"))
-          country_input  = os.environ.get("COUNTRY", "USA")
-          fallback_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
-          mobile         = os.environ.get("MOBILE", "false").lower() == "true"
-          sticky         = os.environ.get("STICKY", "true").lower() == "true"
-
-          country_map = {
-              "USA": "us", "UK": "gb", "Canada": "ca", "Australia": "au",
-              "Germany": "de", "France": "fr", "Brazil": "br", "Mexico": "mx",
-              "Spain": "es", "Vietnam": "vn", "Switzerland": "ch",
-              "Indonesia": "id", "Italy": "it", "Netherlands": "nl", "Poland": "pl",
-          }
-          cc_primary  = country_map.get(country_input, "us").upper()
-          cc_fallback = None if fallback_input == "No Fallback" else country_map.get(fallback_input, "us").upper()
-
-          def cc_to_locale(cc):
-              m = {"US":"en-US","GB":"en-GB","CA":"en-CA","AU":"en-AU","DE":"de-DE",
-                   "FR":"fr-FR","BR":"pt-BR","MX":"es-MX","ES":"es-ES","VN":"vi-VN",
-                   "CH":"de-CH","ID":"id-ID","IT":"it-IT","NL":"nl-NL","PL":"pl-PL"}
-              return m.get(cc.upper(), "en-US")
-
-          def cc_to_keyboard(cc):
-              m = {"US":"0409:00000409","GB":"0809:00000809","CA":"1009:00000409",
-                   "AU":"0C09:00000409","DE":"0407:00000407","FR":"040C:0000040C",
-                   "BR":"0416:00000416","MX":"080A:0000080A","ES":"0C0A:0000080A",
-                   "VN":"042A:0000042A","CH":"0807:00000807","ID":"0421:00000409",
-                   "IT":"0410:00000410","NL":"0413:00020409","PL":"0415:00000415"}
-              return m.get(cc.upper(), "0409:00000409")
-
-          def tz_to_win(iana):
-              m = {"America/New_York":"Eastern Standard Time","America/Chicago":"Central Standard Time",
-                   "America/Denver":"Mountain Standard Time","America/Phoenix":"US Mountain Standard Time",
-                   "America/Los_Angeles":"Pacific Standard Time","America/Toronto":"Eastern Standard Time",
-                   "America/Sao_Paulo":"E. South America Standard Time",
-                   "America/Mexico_City":"Central Standard Time (Mexico)",
-                   "Europe/London":"GMT Standard Time","Europe/Paris":"Romance Standard Time",
-                   "Europe/Berlin":"W. Europe Standard Time","Europe/Madrid":"Romance Standard Time",
-                   "Europe/Rome":"W. Europe Standard Time","Europe/Amsterdam":"W. Europe Standard Time",
-                   "Europe/Warsaw":"Central European Standard Time",
-                   "Asia/Ho_Chi_Minh":"SE Asia Standard Time","Europe/Zurich":"W. Europe Standard Time",
-                   "Asia/Jakarta":"SE Asia Standard Time","Australia/Sydney":"AUS Eastern Standard Time"}
-              return m.get(iana, "UTC")
-
-          def rand_letters(n=6):
-              return "".join(random.choices(string.ascii_lowercase, k=n))
-
-          def say(m=""): print(m, flush=True)
+          proxy_input    = os.environ.get("PROXY_INPUT", "").strip()
+          without_proxy  = os.environ.get("USE_WITHOUT_PROXY", "false").lower() == "true"
+          acc_idx        = int(os.environ.get("ACC_INDEX", "1")) - 1
+          proxy_type_gl  = os.environ.get("PROXY_TYPE_GL", "residential").lower()
+          proxy_country  = os.environ.get("PROXY_COUNTRY", "us").upper()
 
           def set_env(k, v):
               if GH_ENV:
                   with open(GH_ENV, "a", encoding="utf-8") as f:
                       f.write(f"{k}={v}\n")
 
+          def say(m=""):
+              print(m, flush=True)
+
           def set_no_proxy():
               say("[Proxy] No proxy — direct connection.")
-              set_env("USE_PROXY",           "false")
-              set_env("PROXY_SERVER",         "")
-              set_env("PROXY_HOST",           "")
-              set_env("PROXY_PORT",           "")
-              set_env("PROXY_USER",           "")
-              set_env("PROXY_PASS",           "")
-              set_env("PROXY_SCHEME",         "http")
-              set_env("PROXY_TYPE",           "none")
-              set_env("PROXY_LABEL",          "none")
-              set_env("PROXY_COUNTRY_CODE",   "US")
-              set_env("PROXY_REAL_IP",        "direct")
-              set_env("TIMEZONE_WINDOWS",     "UTC")
-              set_env("TIMEZONE_IANA",        "UTC")
-              set_env("WINDOWS_LOCALE",       "en-US")
-              set_env("WINDOWS_KEYBOARD",     "0409:00000409")
+              set_env("USE_PROXY",    "false")
+              set_env("PROXY_HOST",   "")
+              set_env("PROXY_PORT",   "")
+              set_env("PROXY_USER",   "")
+              set_env("PROXY_PASS",   "")
+              set_env("PROXY_SCHEME", "http")
+              set_env("PROXY_LABEL",  "none")
+              set_env("PROXY_SERVER", "")
 
           if without_proxy or not proxy_input:
               set_no_proxy(); sys.exit(0)
 
-          # --- token classification ---
+          # ---- token classification (same as mx10FA) ----
           SCRAPEOPS_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
           REDSCRAPE_RE = re.compile(r"^[0-9a-f]{32}$", re.I)
           GOLOGIN_RE   = re.compile(r"^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
@@ -662,10 +603,14 @@ jobs:
           for item in proxy_input.split():
               item = item.strip()
               if not item: continue
-              if GOLOGIN_RE.match(item):              gologin_keys.append(item)
-              elif "bytesflows.com" in item.lower():  bytesflow_proxies.append(item)
-              elif REDSCRAPE_RE.match(item):          redscrape_keys.append(item)
-              elif SCRAPEOPS_RE.match(item):          scrapeops_keys.append(item)
+              if GOLOGIN_RE.match(item):
+                  gologin_keys.append(item)
+              elif "bytesflows.com" in item.lower():
+                  bytesflow_proxies.append(item)
+              elif REDSCRAPE_RE.match(item):
+                  redscrape_keys.append(item)
+              elif SCRAPEOPS_RE.match(item):
+                  scrapeops_keys.append(item)
               elif FLOPPY_RE.match(item) and len(item) >= 30:
                   floppy_keys.append(item)
               elif (":" in item or "@" in item or "://" in item or "." in item) and len(item) > 5:
@@ -711,87 +656,76 @@ jobs:
               scheme = pinfo.get("scheme", "http")
               url    = f"{scheme}://{auth}{pinfo['host']}:{pinfo['port']}"
               cfg    = {"http": url, "https": url}
-              endpoints = [
-                  ("http://ip-api.com/json/",   "ip-api.com"),
-                  ("https://ipinfo.io/json",     "ipinfo.io"),
-                  ("http://ipwho.is/",           "ipwho.is"),
-                  ("https://api.myip.com",       "myip.com"),
-              ]
-              for ep, name in endpoints:
-                  t0 = time.time()
+              for ep, name in [
+                  ("http://ip-api.com/json/", "ip-api.com"),
+                  ("https://ipinfo.io/json", "ipinfo.io"),
+                  ("http://ipwho.is/", "ipwho.is"),
+                  ("https://api.myip.com", "myip.com"),
+              ]:
                   try:
                       r = requests.get(ep, proxies=cfg, timeout=18, verify=False)
-                      if r.status_code != 200: continue
-                      d = r.json()
-                      cc = tz = city = region = ip = None
-                      if name == "ip-api.com" and d.get("status") == "success":
-                          cc, tz, ip, city, region = d.get("countryCode"), d.get("timezone"), d.get("query"), d.get("city"), d.get("regionName")
-                      elif name == "ipinfo.io" and "ip" in d:
-                          cc, tz, ip, city, region = d.get("country"), d.get("timezone"), d.get("ip"), d.get("city"), d.get("region")
-                      elif name == "ipwho.is" and d.get("success"):
-                          cc, tz, ip, city, region = d.get("country_code"), (d.get("timezone") or {}).get("id"), d.get("ip"), d.get("city"), d.get("region")
-                      elif name == "myip.com" and "ip" in d:
-                          cc, ip = d.get("cc"), d.get("ip")
-                      if ip:
-                          say(f"  -> validated via {name} in {int((time.time()-t0)*1000)}ms -> IP {ip} ({cc})")
-                          return {"ip": ip, "cc": (cc or "US").upper(), "tz": tz or "UTC",
-                                  "city": city or "", "region": region or "",
-                                  "latency_ms": int((time.time()-t0)*1000)}
+                      if r.status_code == 200:
+                          d = r.json()
+                          ip = d.get("query") or d.get("ip")
+                          cc = (d.get("countryCode") or d.get("country") or d.get("cc") or "").upper()
+                          if ip:
+                              say(f"  -> validated {pinfo['host']}:{pinfo['port']} via {name} — ext IP {ip} ({cc})")
+                              return {"ip": ip, "cc": cc or "US"}
                   except Exception as ex:
-                      say(f"  -> {name} failed: {type(ex).__name__}")
+                      say(f"  -> probe {name} failed: {type(ex).__name__}")
+              say(f"  -> validation failed for {pinfo['host']}:{pinfo['port']}")
               return None
 
-          def commit(pinfo, res, label):
+          def commit(pinfo, label, res=None):
               host   = str(pinfo["host"])
               port   = str(pinfo["port"])
               user   = str(pinfo.get("username", ""))
               pw     = str(pinfo.get("password", ""))
               scheme = str(pinfo.get("scheme", "http"))
-              cc     = (res.get("cc") or "US").upper()
-              tz_iana = res.get("tz", "UTC")
               if pw and len(pw) >= 6:
                   print(f"::add-mask::{pw}", flush=True)
-              say(f"[Proxy] ACTIVE type={label} {host}:{port} user={user[:6]}*** ip={res.get('ip')} cc={cc}")
-              set_env("USE_PROXY",           "true")
-              set_env("PROXY_SERVER",         f"{scheme}://{host}:{port}")
-              set_env("PROXY_HOST",           host)
-              set_env("PROXY_PORT",           port)
-              set_env("PROXY_USER",           user)
-              set_env("PROXY_PASS",           pw)
-              set_env("PROXY_SCHEME",         scheme)
-              set_env("PROXY_TYPE",           label)
-              set_env("PROXY_LABEL",          label)
-              set_env("PROXY_COUNTRY_CODE",   cc)
-              set_env("PROXY_REAL_IP",        res.get("ip", ""))
-              set_env("TIMEZONE_WINDOWS",     tz_to_win(tz_iana))
-              set_env("TIMEZONE_IANA",        tz_iana)
-              set_env("WINDOWS_LOCALE",       cc_to_locale(cc))
-              set_env("WINDOWS_KEYBOARD",     cc_to_keyboard(cc))
+              server = f"{host}:{port}"
+              server_with_proto = f"http://{host}:{port}"
+              say(f"[Proxy] ACTIVE type={label} {host}:{port} user={user[:6]}***")
+              set_env("USE_PROXY",    "true")
+              set_env("PROXY_HOST",   host)
+              set_env("PROXY_PORT",   port)
+              set_env("PROXY_USER",   user)
+              set_env("PROXY_PASS",   pw)
+              set_env("PROXY_SCHEME", scheme)
+              set_env("PROXY_LABEL",  label)
+              set_env("PROXY_SERVER", server_with_proto)
+              if res:
+                  set_env("PROXY_EXIT_IP", res.get("ip", ""))
+                  set_env("PROXY_EXIT_CC", res.get("cc", ""))
 
-          MAX = 15
+          MAX = 12
           active = None
-          _logged_gl_shape = {"done": False}
 
-          # --- GoLogin ---
+          # ---- GoLogin built-in proxy (same endpoint + flags as mx10FA) ----
           if not active and gologin_keys:
-              say(f"[GoLogin] country={cc_primary} mobile={mobile}")
+              is_mobile = proxy_type_gl == "mobile"
+              is_dc     = proxy_type_gl == "datacenter"
+              say(f"[GoLogin] type={proxy_type_gl} (isMobile={is_mobile} isDC={is_dc}) country={proxy_country}")
               for attempt in range(MAX):
-                  key  = gologin_keys[((absolute_idx-1) // 15 + attempt) % len(gologin_keys)]
-                  name = f"{absolute_idx}-{cc_primary}-{rand_letters()}"
+                  key  = gologin_keys[(acc_idx // 15 + attempt) % len(gologin_keys)]
+                  name = f"{acc_idx+1}-GL-{''.join(random.choices(string.ascii_lowercase, k=6))}"
                   say(f"[GoLogin] attempt {attempt+1}/{MAX} key=...{key[-6:]} name={name}")
                   try:
                       r = requests.post(
                           "https://api.gologin.com/users-proxies/mobile-proxy",
-                          headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                          json={"countryCode": cc_primary.lower(), "isMobile": mobile, "isDC": False, "customName": name},
-                          timeout=25, verify=False,
+                          headers={"Authorization": f"Bearer {key}",
+                                   "Content-Type":  "application/json"},
+                          json={"countryCode": proxy_country.lower(),
+                                "isMobile":    is_mobile,
+                                "isDC":        is_dc,
+                                "customName":  name},
+                          timeout=30, verify=False,
                       )
                       say(f"  -> HTTP {r.status_code}")
                       if r.status_code in (200, 201):
                           d = r.json()
-                          if not _logged_gl_shape["done"]:
-                              say(f"  -> GoLogin response fields: {sorted(d.keys()) if isinstance(d, dict) else type(d).__name__}")
-                              _logged_gl_shape["done"] = True
+                          say(f"  -> keys: {list(d.keys()) if isinstance(d, dict) else type(d)}")
                           pinfo = {
                               "scheme":   "http",
                               "host":     d.get("host") or d.get("ip") or d.get("server") or "",
@@ -799,89 +733,106 @@ jobs:
                               "username": d.get("username") or d.get("user") or d.get("login") or "",
                               "password": d.get("password") or d.get("pass") or "",
                           }
-                          if not pinfo["host"]: say("  -> no host in response, skipping"); time.sleep(2); continue
+                          if not pinfo["host"]:
+                              say("  -> no host in response, skipping"); time.sleep(2); continue
                           res = validate_proxy(pinfo)
                           if res:
-                              active = pinfo; commit(pinfo, res, "gologin"); break
+                              active = pinfo
+                              commit(pinfo, f"gologin-{proxy_type_gl}", res)
+                              break
                           else:
-                              say(f"  -> validation failed")
-                      elif r.status_code == 429: say("  -> rate-limited 15s"); time.sleep(15)
-                      elif r.status_code in (402, 403): say(f"  -> {r.status_code}: {r.text[:200]}"); time.sleep(4)
-                      else: say(f"  -> {r.status_code}: {r.text[:150]}"); time.sleep(3)
-                  except Exception as e: say(f"  -> error: {e}"); time.sleep(3)
+                              say(f"  -> NOTE: proxy '{name}' created in GoLogin but failed validation (kept).")
+                      elif r.status_code == 429:
+                          say("  -> rate-limited, backing off 12s"); time.sleep(12)
+                      elif r.status_code in (402, 403):
+                          say(f"  -> {r.status_code}: plan may not support {proxy_type_gl}/{proxy_country}")
+                          say(f"  -> {r.text[:300]}"); time.sleep(4)
+                      else:
+                          say(f"  -> {r.status_code}: {r.text[:200]}"); time.sleep(3)
+                  except Exception as e:
+                      say(f"  -> error: {e}"); time.sleep(3)
 
-          # --- BytesFlow ---
+          # ---- BytesFlow ----
           if not active and bytesflow_proxies:
               for attempt in range(MAX):
                   raw  = bytesflow_proxies[attempt % len(bytesflow_proxies)]
                   base = parse_generic(raw)
-                  if not base or not base.get("username"): say("[BytesFlow] cannot parse — skipping"); break
+                  if not base or not base.get("username"):
+                      say("[BytesFlow] could not parse proxy string — skipping"); break
                   m = re.search(r"^(?:u-)?([A-Za-z0-9]+)", base["username"])
                   base_user = m.group(1) if m else base["username"].split("-")[0]
-                  user = f"u-{base_user}-loc-{cc_primary}-t-10-s-{rand_letters(8)}"
+                  user = f"u-{base_user}-loc-{proxy_country}-t-10-s-{''.join(random.choices(string.ascii_lowercase+string.digits,k=8))}"
                   pinfo = {**base, "username": user}
                   say(f"[BytesFlow] attempt {attempt+1}/{MAX}")
                   res = validate_proxy(pinfo)
-                  if res: active = pinfo; commit(pinfo, res, "bytesflow"); break
+                  if res:
+                      active = pinfo; commit(pinfo, "bytesflow", res); break
                   time.sleep(2)
 
-          # --- ScrapeOps ---
+          # ---- ScrapeOps ----
           if not active and scrapeops_keys:
               for attempt in range(MAX):
-                  key  = scrapeops_keys[((absolute_idx-1) // 15 + attempt) % len(scrapeops_keys)]
-                  sess = f"gl{absolute_idx}{rand_letters(4)}"
-                  user = f"scrapeops.country={cc_primary.lower()}"
-                  if mobile: user += ".mobile=true"
-                  if sticky: user += f".sticky_session={sess}"
-                  pinfo = {"scheme":"http","host":"residential-proxy.scrapeops.io","port":8181,
-                           "username":user,"password":key}
+                  key  = scrapeops_keys[(acc_idx // 15 + attempt) % len(scrapeops_keys)]
+                  sess = f"gl{acc_idx+1}p{''.join(random.choices(string.ascii_lowercase,k=4))}"
+                  user = f"scrapeops.country={proxy_country.lower()}.sticky_session={sess}"
+                  if proxy_type_gl == "mobile":
+                      user += ".mobile=true"
+                  pinfo = {"scheme":"http","host":"residential-proxy.scrapeops.io",
+                           "port":8181,"username":user,"password":key}
                   say(f"[ScrapeOps] attempt {attempt+1}/{MAX}")
                   res = validate_proxy(pinfo)
-                  if res: active = pinfo; commit(pinfo, res, "scrapeops"); break
+                  if res:
+                      active = pinfo; commit(pinfo, "scrapeops", res); break
                   time.sleep(2)
 
-          # --- FloppyData ---
+          # ---- FloppyData ----
           if not active and floppy_keys:
               for attempt in range(MAX):
-                  key = floppy_keys[((absolute_idx-1) // 15 + attempt) % len(floppy_keys)]
+                  key = floppy_keys[(acc_idx // 15 + attempt) % len(floppy_keys)]
                   say(f"[Floppy] attempt {attempt+1}/{MAX}")
                   try:
                       cr = requests.get("https://api.floppydata.net/v1/rotating/smartParamsCredentials",
                                         headers={"X-Api-Key": key}, timeout=12)
                       br = requests.get("https://api.floppydata.net/v1/rotating/smartParamsBuilder",
                                         headers={"X-Api-Key": key},
-                                        params={"type":"residential","country":cc_primary,"protocol":"http","rotation":"-1"}, timeout=12)
+                                        params={"type":"residential","country":proxy_country,
+                                                "protocol":"http","rotation":"-1"}, timeout=12)
                       if cr.status_code == 200 and br.status_code == 200:
                           cd, bd = cr.json(), br.json()
-                          pinfo = {"scheme":"http","host":bd.get("host","geo.g-w.info"),
-                                   "port":int(bd.get("port",10080)),
-                                   "username":bd.get("username",cd.get("username","")),
-                                   "password":bd.get("password",cd.get("password",""))}
+                          pinfo = {"scheme":"http",
+                                   "host":     bd.get("host","geo.g-w.info"),
+                                   "port":     int(bd.get("port",10080)),
+                                   "username": bd.get("username",cd.get("username","")),
+                                   "password": bd.get("password",cd.get("password",""))}
                           res = validate_proxy(pinfo)
-                          if res: active = pinfo; commit(pinfo, res, "floppy"); break
-                  except Exception as e: say(f"  -> error: {e}")
+                          if res:
+                              active = pinfo; commit(pinfo,"floppy", res); break
+                  except Exception as e:
+                      say(f"  -> error: {e}")
                   time.sleep(2)
 
-          # --- Redscrape ---
+          # ---- Redscrape ----
           if not active and redscrape_keys:
               for attempt in range(MAX):
-                  key     = redscrape_keys[((absolute_idx-1) // 15 + attempt) % len(redscrape_keys)]
+                  key     = redscrape_keys[(acc_idx // 15 + attempt) % len(redscrape_keys)]
                   sess_id = random.randint(10000000, 99999999)
                   pinfo   = {"scheme":"http","host":"dc0f.redscrape.com","port":7777,
-                             "username":f"session-300-id-{sess_id}-{cc_primary}","password":key}
+                             "username":f"session-300-id-{sess_id}-{proxy_country}","password":key}
                   say(f"[Redscrape] attempt {attempt+1}/{MAX}")
                   res = validate_proxy(pinfo)
-                  if res: active = pinfo; commit(pinfo, res, "redscrape"); break
+                  if res:
+                      active = pinfo; commit(pinfo,"redscrape", res); break
                   time.sleep(2)
 
-          # --- Manual ---
+          # ---- Manual ----
           if not active and manual_proxies:
               for attempt in range(MAX):
-                  pinfo = parse_generic(manual_proxies[(absolute_idx-1+attempt) % len(manual_proxies)])
+                  pinfo = parse_generic(manual_proxies[(acc_idx+attempt) % len(manual_proxies)])
                   if not pinfo: continue
                   say(f"[Manual] attempt {attempt+1}/{MAX}")
                   res = validate_proxy(pinfo)
-                  if res: active = pinfo; commit(pinfo, res, "manual"); break
+                  if res:
+                      active = pinfo; commit(pinfo,"manual", res); break
                   time.sleep(2)
 
           if not active:
@@ -889,405 +840,13 @@ jobs:
               set_no_proxy()
 
       # ================================================================
-      # STEP 5b — pywinauto proxy-auth monitor background setup
-      # Installs pywinauto and writes a companion script that monitors
-      # for Edge's native proxy auth dialog and auto-fills credentials.
-      # This is the same approach used in main10FA — the only reliable
-      # way to handle Edge's NATIVE (non-JS) proxy credential popups.
-      # ================================================================
-      - name: "[5b/11] Install pywinauto and write proxy-auth monitor"
-        if: ${{ env.USE_PROXY == 'true' }}
-        shell: pwsh
-        env:
-          PROXY_USER:   ${{ env.PROXY_USER }}
-          PROXY_PASS:   ${{ env.PROXY_PASS }}
-          PROXY_SERVER: ${{ env.PROXY_SERVER }}
-          PROXY_TYPE:   ${{ env.PROXY_TYPE }}
-        run: |
-          $ErrorActionPreference = 'Continue'
-
-          # Install pywinauto for native dialog automation
-          Write-Host "[pywinauto] Installing pywinauto + keyboard..."
-          python -m pip install pywinauto keyboard --quiet
-          Write-Host "[pywinauto] Installed."
-
-          # Write proxy-auth monitor script to TEMP
-          $monScript = Join-Path $env:TEMP "proxy_auth_monitor.py"
-
-          $proxyUser   = $env:PROXY_USER
-          $proxyPass   = $env:PROXY_PASS
-          $proxyServer = $env:PROXY_SERVER
-
-          # Write the monitor script content
-          $scriptContent = @"
-import time, sys, os, unicodedata, re
-from pywinauto import Desktop
-from pywinauto.keyboard import send_keys
-
-PROXY_USER   = os.environ.get('PROXY_USER_MON', '')
-PROXY_PASS   = os.environ.get('PROXY_PASS_MON', '')
-PROXY_SERVER = os.environ.get('PROXY_SERVER_MON', '')
-
-def log(msg):
-    print(f'[{time.strftime("%H:%M:%S")}][ProxyMon] {msg}', flush=True)
-
-# Multi-language keywords taken from the working main10.9FA injector
-PROXY_AUTH_TITLE_KEYWORDS = [
-    "sign in", "authentication required", "proxy authentication",
-    "connect to", "enter credentials", "network authentication",
-    "proxy auth", "enter network credentials", "authentication",
-    "proxy", "credential",
-    "connexion", "authentification",
-    "entrar", "autenticacao", "conectar",
-    "anmelden", "authentifizierung",
-    "iniciar sesion", "autenticacion",
-    "accedi", "autenticazione",
-    "aanmelden", "authenticatie",
-    "zaloguj", "uwierzytelnianie",
-    "dang nhap", "xac thuc",
-    "masuk", "autentikasi",
-]
-USERNAME_FIELD_KEYWORDS = [
-    "username", "user name", "user", "login", "account", "email",
-    "nom d'utilisateur", "utilisateur", "identifiant",
-    "nome de usuario", "usuario", "utilizador",
-    "benutzername", "benutzer",
-    "nombre de usuario",
-    "nome utente", "utente",
-    "gebruikersnaam",
-    "nazwa uzytkownika", "uzytkownik",
-    "ten nguoi dung",
-    "nama pengguna",
-]
-PASSWORD_FIELD_KEYWORDS = [
-    "password", "pass", "passwd", "secret", "pin",
-    "mot de passe",
-    "senha", "palavra-passe",
-    "passwort", "kennwort",
-    "contrasena", "clave",
-    "parola d'ordine",
-    "wachtwoord",
-    "haslo",
-    "mat khau",
-    "kata sandi",
-]
-SUBMIT_BUTTON_KEYWORDS = [
-    "sign in", "ok", "connect", "login", "submit", "authenticate",
-    "continue", "proceed", "confirm", "accept",
-    "connexion", "continuer", "confirmer",
-    "entrar", "continuar", "confirmar",
-    "anmelden", "weiter", "bestatigen",
-    "iniciar sesion", "aceptar",
-    "accedi", "continua",
-    "aanmelden", "doorgaan",
-    "zaloguj", "polacz", "kontynuuj",
-    "dang nhap", "tiep tuc",
-    "masuk", "lanjutkan",
-]
-ADDRESS_BAR_NAMES = [
-    "address and search bar", "address bar", "search bar",
-    "omnibox", "location bar", "url bar", "address",
-    "barre d'adresse", "barra de enderecos", "adressleiste",
-    "barra de direcciones", "barra degli indirizzi",
-    "adresbalk", "pasek adresu", "thanh dia chi", "bilah alamat",
-]
-ADDRESS_BAR_AUTOMATION_IDS = [
-    "addressEditBox", "addressField", "locationBar",
-    "view_1", "omnibox",
-]
-
-def fold(text):
-    if not text: return ''
-    nfkd = unicodedata.normalize('NFKD', text)
-    return ''.join(ch for ch in nfkd if not unicodedata.combining(ch)).lower().strip()
-
-def matches_any(text, kws):
-    if not text: return False
-    tl = fold(text)
-    return any(fold(k) in tl for k in kws)
-
-def proxy_host_hint():
-    srv = (PROXY_SERVER or '').replace('http://','').replace('https://','')
-    host = srv.split('@')[-1].split(':')[0].strip()
-    return host if len(host) >= 4 else ''
-
-PROXY_HOST_HINT = proxy_host_hint()
-
-def is_proxy_auth_dialog(wt):
-    if not wt: return False
-    return matches_any(wt, PROXY_AUTH_TITLE_KEYWORDS) or (bool(PROXY_HOST_HINT) and PROXY_HOST_HINT.lower() in wt.lower())
-
-def is_address_bar(ctrl):
-    try:
-        wt  = (ctrl.window_text() or '').lower().strip()
-        aid = ''
-        try: aid = (ctrl.element_info.automation_id or '').lower()
-        except: pass
-        for name in ADDRESS_BAR_NAMES:
-            if name in wt or name in aid: return True
-        for a in ADDRESS_BAR_AUTOMATION_IDS:
-            if a.lower() in aid: return True
-    except: pass
-    return False
-
-def page_ctrl_keys(container, ctype):
-    keys = set()
-    try:
-        for doc in container.descendants(control_type='Document'):
-            try:
-                for c in doc.descendants(control_type=ctype):
-                    try: keys.add(tuple(c.element_info.runtime_id))
-                    except: pass
-            except: return keys, False
-    except: return keys, False
-    return keys, True
-
-def outside_page(container, ctype):
-    """Only controls that are NOT inside a Document (web page) — prevents typing proxy creds into site forms."""
-    try:
-        all_c = container.descendants(control_type=ctype)
-    except: return []
-    keys, ok = page_ctrl_keys(container, ctype)
-    if not ok: return []
-    if not keys: return list(all_c)
-    out = []
-    for c in all_c:
-        try:
-            rid = tuple(c.element_info.runtime_id)
-        except: rid = None
-        if rid is not None and rid in keys: continue
-        out.append(c)
-    return out
-
-def find_username_fields(container):
-    results = []
-    try:
-        for ctrl in outside_page(container, 'Edit'):
-            if is_address_bar(ctrl): continue
-            try: wt = ctrl.window_text() or ''
-            except: wt = ''
-            try: name = ctrl.element_info.name or ''
-            except: name = ''
-            if matches_any(wt + ' ' + name, USERNAME_FIELD_KEYWORDS):
-                results.append(ctrl)
-    except: pass
-    return results
-
-def find_password_fields(container):
-    results = []
-    try:
-        for ctrl in outside_page(container, 'Edit'):
-            if is_address_bar(ctrl): continue
-            try: wt = ctrl.window_text() or ''
-            except: wt = ''
-            try: name = ctrl.element_info.name or ''
-            except: name = ''
-            if matches_any(wt + ' ' + name, PASSWORD_FIELD_KEYWORDS):
-                results.append(ctrl); continue
-            try:
-                state = int((ctrl.legacy_properties().get('State', 0) or 0))
-                if state & 0x20000000:  # STATE_SYSTEM_PROTECTED
-                    results.append(ctrl); continue
-            except: pass
-    except: pass
-    return results
-
-def find_submit_button(container):
-    try:
-        for btn in outside_page(container, 'Button'):
-            try: wt = btn.window_text() or ''
-            except: wt = ''
-            try: name = btn.element_info.name or ''
-            except: name = ''
-            if matches_any(wt + ' ' + name, SUBMIT_BUTTON_KEYWORDS): return btn
-    except: pass
-    return None
-
-# ONE-SHOT state (from main10FA) — credentials typed at most once (+ limited late re-inject)
-PROXY_AUTH_STATE = {
-    "done": False, "reason": "", "done_time": 0.0,
-    "late_reinjects": 0, "page_ok_ticks": 0,
-    "last_prompt_seen": 0.0, "started": time.time(), "valve_logged": False
-}
-LATE_PROMPT_WINDOW_SEC = 90
-LATE_REINJECT_MAX = 2
-
-def mark_done(reason):
-    if PROXY_AUTH_STATE["done"]: return
-    PROXY_AUTH_STATE["done"] = True
-    PROXY_AUTH_STATE["reason"] = reason
-    PROXY_AUTH_STATE["done_time"] = time.time()
-    log(f"PROXY AUTH DONE ({reason}). Credentials will not be typed into web-page fields.")
-
-def inject_auth(window, label='', allow_late=False):
-    if not PROXY_USER or not PROXY_PASS: return False
-    if PROXY_AUTH_STATE["done"] and not allow_late: return False
-    try:
-        user_fields = find_username_fields(window)
-        pass_fields = find_password_fields(window)
-        if not user_fields or not pass_fields:
-            edits = [c for c in outside_page(window, 'Edit') if not is_address_bar(c)]
-            if len(edits) == 2:
-                user_fields = [edits[0]]
-                pass_fields = [edits[1]]
-        if user_fields and pass_fields:
-            log(f'[{label}] Injecting credentials. User={PROXY_USER[:20]}...')
-            window.set_focus(); time.sleep(0.5)
-            try:
-                user_fields[0].click_input(); time.sleep(0.2)
-                send_keys('^a'); time.sleep(0.1)
-                send_keys('{DELETE}'); time.sleep(0.1)
-                user_fields[0].type_keys(PROXY_USER, with_spaces=True, pause=0.02)
-                time.sleep(0.3)
-            except Exception as eu:
-                log(f'username type failed: {eu}')
-            try:
-                pass_fields[0].click_input(); time.sleep(0.2)
-                send_keys('^a'); time.sleep(0.1)
-                send_keys('{DELETE}'); time.sleep(0.1)
-                pass_fields[0].type_keys(PROXY_PASS, with_spaces=True, pause=0.02)
-                time.sleep(0.3)
-            except Exception as ep:
-                log(f'password type failed: {ep}')
-            submit = find_submit_button(window)
-            if submit:
-                try:
-                    submit.click_input()
-                    log(f'[{label}] Submit button clicked.')
-                    mark_done("credentials submitted via fields")
-                    return True
-                except Exception as eb:
-                    log(f'submit click failed: {eb}')
-            try:
-                pass_fields[0].click_input(); time.sleep(0.2)
-                send_keys('{ENTER}')
-                log(f'[{label}] ENTER fallback.')
-                mark_done("credentials submitted via ENTER")
-                return True
-            except Exception as ek:
-                log(f'ENTER fallback failed: {ek}')
-        else:
-            wt = ''
-            try: wt = window.window_text() or ''
-            except: pass
-            if is_proxy_auth_dialog(wt):
-                log(f'[{label}] No edit fields but dialog title matches — keyboard injection.')
-                window.set_focus(); time.sleep(0.5)
-                for ch in PROXY_USER:
-                    send_keys(ch if ch.isalnum() or ch in '.-_=@' else '{%s}' % ch)
-                    time.sleep(0.01)
-                send_keys('{TAB}'); time.sleep(0.3)
-                for ch in PROXY_PASS:
-                    send_keys(ch if ch.isalnum() or ch in '.-_=@' else '{%s}' % ch)
-                    time.sleep(0.01)
-                send_keys('{ENTER}')
-                log(f'[{label}] Keyboard-only auth submitted.')
-                mark_done("keyboard-only submission")
-                return True
-    except Exception as e:
-        log(f'inject_auth error: {e}')
-    return False
-
-def edge_has_proxy_prompt(w):
-    try:
-        edits = [c for c in outside_page(w, 'Edit') if not is_address_bar(c)]
-        if len(edits) == 2: return True
-        for t in w.descendants(control_type='Text')[:300]:
-            tt = t.window_text() or ''
-            if tt and PROXY_HOST_HINT and PROXY_HOST_HINT.lower() in tt.lower(): return True
-    except: pass
-    return False
-
-log(f'Monitor started (main10FA-style one-shot). PROXY_USER={PROXY_USER[:6]}*** HOST_HINT={PROXY_HOST_HINT}')
-desktop = Desktop(backend='uia')
-scan_count = 0
-while True:
-    try:
-        scan_count += 1
-        now = time.time()
-        for w in desktop.windows(visible_only=True):
-            try:
-                wt = w.window_text() or ''
-            except: continue
-            # Standalone native dialog
-            if 'Microsoft Edge' not in wt and is_proxy_auth_dialog(wt):
-                log(f'Auth dialog window detected: "{wt}"')
-                inject_auth(w, f'dialog:{wt[:30]}')
-            # Inline Edge proxy prompt
-            elif 'Microsoft Edge' in wt and edge_has_proxy_prompt(w):
-                log(f'Edge inline proxy prompt in: "{wt}"')
-                inject_auth(w, f'edge:{wt[:30]}')
-        # Late-prompt valve (same as main10FA)
-        if PROXY_AUTH_STATE["done"]:
-            age = now - PROXY_AUTH_STATE["done_time"]
-            if age <= LATE_PROMPT_WINDOW_SEC and PROXY_AUTH_STATE["late_reinjects"] < LATE_REINJECT_MAX:
-                # allow limited re-inject of genuine host-named prompts
-                pass
-            elif not PROXY_AUTH_STATE["valve_logged"]:
-                PROXY_AUTH_STATE["valve_logged"] = True
-                log("Late-prompt window closed — credential injection fully disabled.")
-    except Exception as ex:
-        if scan_count % 30 == 0:
-            log(f'scan error: {ex}')
-    time.sleep(1.2)
-"@
-"@
-
-          [System.IO.File]::WriteAllText($monScript, $scriptContent, [System.Text.UTF8Encoding]::new($false))
-          Write-Host "[pywinauto] Monitor script written to: $monScript"
-
-          # Set environment variables for the monitor process
-          [System.Environment]::SetEnvironmentVariable('PROXY_USER_MON', $proxyUser,   [System.EnvironmentVariableTarget]::Machine)
-          [System.Environment]::SetEnvironmentVariable('PROXY_PASS_MON', $proxyPass,   [System.EnvironmentVariableTarget]::Machine)
-          [System.Environment]::SetEnvironmentVariable('PROXY_SERVER_MON', $proxyServer, [System.EnvironmentVariableTarget]::Machine)
-
-          # Also set system-wide WinINet proxy so Edge's underlying network stack routes through the proxy
-          $proxyHost = $proxyServer -replace '^https?://', ''
-          Write-Host "[WinProxy] Setting WinINet system proxy: $proxyHost"
-          $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
-          Set-ItemProperty -Path $regPath -Name ProxyEnable   -Value 1           -Type DWord  -Force
-          Set-ItemProperty -Path $regPath -Name ProxyServer   -Value $proxyHost  -Type String -Force
-          Set-ItemProperty -Path $regPath -Name ProxyOverride -Value '<local>'   -Type String -Force
-
-          # Pre-store in Windows Credential Manager as belt-and-braces
-          if ($proxyUser -and $proxyPass) {
-              foreach ($target in @("$proxyServer", "$proxyHost", ($proxyHost -split ':')[0])) {
-                  $r = & cmdkey /add:$target /user:$proxyUser /pass:$proxyPass 2>&1
-                  Write-Host "[CredMan] $target -> $r"
-              }
-          }
-          Write-Host "[5b] Proxy pre-auth setup complete."
-
-      # ================================================================
-      # STEP 5c — Launch pywinauto proxy-auth monitor as background process
-      # ================================================================
-      - name: "[5c/11] Start proxy-auth background monitor"
-        if: ${{ env.USE_PROXY == 'true' }}
-        shell: pwsh
-        run: |
-          $monScript = Join-Path $env:TEMP "proxy_auth_monitor.py"
-          $logFile   = Join-Path $env:TEMP "proxy_auth_monitor.log"
-          if (-not (Test-Path $monScript)) {
-              Write-Host "[Monitor] Script not found — skipping (no proxy or step 5b skipped)."
-              exit 0
-          }
-          $p = Start-Process python -ArgumentList $monScript `
-               -PassThru -NoNewWindow `
-               -RedirectStandardOutput $logFile `
-               -RedirectStandardError  "$logFile.err"
-          Write-Host "[Monitor] Proxy-auth monitor PID: $($p.Id) | log: $logFile"
-          # Store PID for cleanup
-          $p.Id | Out-File (Join-Path $env:TEMP "proxy_auth_monitor.pid") -Encoding utf8
-
-
-            # ================================================================
       # STEP 6 — Node.js + Playwright
       # ================================================================
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: "[6/11] Install Playwright"
+      - name: "[6/12] Install Playwright"
         run: |
           set -euo pipefail
           mkdir -p automation/out
@@ -1299,9 +858,9 @@ while True:
           echo "Playwright ${PLAYWRIGHT_VERSION} installed."
 
       # ================================================================
-      # STEP 7 — Write automation scripts
+      # STEP 7 — Write automation scripts + mx10FA-style auth guardian
       # ================================================================
-      - name: "[7/11] Write automation scripts"
+      - name: "[7/12] Write automation scripts + proxy auth guardian"
         run: |
           mkdir -p automation/out
 
@@ -1321,72 +880,297 @@ while True:
           }
           EOF
 
-          # ---- signup.mjs ----
+          # ---- proxy_auth_guardian.py  (taken from mx10FA inject_proxy_auth pattern) ----
+          cat > automation/proxy_auth_guardian.py <<'PYEOF'
+          """
+          Background guardian that watches for the native Windows proxy auth dialog
+          and injects username/password exactly once (one-shot), the same way the
+          working Parallel mx10.9FA runner does it.
+          """
+          import os, sys, time, random, tempfile
+
+          try:
+              from pywinauto import Desktop
+              from pywinauto.keyboard import send_keys
+          except ImportError:
+              import subprocess
+              subprocess.check_call([sys.executable, "-m", "pip", "install",
+                                     "pywinauto", "pyautogui", "--quiet"])
+              from pywinauto import Desktop
+              from pywinauto.keyboard import send_keys
+
+          PROXY_USER   = os.environ.get("PROXY_USER", "")
+          PROXY_PASS   = os.environ.get("PROXY_PASS", "")
+          USE_PROXY    = os.environ.get("USE_PROXY", "false").lower() == "true"
+          PROXY_SERVER = os.environ.get("PROXY_SERVER", "")
+          DONE_FLAG    = os.path.join(tempfile.gettempdir(), "proxy_auth_done.flag")
+          FAIL_FLAG    = os.path.join(tempfile.gettempdir(), "proxy_auth_fail.flag")
+          LOG_FILE     = os.path.join(tempfile.gettempdir(), "proxy_auth_guardian.log")
+
+          def log(msg):
+              line = f"[{time.strftime('%H:%M:%S')}] {msg}"
+              print(line, flush=True)
+              try:
+                  with open(LOG_FILE, "a", encoding="utf-8") as f:
+                      f.write(line + "\n")
+              except Exception:
+                  pass
+
+          if not USE_PROXY or not PROXY_USER or not PROXY_PASS:
+              log("No proxy credentials — guardian exiting cleanly.")
+              open(DONE_FLAG, "w").write("no-proxy")
+              sys.exit(0)
+
+          # Keywords that indicate a proxy authentication dialog (accent-folded later)
+          AUTH_TITLE_KW = [
+              "authentication required", "proxy authentication", "sign in",
+              "enter your credentials", "proxy requires authentication",
+              "authentication", "login", "credentials", "username",
+              "password required", "proxy auth", "http authentication",
+              "authentification", "identifiant", "mot de passe",
+              "benutzername", "passwort", "autenticazione", "credenciales",
+          ]
+
+          def fold(s):
+              if not s: return ""
+              return s.lower().replace("é","e").replace("è","e").replace("à","a").replace("ö","o").replace("ü","u")
+
+          def matches_any(text, kws):
+              tl = fold(text or "")
+              return any(fold(k) in tl for k in kws)
+
+          def host_hint():
+              srv = (PROXY_SERVER or "").replace("http://","").replace("https://","")
+              host = srv.split("@")[-1].split(":")[0].strip()
+              return host if len(host) >= 4 else ""
+
+          HOST_HINT = host_hint()
+
+          def is_auth_dialog(wt):
+              if not wt: return False
+              if matches_any(wt, AUTH_TITLE_KW): return True
+              if HOST_HINT and HOST_HINT.lower() in wt.lower(): return True
+              return False
+
+          def is_address_bar(ctrl):
+              try:
+                  aid = (ctrl.element_info.automation_id or "").lower()
+                  name = (ctrl.element_info.name or "").lower()
+                  return any(x in aid or x in name for x in
+                             ("address", "omnibox", "url", "location", "search"))
+              except Exception:
+                  return False
+
+          def outside_page(window, control_type):
+              """Return controls that are NOT inside a Document (web page content)."""
+              results = []
+              try:
+                  docs = set()
+                  for d in window.descendants(control_type="Document"):
+                      try:
+                          for c in d.descendants(control_type=control_type):
+                              docs.add(id(c.element_info))
+                      except Exception:
+                          pass
+                  for c in window.descendants(control_type=control_type):
+                      try:
+                          if id(c.element_info) not in docs:
+                              results.append(c)
+                      except Exception:
+                          pass
+              except Exception:
+                  pass
+              return results
+
+          def find_username_fields(window):
+              fields = []
+              for e in outside_page(window, "Edit"):
+                  if is_address_bar(e): continue
+                  try:
+                      name = fold((e.element_info.name or "") + " " + (e.window_text() or ""))
+                      if any(k in name for k in ("user", "login", "email", "account", "name", "id")):
+                          fields.append(e)
+                  except Exception:
+                      pass
+              return fields
+
+          def find_password_fields(window):
+              fields = []
+              for e in outside_page(window, "Edit"):
+                  if is_address_bar(e): continue
+                  try:
+                      # password fields usually have is_password or name contains "pass"
+                      is_pw = False
+                      try:
+                          is_pw = bool(getattr(e.element_info, "is_password", False))
+                      except Exception:
+                          pass
+                      name = fold((e.element_info.name or "") + " " + (e.window_text() or ""))
+                      if is_pw or "pass" in name or "pwd" in name or "mot de passe" in name:
+                          fields.append(e)
+                  except Exception:
+                      pass
+              return fields
+
+          def structural_two_fields(window):
+              """Fallback: any top-level window with exactly two non-address Edit controls."""
+              try:
+                  edits = [c for c in outside_page(window, "Edit") if not is_address_bar(c)]
+                  if len(edits) == 2:
+                      return edits[0], edits[1]
+              except Exception:
+                  pass
+              return None, None
+
+          def inject(window, label=""):
+              try:
+                  user_fields = find_username_fields(window)
+                  pass_fields = find_password_fields(window)
+
+                  if (user_fields and not pass_fields) or (pass_fields and not user_fields):
+                      all_edits = [c for c in outside_page(window, "Edit") if not is_address_bar(c)]
+                      if len(all_edits) == 2:
+                          known = (user_fields or pass_fields)[0]
+                          other = [c for c in all_edits if c != known]
+                          if other:
+                              if user_fields and not pass_fields:
+                                  pass_fields = [other[0]]
+                              else:
+                                  user_fields = [other[0]]
+
+                  if not user_fields or not pass_fields:
+                      u, p = structural_two_fields(window)
+                      if u and p:
+                          user_fields, pass_fields = [u], [p]
+                          log(f"[{label}] Using structural 2-field detection.")
+
+                  if not user_fields or not pass_fields:
+                      return False
+
+                  if is_address_bar(user_fields[0]) or is_address_bar(pass_fields[0]):
+                      log(f"[{label}] BLOCKED — fields look like address bars.")
+                      return False
+
+                  log(f"[{label}] Injecting credentials (user={PROXY_USER[:12]}...)")
+                  window.set_focus()
+                  time.sleep(0.4)
+
+                  # Clear + type username
+                  try:
+                      user_fields[0].set_focus()
+                      time.sleep(0.15)
+                      user_fields[0].type_keys("^a{BACKSPACE}", pause=0.05)
+                      time.sleep(0.1)
+                      user_fields[0].type_keys(PROXY_USER, with_spaces=True, pause=0.02)
+                  except Exception:
+                      # keyboard fallback
+                      send_keys("^a{BACKSPACE}")
+                      time.sleep(0.1)
+                      send_keys(PROXY_USER, with_spaces=True)
+
+                  time.sleep(0.25)
+
+                  # Clear + type password
+                  try:
+                      pass_fields[0].set_focus()
+                      time.sleep(0.15)
+                      pass_fields[0].type_keys("^a{BACKSPACE}", pause=0.05)
+                      time.sleep(0.1)
+                      pass_fields[0].type_keys(PROXY_PASS, with_spaces=True, pause=0.02)
+                  except Exception:
+                      send_keys("{TAB}")
+                      time.sleep(0.15)
+                      send_keys("^a{BACKSPACE}")
+                      time.sleep(0.1)
+                      send_keys(PROXY_PASS, with_spaces=True)
+
+                  time.sleep(0.3)
+                  send_keys("{ENTER}")
+                  log(f"[{label}] Credentials submitted + ENTER.")
+                  return True
+              except Exception as e:
+                  log(f"[{label}] inject exception: {e}")
+                  return False
+
+          # ---------------------------------------------------------------------------
+          # Main loop — one-shot
+          # ---------------------------------------------------------------------------
+          log(f"Guardian started. Watching for proxy auth dialog (host hint={HOST_HINT or 'none'}).")
+          start = time.time()
+          timeout = 90          # give Edge plenty of time to show the dialog
+          done = False
+          last_scan = 0
+
+          while time.time() - start < timeout and not done:
+              now = time.time()
+              if now - last_scan < 1.2:
+                  time.sleep(0.3)
+                  continue
+              last_scan = now
+
+              try:
+                  desktop = Desktop(backend="uia")
+                  for w in desktop.windows(visible_only=True):
+                      try:
+                          wt = w.window_text() or ""
+                      except Exception:
+                          continue
+                      if not wt:
+                          continue
+                      # skip pure Edge main windows that already have a real title
+                      if "Microsoft Edge" in wt and wt.strip() not in ("Microsoft Edge", "Edge"):
+                          # still check structure inside Edge for embedded prompt
+                          if inject(w, label="edge-embedded"):
+                              done = True
+                              break
+                          continue
+                      if is_auth_dialog(wt):
+                          log(f"Top-level auth dialog detected: '{wt[:60]}'")
+                          if inject(w, label="toplevel"):
+                              done = True
+                              break
+              except Exception as e:
+                  log(f"scan error: {e}")
+
+              time.sleep(0.8)
+
+          if done:
+              log("Proxy auth completed successfully.")
+              open(DONE_FLAG, "w").write("ok")
+          else:
+              # Maybe the proxy was already authenticated / no dialog appeared
+              log("No auth dialog appeared within timeout — assuming already authenticated or IP-auth.")
+              open(DONE_FLAG, "w").write("no-dialog")
+          sys.exit(0)
+          PYEOF
+
+          # ---- signup.mjs (proxy launch uses --proxy-server WITHOUT credentials) ----
           cat > automation/signup.mjs <<'JSEOF'
           /**
            * GoLogin signup automation — Windows / Microsoft Edge
            *
-           * =================================================================
-           * HTTP PROXY INJECTION — COMPLETE REDESIGN (v3)
-           * =================================================================
-           *
-           * ROOT CAUSE of previous failures:
-           *   page.on('dialog') only fires for JAVASCRIPT dialogs (alert /
-           *   confirm / prompt). Edge's HTTP proxy authentication popup is a
-           *   NATIVE browser dialog rendered by the OS / browser chrome — it
-           *   is completely invisible to page.on('dialog').
-           *
-           * NEW 4-LAYER STRATEGY (all layers active simultaneously):
-           *
-           *   Layer 1 — Playwright proxy object (launchPersistentContext):
-           *     server   = "scheme://host:port"  (never includes credentials)
-           *     username = PROXY_USER             (separate field)
-           *     password = PROXY_PASS             (separate field)
-           *     Playwright translates these to the correct Chromium internals.
-           *     This handles most proxy providers with zero popup at all.
-           *
-           *   Layer 2 — context.route() request interceptor:
-           *     Intercepts every network request and injects a
-           *     "Proxy-Authorization: Basic <base64>" header on the route.
-           *     This satisfies the proxy at the HTTP protocol level before the
-           *     browser even tries to show a credential dialog.
-           *
-           *   Layer 3 — CDP Network.setExtraHTTPHeaders per page:
-           *     For each new page, opens a CDP session and sets
-           *     Proxy-Authorization as an extra HTTP header at the network
-           *     layer. This catches requests that bypass context.route()
-           *     (e.g. navigations, service workers, favicon requests).
-           *
-           *   Layer 4 — page.authenticate() on every page (belt-and-braces):
-           *     Pre-supplies credentials for any residual 407 challenges that
-           *     the layers above did not intercept.
-           *
-           *   Together these layers make it impossible for Edge to show a
-           *   proxy credential dialog because every challenge path is
-           *   pre-answered before the browser decides to show the popup.
-           *
-           * Additional notes:
-           *   - --proxy-server is NOT passed in launchArgs; Playwright's proxy
-           *     option owns that flag and passing both causes conflicts.
-           *   - Windows Credential Manager was pre-populated in step 5b,
-           *     giving the WinHTTP stack a credential source independent of
-           *     Playwright's handling.
+           * PROXY INJECTION (mx10FA pattern):
+           *   1. Edge is launched with --proxy-server=http://HOST:PORT
+           *      (credentials are NEVER put in the URL — Chromium ignores them).
+           *   2. A background Python guardian (proxy_auth_guardian.py) watches
+           *      for the native Windows auth dialog and injects user/pass once.
+           *   3. Playwright still uses its proxy object as a secondary layer and
+           *      registers page.authenticate + dialog handlers.
+           *   4. Navigation to GoLogin only starts after the guardian has finished
+           *      (or timed out safely).
            */
 
           import { chromium } from 'playwright';
           import fs   from 'node:fs';
           import path from 'node:path';
           import os   from 'node:os';
+          import { spawn } from 'node:child_process';
 
           const EMAIL    = process.env.ACC_EMAIL;
           const PASSWORD = process.env.ACC_PASSWORD;
           const IDX      = process.env.ACC_INDEX || '1';
           const OUT      = path.resolve(process.env.OUT_DIR || 'out');
 
-          // Proxy env vars — separate components (never embedded in URL for Playwright)
-          // NOTE: A pywinauto background monitor (started in step 5c) is already running
-          //       and will auto-fill Edge's native OS proxy auth dialog if it appears.
-          //       Playwright's 4-layer approach below handles most cases at the protocol level.
           const USE_PROXY    = process.env.USE_PROXY    === 'true';
           const PROXY_HOST   = process.env.PROXY_HOST   || '';
           const PROXY_PORT   = process.env.PROXY_PORT   || '';
@@ -1394,7 +1178,7 @@ while True:
           const PROXY_PASS   = process.env.PROXY_PASS   || '';
           const PROXY_SCHEME = process.env.PROXY_SCHEME || 'http';
           const PROXY_LABEL  = process.env.PROXY_LABEL  || 'none';
-          const PROXY_SERVER = process.env.PROXY_SERVER || '';
+          const PROXY_SERVER = process.env.PROXY_SERVER  || (PROXY_HOST ? `http://${PROXY_HOST}:${PROXY_PORT}` : '');
 
           fs.mkdirSync(OUT, { recursive: true });
 
@@ -1487,7 +1271,7 @@ while True:
             }
             if (!iframeVisible) { log(`${label}no Turnstile iframe — skipping`); return false; }
             log(`${label}Turnstile iframe detected...`);
-            const cfFrame    = page.frameLocator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first();
+            const cfFrame   = page.frameLocator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first();
             const cfCheckbox = cfFrame.locator('input[type="checkbox"]');
             let checkboxAppeared = false;
             for (let i = 0; i < 30; i++) {
@@ -1575,59 +1359,21 @@ while True:
             for (const t of texts) for (const m of t.match(JWT) || []) addCandidate(m, source);
           }
 
-          // ================================================================
-          // PROXY AUTH — buildProxyAuthHeader
-          // Returns the base64-encoded "Basic <credentials>" header value.
-          // ================================================================
-          function buildProxyAuthHeader(user, pass) {
-            const creds = Buffer.from(`${user}:${pass}`).toString('base64');
-            return `Basic ${creds}`;
-          }
-
-          // ================================================================
-          // PROXY AUTH — attachProxyAuthToPage
-          //
-          // Attaches ALL proxy auth mechanisms to a single page.
-          // Call this on every new page BEFORE the first navigation.
-          //
-          //   Layer 3 (CDP Proxy-Authorization header):
-          //     Opens a CDP session for the page and injects Proxy-Authorization
-          //     as an extra HTTP header at the network layer. This operates below
-          //     Playwright's routing layer and fires on every request including
-          //     navigations, service workers, and prefetch.
-          //
-          //   Layer 4 (page.authenticate):
-          //     Pre-supplies credentials for any residual 407 challenge that
-          //     the CDP layer did not intercept (belt-and-braces).
-          //
-          //   NOTE: Layer 2 (context.route) is set up once at context creation
-          //         and applies to all pages automatically — it is not repeated here.
-          //         Layer 1 (Playwright proxy object) is set at context launch.
-          // ================================================================
-          async function attachProxyAuthToPage(page, context) {
+          async function attachProxyAuth(page) {
             if (!USE_PROXY || !PROXY_USER) return;
-
-            const authHeader = buildProxyAuthHeader(PROXY_USER, PROXY_PASS);
-
-            // Layer 3: CDP extra headers — fires on every request at network layer
-            try {
-              const cdpSession = await context.newCDPSession(page);
-              await cdpSession.send('Network.enable');
-              await cdpSession.send('Network.setExtraHTTPHeaders', {
-                headers: { 'Proxy-Authorization': authHeader }
-              });
-              log(`[ProxyAuth] CDP Proxy-Authorization header set for ${PROXY_USER.slice(0,6)}***`);
-            } catch (e) {
-              log(`[ProxyAuth] CDP header setup failed (non-fatal): ${e.message.split('\n')[0]}`);
-            }
-
-            // Layer 4: page.authenticate — handles residual 407 challenges
             try {
               await page.authenticate({ username: PROXY_USER, password: PROXY_PASS });
               log(`[ProxyAuth] page.authenticate() set for ${PROXY_USER.slice(0,6)}***`);
             } catch (e) {
               log(`[ProxyAuth] page.authenticate() failed (non-fatal): ${e.message.split('\n')[0]}`);
             }
+            page.on('dialog', async dialog => {
+              const type = dialog.type();
+              const msg  = dialog.message() || '';
+              log(`[ProxyAuth] dialog type=${type} msg=${msg.slice(0,80)}`);
+              if (type === 'beforeunload') return;
+              try { await dialog.accept(PROXY_PASS); } catch {}
+            });
           }
 
           // ================================================================
@@ -1644,35 +1390,42 @@ while True:
               proxy: proxyDisplay,
             };
             let context, page;
+            let guardianProc = null;
+
             try {
+              banner('Launching Microsoft Edge (Windows, headed, mx10FA-style proxy)');
 
-              banner('Launching Microsoft Edge (Windows, headed, proxy-aware)');
+              // Start the pywinauto guardian FIRST so it is ready when Edge opens
+              if (USE_PROXY && PROXY_USER && PROXY_PASS) {
+                log('Starting proxy auth guardian (pywinauto)...');
+                const guardianPath = path.resolve('proxy_auth_guardian.py');
+                guardianProc = spawn('python', ['-u', guardianPath], {
+                  env: { ...process.env },
+                  stdio: ['ignore', 'pipe', 'pipe'],
+                });
+                guardianProc.stdout.on('data', d => process.stdout.write(`[guardian] ${d}`));
+                guardianProc.stderr.on('data', d => process.stderr.write(`[guardian] ${d}`));
+                // give it a moment to initialise
+                await sleep(1500);
+              }
 
-              // ============================================================
-              // Layer 1: Build Playwright proxy object.
-              // server = bare scheme://host:port  —  NO credentials in URL.
-              // username / password go in SEPARATE fields ONLY.
-              // Chromium/Edge silently drops credentials embedded in the URL.
-              // ============================================================
+              // Build Playwright proxy object (secondary layer).
+              // CRITICAL: server must be bare scheme://host:port — NO credentials in URL.
               let proxyOption = undefined;
               if (USE_PROXY && PROXY_HOST && PROXY_PORT) {
                 proxyOption = {
                   server: `${PROXY_SCHEME}://${PROXY_HOST}:${PROXY_PORT}`,
-                  // Only add username/password when non-empty.
-                  // IP-auth proxies reject any Authorization header, so omit.
                   ...(PROXY_USER ? { username: PROXY_USER, password: PROXY_PASS } : {}),
                 };
-                log(`[Layer1] Playwright proxy server : ${proxyOption.server}`);
-                log(`[Layer1] Playwright proxy auth   : ${PROXY_USER ? PROXY_USER.slice(0,6)+'***' : 'IP-based (no auth)'}`);
+                log(`Proxy server: ${proxyOption.server}`);
+                log(`Proxy auth:   ${PROXY_USER ? PROXY_USER.slice(0,6)+'***' : 'IP-based (no auth)'}`);
               } else {
                 log('Proxy: none (direct connection)');
               }
 
               const userDataDir = path.join(os.tmpdir(), `edge-profile-${IDX}-${Date.now()}`);
 
-              // NOTE: --proxy-server is intentionally NOT in launchArgs.
-              // Playwright's proxy option sets it internally. Passing both
-              // causes a conflict and breaks authentication.
+              // Launch args: include --proxy-server WITHOUT credentials (mx10FA pattern)
               const launchArgs = [
                 '--disable-blink-features=AutomationControlled',
                 '--no-first-run',
@@ -1683,18 +1436,18 @@ while True:
                 '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
                 '--password-store=basic',
                 '--use-mock-keychain',
-                // Suppress Edge's built-in proxy authentication dialog.
-                // This flag tells Chromium to not show the native OS credential
-                // popup for proxy auth — authentication must happen via headers.
-                '--disable-prompt-on-repost',
-                // Allow credential management without OS keychain (GitHub runner)
-                '--allow-silent-push',
               ];
+              if (USE_PROXY && PROXY_HOST && PROXY_PORT) {
+                // Explicit CLI flag — this is what forces the native auth dialog
+                // that the guardian will catch (same as mx10FA).
+                launchArgs.push(`--proxy-server=${PROXY_SCHEME}://${PROXY_HOST}:${PROXY_PORT}`);
+              }
 
               const launchOpts = {
                 channel:  'msedge',
                 headless: false,
                 args:     launchArgs,
+                // Playwright proxy object as secondary / complementary layer
                 proxy:    proxyOption,
                 viewport: null,
                 locale:   'en-US',
@@ -1711,35 +1464,11 @@ while True:
 
               log(`Context launched. Proxy=${proxyOption ? proxyOption.server : 'none'}`);
 
-              // ============================================================
-              // Layer 2: context.route() — inject Proxy-Authorization on
-              // every request via Playwright's routing layer.
-              // This fires for all pages in the context automatically.
-              // ============================================================
               if (USE_PROXY && PROXY_USER) {
-                const authHeader = buildProxyAuthHeader(PROXY_USER, PROXY_PASS);
-                await context.route('**/*', async (route, request) => {
-                  try {
-                    const headers = {
-                      ...request.headers(),
-                      'Proxy-Authorization': authHeader,
-                    };
-                    await route.continue({ headers });
-                  } catch {
-                    // route may have been already handled; ignore
-                    try { await route.continue(); } catch {}
-                  }
+                context.on('page', async (newPage) => {
+                  await attachProxyAuth(newPage).catch(() => {});
                 });
-                log(`[Layer2] context.route Proxy-Authorization injector active`);
               }
-
-              // ============================================================
-              // Apply Layer 3 + 4 to every new page opened in this context.
-              // This fires for popup windows and pages opened programmatically.
-              // ============================================================
-              context.on('page', async (newPage) => {
-                await attachProxyAuthToPage(newPage, context).catch(() => {});
-              });
 
               // clipboard intercept
               await context.exposeFunction('__gl_copy', t => {
@@ -1757,7 +1486,6 @@ while True:
                 document.addEventListener('copy', () => { try { rec(String(window.getSelection())); } catch {} }, true);
               });
 
-              // Network response token scanner
               context.on('response', async r => {
                 try {
                   const u = r.url();
@@ -1770,89 +1498,42 @@ while True:
 
               page = await context.newPage();
               page.setDefaultTimeout(25000);
+              await attachProxyAuth(page);
 
-              // Apply Layer 3 + 4 to the initial page BEFORE any navigation
-              await attachProxyAuthToPage(page, context);
-
-              // ============================================================
-              // Proxy connectivity check
-              // Navigate to a plain HTTP IP-check endpoint first so that any
-              // proxy auth challenge is resolved BEFORE we hit the GoLogin
-              // signup page. This warms up all 4 auth layers.
-              // ============================================================
-              // ============================================================
-              // CRITICAL WARM-UP (from main10FA philosophy)
-              // Navigate to a plain HTTP endpoint FIRST so any native proxy
-              // auth dialog is forced to appear. The background pywinauto
-              // monitor (started in step 5c) has exclusive responsibility
-              // for filling it. We wait long enough for the one-shot inject
-              // to complete before we ever touch app.gologin.com.
-              // ============================================================
-              if (USE_PROXY && PROXY_HOST) {
-                log('WARM-UP: forcing proxy authentication before any target URL...');
-                let proxyVerified = false;
-
-                // Give the monitor a few seconds to be fully alive
-                await sleep(3000);
-
-                for (const checkUrl of [
-                  'http://ip-api.com/json/',
-                  'http://ipwho.is/',
-                  'http://api.myip.com/',
-                  'http://httpbin.org/ip',
-                ]) {
-                  try {
-                    log(`  warm-up navigation -> ${checkUrl}`);
-                    await page.goto(checkUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-                    // Extra dwell so the native dialog (if any) can appear and the monitor can act
-                    await sleep(8000);
-
-                    const bodyText = await page.locator('body').textContent({ timeout: 8000 }).catch(() => '');
-                    const pageUrl = page.url();
-
-                    if (/407|proxy.*auth|sign.*in|authentication required|enter credentials/i.test(bodyText) ||
-                        /proxyauth|407/i.test(pageUrl)) {
-                      log(`  native/proxy auth still visible at ${checkUrl} — waiting longer for monitor`);
-                      await shot(page, '00-proxy-auth-still-visible');
-                      await sleep(12000);  // more time for one-shot injector
-                      try {
-                        await page.authenticate({ username: PROXY_USER, password: PROXY_PASS });
-                        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
-                        await sleep(5000);
-                      } catch {}
-                    }
-
-                    const ipMatch = bodyText.match(/"(?:query|ip|origin)"\s*:\s*"([^"]+)"/) ||
-                                    bodyText.match(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/);
-                    if (ipMatch) {
-                      log(`  Proxy verified — external IP: ${ipMatch[1]}`);
-                      proxyVerified = true;
-                      await shot(page, '00-proxy-verified');
-                      break;
-                    }
-                    if (bodyText.trim().startsWith('{') || bodyText.includes('origin')) {
-                      log(`  reached ${checkUrl} — proxy appears functional`);
-                      proxyVerified = true;
-                      await shot(page, '00-proxy-reached');
-                      break;
-                    }
-                  } catch (e) {
-                    log(`  ${checkUrl} error: ${e.message.split('\n')[0]}`);
-                    await shot(page, `00-proxy-check-fail`);
-                    // still give the monitor time in case a dialog is up
-                    await sleep(6000);
+              // Wait for the guardian to finish (or time out) BEFORE navigating
+              if (USE_PROXY && PROXY_USER && PROXY_PASS) {
+                log('Waiting for proxy auth guardian to finish (max 95s)...');
+                const doneFlag = path.join(os.tmpdir(), 'proxy_auth_done.flag');
+                const startWait = Date.now();
+                while (Date.now() - startWait < 95000) {
+                  if (fs.existsSync(doneFlag)) {
+                    const status = fs.readFileSync(doneFlag, 'utf8').trim();
+                    log(`Guardian finished with status: ${status}`);
+                    break;
                   }
+                  await sleep(1500);
                 }
+                // Extra settle time after credentials are submitted
+                await sleep(2500);
+              }
 
-                if (!proxyVerified) {
-                  log('WARNING: warm-up did not confirm proxy IP. Continuing — monitor may still have cleared the dialog.');
-                  await shot(page, '00-proxy-unverified');
-                  await sleep(5000);
-                } else {
-                  log('Warm-up complete. Proxy authentication is settled. Proceeding to GoLogin.');
+              // Verify proxy is actually working before we start the signup flow
+              if (USE_PROXY && PROXY_HOST) {
+                log('Verifying proxy connectivity from browser...');
+                try {
+                  await page.goto('http://ip-api.com/json/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+                  const bodyText = await page.locator('body').textContent({ timeout: 8000 }).catch(() => '');
+                  const ipMatch  = bodyText.match(/"query"\s*:\s*"([^"]+)"/);
+                  if (ipMatch) {
+                    log(`Proxy verified — external IP: ${ipMatch[1]}`);
+                  } else {
+                    log('Proxy check: could not parse IP from response — continuing');
+                    await shot(page, '00-proxy-check');
+                  }
+                } catch (e) {
+                  log(`Proxy check navigation error (non-fatal): ${e.message.split('\n')[0]}`);
+                  await shot(page, '00-proxy-check-fail');
                 }
-              } else {
-                log('No proxy configured — skipping warm-up.');
               }
 
               // Block downloads
@@ -1942,9 +1623,6 @@ while True:
                 await sleep(rand(1500, 2500));
               }
 
-              // ============================================================
-              // Wait for account creation result
-              // ============================================================
               const stage2 = await waitAny([
                 ['survey',    () => page.getByText(/have you ever used antidetect/i).first().isVisible()],
                 ['allset',    () => page.getByText(/all set/i).first().isVisible()],
@@ -2113,7 +1791,6 @@ while True:
                 }
               }
 
-              // If we still have no token from the main flow, try settings
               const primary = candidates.filter(c => rankOf(c.source) <= 2);
               if (!primary.length) await tokenViaSettings(page);
 
@@ -2176,6 +1853,9 @@ while True:
                 try { fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n'); } catch {}
               }
 
+              if (guardianProc) {
+                try { guardianProc.kill(); } catch {}
+              }
               if (context) await context.close().catch(() => {});
             }
           })();
@@ -2184,7 +1864,7 @@ while True:
       # ================================================================
       # STEP 8 — Confirm Edge is available
       # ================================================================
-      - name: "[8/11] Confirm Microsoft Edge is available"
+      - name: "[8/12] Confirm Microsoft Edge is available"
         working-directory: automation
         run: |
           if ! node probe.mjs; then
@@ -2194,29 +1874,36 @@ while True:
           fi
 
       # ================================================================
-      # STEP 9 — Run automation
+      # STEP 9 — Install pywinauto for the auth guardian
       # ================================================================
-      - name: "[9/11] Run GoLogin signup automation"
+      - name: "[9/12] Install pywinauto (proxy auth guardian)"
+        run: |
+          python -m pip install --quiet pywinauto pyautogui pygetwindow || true
+          echo "pywinauto ready for guardian"
+
+      # ================================================================
+      # STEP 10 — Run automation
+      # ================================================================
+      - name: "[10/12] Run GoLogin signup automation"
         id: automation
         working-directory: automation
-        timeout-minutes: 20
+        timeout-minutes: 25
         env:
-          OUT_DIR:       out
-          USE_PROXY:     ${{ env.USE_PROXY }}
-          PROXY_SERVER:  ${{ env.PROXY_SERVER }}
-          PROXY_HOST:    ${{ env.PROXY_HOST }}
-          PROXY_PORT:    ${{ env.PROXY_PORT }}
-          PROXY_USER:    ${{ env.PROXY_USER }}
-          PROXY_PASS:    ${{ env.PROXY_PASS }}
-          PROXY_SCHEME:  ${{ env.PROXY_SCHEME }}
-          PROXY_LABEL:   ${{ env.PROXY_LABEL }}
-          PROXY_TYPE:    ${{ env.PROXY_TYPE }}
+          OUT_DIR:      out
+          USE_PROXY:    ${{ env.USE_PROXY }}
+          PROXY_HOST:   ${{ env.PROXY_HOST }}
+          PROXY_PORT:   ${{ env.PROXY_PORT }}
+          PROXY_USER:   ${{ env.PROXY_USER }}
+          PROXY_PASS:   ${{ env.PROXY_PASS }}
+          PROXY_SCHEME: ${{ env.PROXY_SCHEME }}
+          PROXY_LABEL:  ${{ env.PROXY_LABEL }}
+          PROXY_SERVER: ${{ env.PROXY_SERVER }}
         run: node signup.mjs
 
       # ================================================================
-      # STEP 10 — Upload screenshots + result
+      # STEP 11 — Upload screenshots + result
       # ================================================================
-      - name: "[10/11] Upload screenshots and result"
+      - name: "[11/12] Upload screenshots and result"
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -2226,9 +1913,9 @@ while True:
           retention-days: 7
 
       # ================================================================
-      # STEP 11 — Keep device alive
+      # STEP 12 — Keep device alive
       # ================================================================
-      - name: "[11/11] Keep device alive for inspection"
+      - name: "[12/12] Keep device alive for inspection"
         if: ${{ always() && env.KEEP_MIN != '0' }}
         run: |
           total=$KEEP_MIN
@@ -2239,35 +1926,16 @@ while True:
       # ================================================================
       # CLEANUP
       # ================================================================
-      - name: "Cleanup — close Edge, kill monitor, disconnect WARP"
+      - name: "Cleanup — close Edge, disconnect WARP"
         if: always()
-        shell: pwsh
         run: |
-          Write-Host "Closing Edge..."
-          taskkill /F /IM msedge.exe /T 2>$null; $true
-
-          # Kill proxy-auth monitor if running
-          $pidFile = Join-Path $env:TEMP "proxy_auth_monitor.pid"
-          if (Test-Path $pidFile) {
-            $monPid = (Get-Content $pidFile -ErrorAction SilentlyContinue).Trim()
-            if ($monPid -match '^\d+$') {
-              try { Stop-Process -Id ([int]$monPid) -Force -ErrorAction Stop; Write-Host "Monitor PID $monPid stopped." }
-              catch { Write-Host "Monitor PID $monPid already gone." }
-            }
-            Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-          }
-          # Also print monitor log for debugging
-          $logFile = Join-Path $env:TEMP "proxy_auth_monitor.log"
-          if (Test-Path $logFile) {
-            Write-Host "--- proxy_auth_monitor.log ---"
-            Get-Content $logFile -ErrorAction SilentlyContinue | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }
-          }
-
-          if ($env:WARP_ON -eq "true") {
-            $cli = "C:\Program Files\Cloudflare\Cloudflare WARP\warp-cli.exe"
-            if (Test-Path $cli) { & $cli '--accept-tos' 'disconnect' 2>$null; $true }
-          }
-          Write-Host "Device $($env:ACC_INDEX) ($($env:ACC_EMAIL)) done."
+          echo "Closing Edge..."
+          taskkill //F //IM msedge.exe //T >/dev/null 2>&1 || true
+          if [[ "$WARP_ON" == "true" ]]; then
+            CLI="/c/Program Files/Cloudflare/Cloudflare WARP/warp-cli.exe"
+            [[ -x "$CLI" ]] && "$CLI" --accept-tos disconnect || true
+          fi
+          echo "Device ${ACC_INDEX} (${ACC_EMAIL}) done. Automation: ${{ steps.automation.outcome }}"
 
 # =============================================================================
 # JOB 4 — REPORT: combined summary of all accounts + API keys
@@ -2317,41 +1985,19 @@ while True:
           retention-days: 7
 
 # =============================================================================
-# NOTES — Proxy Injection Design (v4) — transplanted from working main10.9FA
+# NOTES
 # =============================================================================
+# Secret GH_PAT (repo Settings → Secrets → Actions):
+#   Fine-grained PAT: Variables read+write, Actions read+write, Contents read+write
 #
-# WHY THE PREVIOUS PLAYWRIGHT-ONLY APPROACH FAILED ON MANY PROVIDERS:
-#   Edge's HTTP proxy authentication popup is a NATIVE BROWSER / OS dialog.
-#   page.on('dialog') never fires for it. page.authenticate() and even
-#   Proxy-Authorization headers are sometimes ignored or arrive too late
-#   for residential / mobile providers that challenge on the first request.
+# PROXY INJECTION (taken from working mx10FA / Parallel mx10.9FA):
+#   1. Edge launched with --proxy-server=http://HOST:PORT (NO credentials in URL).
+#   2. Background Python guardian (pywinauto) watches for the native Windows
+#      auth dialog and injects username + password once (one-shot).
+#   3. Playwright also receives the proxy object + page.authenticate as
+#      secondary layers.
+#   4. Navigation to GoLogin only starts after the guardian finishes.
 #
-# WHAT WAS TAKEN FROM THE WORKING main10.9FA / mx10FA WORKFLOW:
-#
-#   1. Multi-provider generation + exit-IP / country validation
-#      (GoLogin mobile-proxy API, BytesFlow, ScrapeOps, Floppy, Redscrape, manual)
-#
-#   2. Pre-launch Windows configuration (step 5b):
-#        - WinINet ProxyEnable / ProxyServer registry
-#        - cmdkey Credential Manager entries for the proxy host
-#        - Robust pywinauto background monitor that:
-#            * Uses multi-language title / field / button keywords
-#            * Never types into controls that live inside a Document (web page)
-#            * Implements one-shot state + late-prompt valve (exactly as main10FA)
-#            * Continuously scans for both standalone dialogs and inline Edge prompts
-#
-#   3. Explicit warm-up navigation to plain HTTP IP-check endpoints BEFORE
-#      any navigation to app.gologin.com. The monitor is given several seconds
-#      to clear the native dialog. Only after warm-up does the signup flow begin.
-#
-#   4. Playwright layers kept as secondary defence:
-#        Layer 1 — proxy: { server, username, password } on launchPersistentContext
-#        Layer 2 — context.route() injects Proxy-Authorization on every request
-#        Layer 3 — CDP Network.setExtraHTTPHeaders per page
-#        Layer 4 — page.authenticate()
-#
-# RESULT: Authentication is forced and settled before the target URL is opened,
-# matching the behaviour that already works reliably in the Parallel mx10.9FA
-# automation.
-#
+# This is the exact pattern that works reliably on headed Edge in the
+# Parallel mx10.9FA workflow.
 # =============================================================================
