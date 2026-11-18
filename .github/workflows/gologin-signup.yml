@@ -4,17 +4,19 @@
 #   Contents read+write, and **Workflows read+write** - without the Workflows permission
 #   GitHub rejects the auto-save push because it edits a file under .github/workflows/).
 #
-# HOW IT WORKS (v3.6)
-#   1. Edge is started by plain subprocess with --remote-debugging-port and (optionally)
-#      --proxy-server. No Playwright automation flags are added.
-#   2. Playwright attaches over CDP. Proxy credentials are answered silently over CDP
-#      (Fetch.authRequired). The pywinauto loop stays as a fallback for a native dialog.
-#   3. Before the sign-up, Edge loads an IP-echo page so a dead proxy fails fast instead
-#      of silently signing up from the runner's own IP.
-#   4. The API token is read from the Copy-token clipboard / input fields, then checked
+# HOW IT WORKS (v3.7 - proxy handling ported from main109FA)
+#   1. Edge is launched by command line WITH --proxy-server already in the arguments and
+#      WITH the GoLogin sign-up URL as the start page (no blank tab, no IP-check sites).
+#   2. Like 109FA, the launcher waits up to 10s for the proxy credential dialog and
+#      relaunches Edge if it never shows.
+#   3. pywinauto answers the dialog (username, password, submit) with 109FA's exact
+#      detection/injection logic, then marks proxy-auth done (one-shot, web-page safe).
+#   4. Only then does Playwright attach over CDP to the SAME Edge window that is already
+#      on GoLogin and fill the sign-up form.
+#   5. The API token is read from the Copy-token clipboard / input fields, then checked
 #      against https://api.gologin.com/user; the first token that returns 200 wins.
 #
-# CHANGES vs v3.5
+# CHANGES vs v3.5 / v3.6
 #   - FIX: signup.py crashed at line 105 (ValueError: string keys in translate table must
 #     be of length 1) - a duplicated _FOLD_SPECIAL_MAP held multi-character keys ('ss', 'ae').
 #   - FIX: signup.py was missing ~15 helpers that main() calls (type_human, click_first,
@@ -31,6 +33,10 @@
 #     received the credentials (machine env vars are not seen by already-running processes),
 #     duplicated the in-process logic, and left the proxy password in the registry.
 #   - REMOVED: Node/npm Playwright install (the script uses Python Playwright over CDP).
+#   - v3.7: removed the IP-check page and the CDP proxy-auth layer added in v3.6; Edge now
+#     starts directly on GoLogin with the proxy injected, as in main109FA.
+#   - v3.7: auth loop no longer skips a top-level window titled exactly "Microsoft Edge"
+#     (109FA inspects it; earlier versions never did, so the dialog was never answered).
 #
 
 name: GoLogin Signup Automation
@@ -63,12 +69,12 @@ on:
         description: "How many GoLogin accounts to create (1-250)"
         required: true
         type: string
-        default: '1'
+        default: "1"
       concurrency:
         description: "How many devices run at the same time"
         required: true
         type: choice
-        default: '1'
+        default: "1"
         options: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
       use_cloudflare_warp:
         description: "Install + connect Cloudflare WARP (1.1.1.1) before opening Edge"
@@ -109,7 +115,7 @@ on:
         description: "GoLogin JWT / ScrapeOps UUID / Floppy token / Redscrape hex / BytesFlow URL / Manual host:port — space-separated"
         required: false
         type: string
-        default: 'geolocation://user-3QwdjRHrc8zFwuZq-type-residential-session-yuT8QWTxe4SR-country-US:XNyyf4lf752Tm40J@geo.floppydata.com:10080:UNITED STATES'
+        default: ''
       use_without_proxy:
         description: "Use Without Proxy (skip all proxy injection)"
         required: false
@@ -119,17 +125,17 @@ on:
         description: "Getscreen.me account email. Blank = Getscreen disabled."
         required: false
         type: string
-        default: 'techx@ccmail.online'
+        default: ''
       getscreen_wait_minutes:
         description: "Pause N minutes after Getscreen connects (0-120)"
         required: false
         type: string
-        default: '0'
+        default: "0"
       keep_alive_minutes:
         description: "Keep each device alive N minutes AFTER it finishes/fails (0-120)"
         required: false
         type: string
-        default: '0'
+        default: "0"
 
 permissions:
   actions: write
@@ -1252,9 +1258,13 @@ jobs:
               return False
 
           # ---------------------------------------------------------------
-          # Edge launch (plain subprocess + CDP port; no automation flags)
+          # Edge launch - ported from main109FA (launch_edge_guaranteed / verify_edge_launch)
+          #   * the proxy is injected via --proxy-server ON THE COMMAND LINE
+          #   * Edge is opened directly on the GoLogin URL (no blank page, no IP-check sites)
+          #   * the only addition is the CDP debugging port so Playwright can attach later
           # ---------------------------------------------------------------
           EDGE_PROC = None
+          SIGNUP_URL = "https://app.gologin.com/sign_up"
 
           def find_edge():
               for p in EDGE_EXE_CANDIDATES:
@@ -1263,11 +1273,7 @@ jobs:
               return shutil.which("msedge")
 
           def kill_edge():
-              try:
-                  subprocess.run(["taskkill", "/F", "/IM", "msedge.exe", "/T"],
-                                 capture_output=True, timeout=30)
-              except Exception:
-                  pass
+              os.system("taskkill /F /IM msedge.exe >nul 2>&1")
 
           def cdp_ready(timeout=30):
               end = time.time() + timeout
@@ -1281,40 +1287,152 @@ jobs:
                   time.sleep(0.5)
               return False
 
-          def launch_edge_with_retries(attempts=3):
+          def launch_edge_guaranteed(target_url, attempt_num=1):
               global EDGE_PROC
               exe = find_edge()
               if not exe:
-                  raise RuntimeError("msedge.exe not found in the standard install paths or PATH.")
-              log("Edge", f"using {exe}")
-              if USE_PROXY and PROXY_SERVER.lower().startswith("socks") and PROXY_USER:
-                  log("Edge", "WARNING: Chromium/Edge cannot authenticate to SOCKS proxies; use an HTTP proxy.")
-              for n in range(1, attempts + 1):
+                  log("EdgeLaunch", "CRITICAL: Microsoft Edge executable not found!")
+                  return False
+              try:
                   kill_edge()
-                  time.sleep(1)
-                  profile = tempfile.mkdtemp(prefix="edge-profile-")
-                  args = [
-                      exe,
-                      f"--remote-debugging-port={CDP_PORT}",
-                      "--remote-debugging-address=127.0.0.1",
-                      f"--user-data-dir={profile}",
-                      "--no-first-run", "--no-default-browser-check",
-                      "--disable-sync", "--password-store=basic",
-                      "--disable-save-password-bubble",
-                      "--window-size=1366,900",
-                  ]
-                  if USE_PROXY and PROXY_SERVER:
-                      args.append(f"--proxy-server={PROXY_SERVER}")
-                  args.append("about:blank")
-                  log("Edge", f"launch attempt {n}/{attempts} (proxy={'yes' if USE_PROXY and PROXY_SERVER else 'no'})")
-                  EDGE_PROC = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                  if cdp_ready(30):
-                      log("Edge", f"CDP ready on 127.0.0.1:{CDP_PORT}")
-                      return
-                  log("Edge", "CDP endpoint did not come up in 30s")
-              raise RuntimeError(f"Could not start Edge with a CDP endpoint after {attempts} attempts.")
+                  time.sleep(2)
+              except Exception:
+                  pass
 
-          def connect_cdp(pw, attempts=3):
+              user_dir = os.path.join(tempfile.gettempdir(), f"EdgeProfile_{random.randint(100000, 999999)}")
+              cmd_parts = [
+                  f'"{exe}"',
+                  f'--user-data-dir="{user_dir}"',
+                  f'--remote-debugging-port={CDP_PORT}',
+                  '--remote-debugging-address=127.0.0.1',
+                  '--no-first-run',
+                  '--no-default-browser-check',
+                  '--disable-sync',
+                  '--disable-features=msSmartScreenProtection,SmartScreenPuaEnabled,CalculateNativeWinOcclusion',
+                  '--restore-last-session=false',
+                  '--hide-crash-restore-window',
+                  '--disable-blink-features=AutomationControlled',
+                  '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+              ]
+              if USE_PROXY and PROXY_SERVER.strip():
+                  srv = PROXY_SERVER.strip()
+                  if "://" not in srv:
+                      srv = "http://" + srv
+                  cmd_parts.append(f'--proxy-server="{srv}"')
+                  log("EdgeLaunch", f"Attempt {attempt_num}: Proxy injected -> {srv}")
+              else:
+                  log("EdgeLaunch", f"Attempt {attempt_num}: Direct mode (no proxy)")
+              cmd_parts.append(f'"{target_url.strip()}"')
+              cmd = " ".join(cmd_parts)
+              log("EdgeLaunch", f"Attempt {attempt_num} CMD: {cmd[:260]}")
+              try:
+                  EDGE_PROC = subprocess.Popen(cmd, shell=True)
+                  log("EdgeLaunch", f"Attempt {attempt_num}: Edge process spawned.")
+                  return True
+              except Exception as e:
+                  log("EdgeLaunch", f"Attempt {attempt_num}: Popen failed: {e}")
+                  return False
+
+          def verify_edge_launch(target_url, max_attempts=5):
+              """109FA logic: with an authenticated proxy, Edge must show the credential
+              dialog within 10s, otherwise it is relaunched. Direct mode waits for the URL
+              to load. On the last attempt we stop relaunching and carry on (the proxy may
+              simply not challenge, e.g. IP-whitelisted)."""
+              for attempt in range(1, max_attempts + 1):
+                  if not launch_edge_guaranteed(target_url, attempt_num=attempt):
+                      time.sleep(2)
+                      continue
+                  start_wait = time.time()
+                  last = attempt == max_attempts
+
+                  if USE_PROXY and PROXY_USER and PROXY_PASS:
+                      log("EdgeLaunch", "Authenticated proxy. Waiting up to 10s for the proxy auth dialog...")
+                      auth_found = False
+                      while time.time() - start_wait < 10:
+                          try:
+                              for w in Desktop(backend="uia").windows(visible_only=True):
+                                  wt = w.window_text() or ""
+                                  if _is_proxy_auth_dialog(wt):
+                                      auth_found = True
+                                      break
+                                  if "Microsoft Edge" in wt or "Edge" in wt:
+                                      u, p = _is_auth_dialog_by_structure(w)
+                                      if u and p:
+                                          auth_found = True
+                                          break
+                          except Exception:
+                              pass
+                          if auth_found:
+                              break
+                          time.sleep(1)
+                      if auth_found:
+                          log("EdgeLaunch", "Proxy auth dialog detected. Edge launched correctly.")
+                          return True
+                      if last:
+                          log("EdgeLaunch", "WARNING: no auth dialog seen on the last attempt - continuing anyway.")
+                          return True
+                      log("EdgeLaunch", "No proxy auth dialog within 10s. Relaunching...")
+                      kill_edge()
+                      time.sleep(2)
+                  else:
+                      log("EdgeLaunch", "Direct / unauthenticated mode. Waiting up to 12s for the page title...")
+                      url_loaded = False
+                      while time.time() - start_wait < 12:
+                          try:
+                              for w in Desktop(backend="uia").windows(visible_only=True):
+                                  wtl = (w.window_text() or "").lower()
+                                  if ("microsoft edge" in wtl or "msedge" in wtl) and wtl not in ("microsoft edge", "edge", "new tab", ""):
+                                      url_loaded = True
+                                      break
+                          except Exception:
+                              pass
+                          if url_loaded:
+                              break
+                          time.sleep(1)
+                      if url_loaded:
+                          log("EdgeLaunch", "URL loaded. Edge launched correctly.")
+                          return True
+                      if last:
+                          log("EdgeLaunch", "WARNING: page title never appeared - continuing anyway.")
+                          return True
+                      log("EdgeLaunch", "URL did not load within 12s. Relaunching...")
+                      kill_edge()
+                      time.sleep(2)
+              return False
+
+          def detect_edge_error(edge_window):
+              try:
+                  error_kw = [
+                      "can't reach this page", "err_connection_closed",
+                      "err_proxy_connection_failed", "err_connection_reset",
+                      "err_connection_timed_out", "site can't be reached",
+                      "checking the proxy and the firewall", "err_empty_response",
+                      "err_network_changed",
+                  ]
+                  title = (edge_window.window_text() or "").lower()
+                  if any(kw in title for kw in error_kw):
+                      return True
+                  try:
+                      for doc in edge_window.descendants(control_type="Document"):
+                          name = (doc.element_info.name or "").lower()
+                          if any(kw in name for kw in error_kw):
+                              return True
+                  except Exception:
+                      pass
+                  try:
+                      for text_el in edge_window.descendants(control_type="Text"):
+                          txt = (text_el.window_text() or "").lower()
+                          if any(kw in txt for kw in error_kw):
+                              return True
+                  except Exception:
+                      pass
+              except Exception:
+                  pass
+              return False
+
+          def connect_cdp(pw, attempts=4):
+              if not cdp_ready(30):
+                  raise RuntimeError(f"Edge CDP endpoint 127.0.0.1:{CDP_PORT} is not answering.")
               last = None
               for n in range(1, attempts + 1):
                   try:
@@ -1324,84 +1442,6 @@ jobs:
                       log("CDP", f"connect attempt {n}/{attempts} failed: {e}")
                       time.sleep(2)
               raise RuntimeError(f"Playwright could not attach to Edge over CDP: {last}")
-
-          # ---------------------------------------------------------------
-          # Proxy auth over CDP (primary, silent) - the pywinauto loop below is the
-          # fallback for a native credential dialog.
-          # ---------------------------------------------------------------
-          _CDP_AUTH_ANSWERS = [0]
-          _CDP_AUTH_MAX = 6
-
-          def install_cdp_proxy_auth(context, page):
-              if not (USE_PROXY and PROXY_USER):
-                  return
-              try:
-                  client = context.new_cdp_session(page)
-              except Exception as e:
-                  log("ProxyAuth", f"could not open CDP session for proxy auth: {e}")
-                  return
-
-              def on_paused(ev):
-                  try:
-                      client.send("Fetch.continueRequest", {"requestId": ev["requestId"]})
-                  except Exception:
-                      pass
-
-              def on_auth(ev):
-                  try:
-                      source = (ev.get("authChallenge") or {}).get("source", "")
-                      if source == "Proxy" and _CDP_AUTH_ANSWERS[0] < _CDP_AUTH_MAX:
-                          _CDP_AUTH_ANSWERS[0] += 1
-                          client.send("Fetch.continueWithAuth", {
-                              "requestId": ev["requestId"],
-                              "authChallengeResponse": {
-                                  "response": "ProvideCredentials",
-                                  "username": PROXY_USER, "password": PROXY_PASS,
-                              },
-                          })
-                          log("ProxyAuth", f"answered proxy 407 over CDP ({_CDP_AUTH_ANSWERS[0]}/{_CDP_AUTH_MAX})")
-                          _mark_proxy_auth_done("answered over CDP Fetch.authRequired")
-                      else:
-                          client.send("Fetch.continueWithAuth", {
-                              "requestId": ev["requestId"],
-                              "authChallengeResponse": {"response": "CancelAuth" if source == "Proxy" else "Default"},
-                          })
-                          if source == "Proxy":
-                              log("ProxyAuth", "proxy keeps rejecting the credentials - cancelled (check proxy user/pass)")
-                  except Exception as e:
-                      log("ProxyAuth", f"CDP auth handler error: {e}")
-
-              try:
-                  client.on("Fetch.requestPaused", on_paused)
-                  client.on("Fetch.authRequired", on_auth)
-                  client.send("Fetch.enable", {"handleAuthRequests": True, "patterns": [{"urlPattern": "*"}]})
-                  log("ProxyAuth", "CDP proxy-auth handler installed")
-              except Exception as e:
-                  log("ProxyAuth", f"Fetch.enable failed: {e}")
-
-          def verify_proxy_ip(page):
-              """Load an IP-echo page through Edge. Fails the run if the proxy is unusable
-              (so we never sign up from the runner's own IP by mistake)."""
-              urls = ["https://api.ipify.org?format=json", "https://ifconfig.me/ip", "https://api.ipify.org"]
-              last = None
-              for attempt in range(1, 7):
-                  url = urls[(attempt - 1) % len(urls)]
-                  try:
-                      page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                      body = (page.inner_text("body", timeout=5000) or "").strip()
-                      m = re.search(r"(\d{1,3}(?:\.\d{1,3}){3})|([0-9a-fA-F:]{6,})", body)
-                      if not m:
-                          raise RuntimeError(f"no IP in response: {body[:80]!r}")
-                      ip = m.group(0)
-                      log("Proxy", f"Edge exit IP: {ip}" + (f" (provisioned: {PROXY_REAL_IP})" if PROXY_REAL_IP else ""))
-                      if PROXY_REAL_IP and PROXY_REAL_IP not in ("direct", ip):
-                          log("Proxy", "note: exit IP differs from the provisioning IP (normal for rotating proxies)")
-                      return ip
-                  except Exception as e:
-                      last = e
-                      log("Proxy", f"IP check {attempt}/6 failed: {str(e)[:160]}")
-                      time.sleep(4)
-              raise RuntimeError(f"Proxy not usable from Edge after 6 attempts: {last}")
 
           INIT_JS = """
           (() => {
@@ -1883,96 +1923,146 @@ jobs:
                   return False
 
           # ---------------------------------------------------------------
-          # Proxy auth polling loop — verbatim main10FA polling logic
+          # Proxy auth polling - the SAME per-tick logic as main109FA's UI loop.
+          # proxy_auth_step() does one tick; it is driven synchronously while Edge is
+          # starting (await_proxy_auth) and then by a background thread (late-prompt valve).
           # ---------------------------------------------------------------
-          def run_proxy_auth_loop(stop_event):
-              AUTH_SCAN_INTERVAL  = 2.0
-              LATE_VALVE_INTERVAL = 6.0
-              last_auth_scan  = 0.0
-              last_late_check = 0.0
-              log("ProxyAuthLoop", "Background proxy-auth thread started.")
+          AUTH_SCAN_INTERVAL = 2
+          LATE_VALVE_INTERVAL = 6
+          _AUTH_CTX = {"last_scan": 0.0, "last_late": 0.0}
 
-              while not stop_event.is_set():
-                  now = time.time()
+          def _find_edge_window(desktop):
+              edge_window = None
+              try:
+                  for window in desktop.windows(visible_only=True):
+                      wt = window.window_text()
+                      if not wt:
+                          continue
+                      if "Microsoft Edge" in wt or "Chrome Web Store" in wt or "Edge" in wt:
+                          edge_window = window
+              except Exception:
+                  pass
+              return edge_window
 
-                  if not PROXY_AUTH_STATE["done"]:
-                      if now - last_auth_scan >= AUTH_SCAN_INTERVAL:
-                          last_auth_scan = now
-                          auth_injected_this_tick = False
-                          seen_prompt = False
-                          edge_window = None
+          def proxy_auth_step():
+              if not USE_PROXY:
+                  return
+              now = time.time()
+              try:
+                  desktop = Desktop(backend="uia")
+              except Exception:
+                  return
+              edge_window = _find_edge_window(desktop)
 
+              if not PROXY_AUTH_STATE["done"]:
+                  if now - _AUTH_CTX["last_scan"] < AUTH_SCAN_INTERVAL:
+                      return
+                  _AUTH_CTX["last_scan"] = now
+                  auth_injected_this_tick = False
+                  seen_prompt = False
+                  try:
+                      for auth_window in desktop.windows(visible_only=True):
+                          awt = auth_window.window_text() or ""
+                          if "Microsoft Edge" in awt and awt != "Microsoft Edge":
+                              continue
+                          if _window_looks_like_auth_dialog(auth_window):
+                              seen_prompt = True
+                              log("ProxyAuth", f"[TopLevel] Auth dialog: '{awt}' - injecting...")
+                              if inject_proxy_auth(auth_window, label=f"toplevel-{awt[:30]}"):
+                                  auth_injected_this_tick = True
+                                  break
+                  except Exception:
+                      pass
+
+                  if not auth_injected_this_tick and edge_window:
+                      try:
+                          if _edge_has_proxy_prompt(edge_window):
+                              seen_prompt = True
+                              log("ProxyAuth", "[Edge-UI] Browser-UI credential prompt detected (web page fields excluded) - injecting...")
+                              if inject_proxy_auth(edge_window, label="edge-ui"):
+                                  auth_injected_this_tick = True
+                      except Exception:
+                          pass
+
+                  if auth_injected_this_tick:
+                      _mark_proxy_auth_done("credentials submitted")
+                  elif seen_prompt:
+                      PROXY_AUTH_STATE["page_ok_ticks"] = 0
+                      PROXY_AUTH_STATE["last_prompt_seen"] = now
+                  elif (edge_window and (now - PROXY_AUTH_STATE["started"]) > 10
+                        and (now - PROXY_AUTH_STATE["last_prompt_seen"]) > 5):
+                      if _page_loaded_without_prompt(edge_window):
+                          PROXY_AUTH_STATE["page_ok_ticks"] += 1
+                          if PROXY_AUTH_STATE["page_ok_ticks"] >= 3:
+                              _mark_proxy_auth_done("page loaded with no proxy prompt - proxy already authenticated")
+                      else:
+                          PROXY_AUTH_STATE["page_ok_ticks"] = 0
+              else:
+                  # Late-prompt valve: ONLY a prompt that names the proxy host, a few times, for a short while.
+                  age = now - PROXY_AUTH_STATE["done_time"]
+                  if age <= LATE_PROMPT_WINDOW_SEC and PROXY_AUTH_STATE["late_reinjects"] < LATE_REINJECT_MAX:
+                      if now - _AUTH_CTX["last_late"] >= LATE_VALVE_INTERVAL:
+                          _AUTH_CTX["last_late"] = now
                           try:
-                              desktop = Desktop(backend="uia")
+                              late_target = _find_genuine_proxy_prompt(desktop, edge_window)
+                          except Exception:
+                              late_target = None
+                          if late_target is not None:
+                              PROXY_AUTH_STATE["late_reinjects"] += 1
+                              log("ProxyAuth", f"[LatePrompt] genuine proxy prompt showing again - re-submitting "
+                                               f"({PROXY_AUTH_STATE['late_reinjects']}/{LATE_REINJECT_MAX}).")
+                              inject_proxy_auth(late_target, label="late-prompt", allow_late=True)
+                  elif not PROXY_AUTH_STATE["valve_logged"]:
+                      PROXY_AUTH_STATE["valve_logged"] = True
+                      log("ProxyAuth", "Late-prompt window closed: proxy credential injection fully disabled.")
 
-                              for auth_window in desktop.windows(visible_only=True):
-                                  awt = auth_window.window_text() or ""
-                                  if "Microsoft Edge" in awt and awt != "Microsoft Edge":
-                                      edge_window = auth_window
-                                      continue
-                                  if "Microsoft Edge" in awt:
-                                      edge_window = auth_window
-                                      continue
-                                  if _window_looks_like_auth_dialog(auth_window):
-                                      seen_prompt = True
-                                      log("ProxyAuthLoop", f"[TopLevel] Auth dialog: '{awt}' — injecting...")
-                                      if inject_proxy_auth(auth_window, label=f"toplevel-{awt[:30]}"):
-                                          auth_injected_this_tick = True
-                                          break
+          def await_proxy_auth(target_url, timeout=120, max_relaunches=3):
+              """Blocks until the proxy dialog was answered (or the page loaded without one).
+              Mirrors 109FA's EdgeURLGuard / EdgeError relaunch guards. Returns True/False;
+              never raises - the caller finds out from the page whether it worked."""
+              if not USE_PROXY:
+                  return True
+              _reset_proxy_auth_state()
+              t0 = time.time()
+              relaunches = 0
+              log("ProxyAuth", f"Waiting up to {timeout}s for the proxy dialog to be answered...")
+              while time.time() - t0 < timeout:
+                  proxy_auth_step()
+                  if PROXY_AUTH_STATE["done"]:
+                      return True
+                  try:
+                      edge_window = _find_edge_window(Desktop(backend="uia"))
+                  except Exception:
+                      edge_window = None
+                  if edge_window is not None and relaunches < max_relaunches:
+                      title = (edge_window.window_text() or "").strip().lower()
+                      elapsed = time.time() - t0
+                      reason = None
+                      if elapsed > 20 and title in ("microsoft edge", "edge", "new tab", "") \
+                              and (time.time() - PROXY_AUTH_STATE["last_prompt_seen"]) > 5:
+                          reason = f"blank title '{title}' after {elapsed:.0f}s"
+                      elif detect_edge_error(edge_window):
+                          reason = "proxy/connection error page"
+                      if reason:
+                          relaunches += 1
+                          log("EdgeGuard", f"{reason} - relaunching Edge ({relaunches}/{max_relaunches})...")
+                          verify_edge_launch(target_url)
+                          _reset_proxy_auth_state()
+                          t0 = time.time()
+                  time.sleep(1)
+              log("ProxyAuth", f"WARNING: proxy auth not confirmed within {timeout}s - attaching anyway.")
+              return False
 
-                              if not auth_injected_this_tick and edge_window:
-                                  if _edge_has_proxy_prompt(edge_window):
-                                      seen_prompt = True
-                                      log("ProxyAuthLoop", "[Edge-UI] Browser-UI credential prompt detected (web page fields excluded) — injecting...")
-                                      if inject_proxy_auth(edge_window, label="edge-ui"):
-                                          auth_injected_this_tick = True
-
-                              if auth_injected_this_tick:
-                                  _mark_proxy_auth_done("credentials submitted")
-                              elif seen_prompt:
-                                  PROXY_AUTH_STATE["page_ok_ticks"] = 0
-                                  PROXY_AUTH_STATE["last_prompt_seen"] = now
-                              elif (edge_window
-                                    and (now - PROXY_AUTH_STATE["started"]) > 10
-                                    and (now - PROXY_AUTH_STATE["last_prompt_seen"]) > 5):
-                                  if _page_loaded_without_prompt(edge_window):
-                                      PROXY_AUTH_STATE["page_ok_ticks"] += 1
-                                      if PROXY_AUTH_STATE["page_ok_ticks"] >= 3:
-                                          _mark_proxy_auth_done("page loaded with no proxy prompt — proxy already authenticated")
-                                  else:
-                                      PROXY_AUTH_STATE["page_ok_ticks"] = 0
-
-                          except Exception as ex:
-                              log("ProxyAuthLoop", f"scan error: {ex}")
-
-                  else:
-                      # Late-prompt valve (verbatim main10FA)
-                      age = now - PROXY_AUTH_STATE["done_time"]
-                      if age <= LATE_PROMPT_WINDOW_SEC and PROXY_AUTH_STATE["late_reinjects"] < LATE_REINJECT_MAX:
-                          if now - last_late_check >= LATE_VALVE_INTERVAL:
-                              last_late_check = now
-                              try:
-                                  desktop = Desktop(backend="uia")
-                                  edge_window = None
-                                  for w in desktop.windows(visible_only=True):
-                                      if "Microsoft Edge" in (w.window_text() or ""):
-                                          edge_window = w
-                                          break
-                                  late_target = _find_genuine_proxy_prompt(desktop, edge_window)
-                              except Exception:
-                                  late_target = None
-                              if late_target is not None:
-                                  PROXY_AUTH_STATE["late_reinjects"] += 1
-                                  log("ProxyAuthLoop", f"[LatePrompt] Genuine proxy prompt still showing — re-submitting ({PROXY_AUTH_STATE['late_reinjects']}/{LATE_REINJECT_MAX}).")
-                                  inject_proxy_auth(late_target, label="late-prompt", allow_late=True)
-                      elif not PROXY_AUTH_STATE["valve_logged"]:
-                          PROXY_AUTH_STATE["valve_logged"] = True
-                          log("ProxyAuthLoop", "Late-prompt window closed: proxy credential injection fully disabled.")
-
+          def run_proxy_auth_loop(stop_event):
+              """Background thread started AFTER the initial auth: keeps the late-prompt valve alive."""
+              log("ProxyAuthLoop", "Background proxy-auth thread started.")
+              while not stop_event.is_set():
+                  try:
+                      proxy_auth_step()
+                  except Exception as ex:
+                      log("ProxyAuthLoop", f"scan error: {ex}")
                   time.sleep(1.5)
-
               log("ProxyAuthLoop", "Background proxy-auth thread stopped.")
-
 
 
 
@@ -2046,19 +2136,25 @@ jobs:
                   context.on("response", on_response)
                   context.add_init_script(INIT_JS)
 
-                  page = context.pages[0] if context.pages else context.new_page()
+                  page = None
+                  for p in context.pages:
+                      if "gologin" in (p.url or "").lower():
+                          page = p
+                          break
+                  if page is None:
+                      page = context.pages[0] if context.pages else context.new_page()
                   page_ref[0] = page
                   page.set_default_timeout(25000)
+                  try:
+                      page.evaluate(INIT_JS)   # hook for the page Edge already loaded
+                  except Exception:
+                      pass
 
-                  # Proxy auth must be armed BEFORE the first navigation.
-                  install_cdp_proxy_auth(context, page)
-                  context.on("page", lambda p: install_cdp_proxy_auth(context, p))
-
-                  if USE_PROXY:
-                      verify_proxy_ip(page)
-
-                  banner("Phase 2 - Open sign-up page and fill the form")
-                  page.goto("https://app.gologin.com/sign_up", wait_until="domcontentloaded", timeout=60000)
+                  banner("Phase 2 - Fill the sign-up form")
+                  log("Main", f"Edge is already on: {page.url}")
+                  if "sign_up" not in (page.url or ""):
+                      log("Main", "Not on the sign-up page yet - navigating (proxy is already authenticated)...")
+                      page.goto(SIGNUP_URL, wait_until="domcontentloaded", timeout=60000)
 
                   email_field = find_visible(page, [
                       page.get_by_placeholder(re.compile(r"your email", re.I)),
@@ -2290,16 +2386,20 @@ jobs:
                   if not EMAIL or not PASSWORD:
                       raise RuntimeError("ACC_EMAIL / ACC_PASSWORD are empty.")
 
-                  banner("Phase 0 - Launch Edge")
+                  banner("Phase 0 - Launch Edge with the proxy injected, straight onto the GoLogin page")
                   log("Main", f"Proxy: {proxy_display}")
-                  launch_edge_with_retries()
+                  if not verify_edge_launch(SIGNUP_URL):
+                      raise RuntimeError("Could not verify Edge launch after 5 attempts.")
 
-                  # Fallback for a native (non-CDP) credential dialog. One-shot + page-safe.
-                  if USE_PROXY and PROXY_USER and PROXY_PASS:
-                      _reset_proxy_auth_state()
+                  banner("Phase 0b - Proxy popup automation (main109FA logic)")
+                  if USE_PROXY:
+                      await_proxy_auth(SIGNUP_URL)
+                      # keeps the late-prompt valve alive while Playwright drives the page
                       auth_thread = threading.Thread(target=run_proxy_auth_loop,
                                                      args=(stop_event,), daemon=True)
                       auth_thread.start()
+                  else:
+                      log("Main", "No proxy - nothing to authenticate.")
 
                   banner("Phase 1 - Playwright attaches to Edge via CDP")
                   with sync_playwright() as pw:
