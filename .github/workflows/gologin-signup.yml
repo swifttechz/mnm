@@ -1,5 +1,5 @@
 # Save as: .github/workflows/gologin-signup.yml
-# USE A PRIVATE REPO — inputs, logs and artifacts contain the password and API keys.
+# USE A PRIVATE REPO - inputs, logs and artifacts contain the password and API keys.
 # Requires repo secret: GH_PAT (fine-grained: Variables read+write, Actions read+write, Contents read+write)
 #
 # PROXY FIX (taken from working Parallel mx10.9FA / main109FA_fixed.yml):
@@ -95,7 +95,7 @@ on:
           - in
           - nl
       scrapeops_api_key:
-        description: "GoLogin JWT / ScrapeOps UUID / Floppy token / Redscrape hex / BytesFlow URL / Manual host:port — space-separated"
+        description: "GoLogin JWT / ScrapeOps UUID / Floppy token / Redscrape hex / BytesFlow URL / Manual host:port - space-separated"
         required: false
         type: string
         default: ''
@@ -125,7 +125,7 @@ permissions:
   contents: write
 
 # =============================================================================
-# JOB 1 — AUTO-SAVE: rewrite YAML defaults so last inputs are pre-filled next run
+# JOB 1 - AUTO-SAVE: rewrite YAML defaults so last inputs are pre-filled next run
 # =============================================================================
 jobs:
   save_inputs:
@@ -177,7 +177,7 @@ jobs:
                   continue
 
           if not target_file:
-              print(f"Could not find workflow file for '{workflow_name}' — skipping save.")
+              print(f"Could not find workflow file for '{workflow_name}' - skipping save.")
               exit(0)
 
           print(f"Saving inputs to: {target_file}")
@@ -262,7 +262,7 @@ jobs:
           git push origin HEAD || echo "Push skipped (no changes or permission issue)"
 
 # =============================================================================
-# JOB 2 — PREPARE: resolve inputs, build matrix
+# JOB 2 - PREPARE: resolve inputs, build matrix
 # =============================================================================
   prepare:
     name: "Prepare (validate inputs, build matrix)"
@@ -303,7 +303,7 @@ jobs:
           [[ "$CONC"   =~ ^[0-9]+$ ]] && (( CONC>=1   && CONC<=10  )) || fail "concurrency must be 1-10"
           [[ -n "$EMAIL" ]] || fail "gologin_email is empty"
           [[ "$EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || fail "gologin_email invalid"
-          (( ${#PASSWORD} >= 8 )) || fail "gologin_password must be ≥8 chars"
+          (( ${#PASSWORD} >= 8 )) || fail "gologin_password must be >=8 chars"
           [[ "$GSW"  =~ ^[0-9]+$ ]] && (( GSW<=120  )) || fail "getscreen_wait_minutes 0-120"
           [[ "$KEEP" =~ ^[0-9]+$ ]] && (( KEEP<=120 )) || fail "keep_alive_minutes 0-120"
           [[ -n "$GS" ]] && { [[ "$GS" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || fail "getscreen_email invalid"; }
@@ -351,7 +351,7 @@ jobs:
         run: echo "Matrix built. Devices will start (max parallel=${{ inputs.concurrency }})."
 
 # =============================================================================
-# JOB 3 — SIGNUP
+# JOB 3 - SIGNUP
 # =============================================================================
   signup:
     name: "Device ${{ matrix.index }} | ${{ matrix.email }}"
@@ -383,9 +383,9 @@ jobs:
     steps:
 
       # ================================================================
-      # STEP 1 — Getscreen.me
+      # STEP 1 - Getscreen.me
       # ================================================================
-      - name: "[1/12] Getscreen.me — install and link (Windows)"
+      - name: "[1/12] Getscreen.me - install and link (Windows)"
         if: ${{ env.GS_EMAIL != '' }}
         continue-on-error: true
         shell: pwsh
@@ -440,9 +440,9 @@ jobs:
           Add-Content $env:GITHUB_STEP_SUMMARY "### Getscreen device $($env:ACC_INDEX)`nName: **$name**`n"
 
       # ================================================================
-      # STEP 2 — Getscreen pause
+      # STEP 2 - Getscreen pause
       # ================================================================
-      - name: "[2/12] Getscreen.me — pause before automation"
+      - name: "[2/12] Getscreen.me - pause before automation"
         if: ${{ env.GS_EMAIL != '' && env.GS_WAIT != '0' }}
         run: |
           total=$GS_WAIT
@@ -450,7 +450,7 @@ jobs:
           for ((m=total; m>0; m--)); do echo "  ...${m}min left"; sleep 60; done
 
       # ================================================================
-      # STEP 3 — Runner info
+      # STEP 3 - Runner info
       # ================================================================
       - name: "[3/12] Runner info + public IP"
         run: |
@@ -458,9 +458,9 @@ jobs:
           echo "Public IP (before WARP): $(curl -fsS --max-time 15 https://api.ipify.org || echo unknown)"
 
       # ================================================================
-      # STEP 4 — Cloudflare WARP
+      # STEP 4 - Cloudflare WARP
       # ================================================================
-      - name: "[4/12] Cloudflare WARP — install and connect (Windows)"
+      - name: "[4/12] Cloudflare WARP - install and connect (Windows)"
         if: ${{ env.WARP_ON == 'true' }}
         continue-on-error: true
         shell: pwsh
@@ -515,7 +515,7 @@ jobs:
           }
           [void](W @('status'))
 
-      - name: "[4b/12] Cloudflare WARP — verify connection"
+      - name: "[4b/12] Cloudflare WARP - verify connection"
         if: ${{ env.WARP_ON == 'true' }}
         run: |
           set -uo pipefail
@@ -532,7 +532,7 @@ jobs:
             CLI="/c/Program Files/Cloudflare/Cloudflare WARP/warp-cli.exe"
             [[ -x "$CLI" ]] && "$CLI" --accept-tos status || true
             if [[ "$WARP_CONTINUE" == "true" ]]; then
-              echo "::warning::WARP did not connect — continuing WITHOUT it"
+              echo "::warning::WARP did not connect - continuing WITHOUT it"
             else
               echo "::error::WARP did not connect. Set 'continue_if_warp_fails' to bypass."
               exit 1
@@ -540,7 +540,7 @@ jobs:
           fi
 
       # ================================================================
-      # STEP 5 — Proxy provisioning (aligned with mx10FA generator)
+      # STEP 5 - Proxy provisioning (aligned with mx10FA generator)
       # ================================================================
       - name: "[5/12] Proxy provisioning (mx10FA-style)"
         shell: python
@@ -578,7 +578,7 @@ jobs:
               print(m, flush=True)
 
           def set_no_proxy():
-              say("[Proxy] No proxy — direct connection.")
+              say("[Proxy] No proxy - direct connection.")
               set_env("USE_PROXY",    "false")
               set_env("PROXY_HOST",   "")
               set_env("PROXY_PORT",   "")
@@ -616,7 +616,7 @@ jobs:
               elif (":" in item or "@" in item or "://" in item or "." in item) and len(item) > 5:
                   manual_proxies.append(item)
 
-          say(f"[Proxy] Tokens — GL:{len(gologin_keys)} BF:{len(bytesflow_proxies)} "
+          say(f"[Proxy] Tokens - GL:{len(gologin_keys)} BF:{len(bytesflow_proxies)} "
               f"SO:{len(scrapeops_keys)} FL:{len(floppy_keys)} "
               f"RS:{len(redscrape_keys)} Manual:{len(manual_proxies)}")
 
@@ -669,7 +669,7 @@ jobs:
                           ip = d.get("query") or d.get("ip")
                           cc = (d.get("countryCode") or d.get("country") or d.get("cc") or "").upper()
                           if ip:
-                              say(f"  -> validated {pinfo['host']}:{pinfo['port']} via {name} — ext IP {ip} ({cc})")
+                              say(f"  -> validated {pinfo['host']}:{pinfo['port']} via {name} - ext IP {ip} ({cc})")
                               return {"ip": ip, "cc": cc or "US"}
                   except Exception as ex:
                       say(f"  -> probe {name} failed: {type(ex).__name__}")
@@ -758,7 +758,7 @@ jobs:
                   raw  = bytesflow_proxies[attempt % len(bytesflow_proxies)]
                   base = parse_generic(raw)
                   if not base or not base.get("username"):
-                      say("[BytesFlow] could not parse proxy string — skipping"); break
+                      say("[BytesFlow] could not parse proxy string - skipping"); break
                   m = re.search(r"^(?:u-)?([A-Za-z0-9]+)", base["username"])
                   base_user = m.group(1) if m else base["username"].split("-")[0]
                   user = f"u-{base_user}-loc-{proxy_country}-t-10-s-{''.join(random.choices(string.ascii_lowercase+string.digits,k=8))}"
@@ -836,11 +836,11 @@ jobs:
                   time.sleep(2)
 
           if not active:
-              say("[Proxy] WARNING: no working proxy after all attempts — proceeding direct.")
+              say("[Proxy] WARNING: no working proxy after all attempts - proceeding direct.")
               set_no_proxy()
 
       # ================================================================
-      # STEP 6 — Node.js + Playwright
+      # STEP 6 - Node.js + Playwright
       # ================================================================
       - uses: actions/setup-node@v4
         with:
@@ -858,7 +858,7 @@ jobs:
           echo "Playwright ${PLAYWRIGHT_VERSION} installed."
 
       # ================================================================
-      # STEP 7 — Write automation scripts + mx10FA-style auth guardian
+      # STEP 7 - Write automation scripts + mx10FA-style auth guardian
       # ================================================================
       - name: "[7/12] Write automation scripts + proxy auth guardian"
         run: |
@@ -917,7 +917,7 @@ jobs:
                   pass
 
           if not USE_PROXY or not PROXY_USER or not PROXY_PASS:
-              log("No proxy credentials — guardian exiting cleanly.")
+              log("No proxy credentials - guardian exiting cleanly.")
               open(DONE_FLAG, "w").write("no-proxy")
               sys.exit(0)
 
@@ -933,7 +933,14 @@ jobs:
 
           def fold(s):
               if not s: return ""
-              return s.lower().replace("é","e").replace("è","e").replace("à","a").replace("ö","o").replace("ü","u")
+              try:
+                  import unicodedata
+                  s = unicodedata.normalize("NFKD", s)
+                  s = "".join(c for c in s if not unicodedata.combining(c))
+              except Exception:
+                  pass
+              return s.lower()
+
 
           def matches_any(text, kws):
               tl = fold(text or "")
@@ -1048,7 +1055,7 @@ jobs:
                       return False
 
                   if is_address_bar(user_fields[0]) or is_address_bar(pass_fields[0]):
-                      log(f"[{label}] BLOCKED — fields look like address bars.")
+                      log(f"[{label}] BLOCKED - fields look like address bars.")
                       return False
 
                   log(f"[{label}] Injecting credentials (user={PROXY_USER[:12]}...)")
@@ -1093,7 +1100,7 @@ jobs:
                   return False
 
           # ---------------------------------------------------------------------------
-          # Main loop — one-shot
+          # Main loop - one-shot
           # ---------------------------------------------------------------------------
           log(f"Guardian started. Watching for proxy auth dialog (host hint={HOST_HINT or 'none'}).")
           start = time.time()
@@ -1139,7 +1146,7 @@ jobs:
               open(DONE_FLAG, "w").write("ok")
           else:
               # Maybe the proxy was already authenticated / no dialog appeared
-              log("No auth dialog appeared within timeout — assuming already authenticated or IP-auth.")
+              log("No auth dialog appeared within timeout - assuming already authenticated or IP-auth.")
               open(DONE_FLAG, "w").write("no-dialog")
           sys.exit(0)
           PYEOF
@@ -1147,11 +1154,11 @@ jobs:
           # ---- signup.mjs (proxy launch uses --proxy-server WITHOUT credentials) ----
           cat > automation/signup.mjs <<'JSEOF'
           /**
-           * GoLogin signup automation — Windows / Microsoft Edge
+           * GoLogin signup automation - Windows / Microsoft Edge
            *
            * PROXY INJECTION (mx10FA pattern):
            *   1. Edge is launched with --proxy-server=http://HOST:PORT
-           *      (credentials are NEVER put in the URL — Chromium ignores them).
+           *      (credentials are NEVER put in the URL - Chromium ignores them).
            *   2. A background Python guardian (proxy_auth_guardian.py) watches
            *      for the native Windows auth dialog and injects user/pass once.
            *   3. Playwright still uses its proxy object as a secondary layer and
@@ -1269,7 +1276,7 @@ jobs:
               } catch {}
               await sleep(500);
             }
-            if (!iframeVisible) { log(`${label}no Turnstile iframe — skipping`); return false; }
+            if (!iframeVisible) { log(`${label}no Turnstile iframe - skipping`); return false; }
             log(`${label}Turnstile iframe detected...`);
             const cfFrame   = page.frameLocator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first();
             const cfCheckbox = cfFrame.locator('input[type="checkbox"]');
@@ -1283,7 +1290,7 @@ jobs:
               await shot(page, `cf-no-checkbox-${callerLabel}`);
               return false;
             }
-            log(`${label}Turnstile checkbox visible — clicking...`);
+            log(`${label}Turnstile checkbox visible - clicking...`);
             await shot(page, `cf-before-click-${callerLabel}`);
             for (let attempt = 1; attempt <= 5; attempt++) {
               try { await cfCheckbox.click({ timeout: 5000 }); break; }
@@ -1311,7 +1318,7 @@ jobs:
               await sleep(500);
             }
             await shot(page, `cf-after-${solved ? 'solved' : 'timeout'}-${callerLabel}`);
-            log(`${label}Turnstile: ${solved ? 'SOLVED ✓' : 'TIMED OUT (continuing)'}`);
+            log(`${label}Turnstile: ${solved ? 'SOLVED OK' : 'TIMED OUT (continuing)'}`);
             if (solved) await sleep(rand(1200, 2000));
             return solved;
           }
@@ -1410,7 +1417,7 @@ jobs:
               }
 
               // Build Playwright proxy object (secondary layer).
-              // CRITICAL: server must be bare scheme://host:port — NO credentials in URL.
+              // CRITICAL: server must be bare scheme://host:port - NO credentials in URL.
               let proxyOption = undefined;
               if (USE_PROXY && PROXY_HOST && PROXY_PORT) {
                 proxyOption = {
@@ -1438,7 +1445,7 @@ jobs:
                 '--use-mock-keychain',
               ];
               if (USE_PROXY && PROXY_HOST && PROXY_PORT) {
-                // Explicit CLI flag — this is what forces the native auth dialog
+                // Explicit CLI flag - this is what forces the native auth dialog
                 // that the guardian will catch (same as mx10FA).
                 launchArgs.push(`--proxy-server=${PROXY_SCHEME}://${PROXY_HOST}:${PROXY_PORT}`);
               }
@@ -1525,9 +1532,9 @@ jobs:
                   const bodyText = await page.locator('body').textContent({ timeout: 8000 }).catch(() => '');
                   const ipMatch  = bodyText.match(/"query"\s*:\s*"([^"]+)"/);
                   if (ipMatch) {
-                    log(`Proxy verified — external IP: ${ipMatch[1]}`);
+                    log(`Proxy verified - external IP: ${ipMatch[1]}`);
                   } else {
-                    log('Proxy check: could not parse IP from response — continuing');
+                    log('Proxy check: could not parse IP from response - continuing');
                     await shot(page, '00-proxy-check');
                   }
                 } catch (e) {
@@ -1548,7 +1555,7 @@ jobs:
               // ============================================================
               // PHASE 1: Sign-up page
               // ============================================================
-              banner('Phase 1 — sign_up page');
+              banner('Phase 1 - sign_up page');
               log('navigating to https://app.gologin.com/sign_up');
               await page.goto('https://app.gologin.com/sign_up', {
                 waitUntil: 'domcontentloaded', timeout: 60000,
@@ -1582,7 +1589,7 @@ jobs:
               // ============================================================
               // PHASE 2: Password page
               // ============================================================
-              banner('Phase 2 — Create a password');
+              banner('Phase 2 - Create a password');
               const passField = page.getByPlaceholder(/your password/i).first();
               const stage1 = await waitAny([
                 ['password', () => passField.isVisible()],
@@ -1641,13 +1648,13 @@ jobs:
               // ============================================================
               // PHASE 3: Onboarding
               // ============================================================
-              banner('Phase 3 — onboarding / popups');
+              banner('Phase 3 - onboarding / popups');
               for (let i = 0; i < 5; i++) {
                 const closeBtn = await findVisible(page, [
                   page.locator('[aria-label="Close" i], [aria-label="close" i]').first(),
                   page.locator('button.close, button[class*="close" i]').first(),
                   page.locator('svg[class*="close" i]').first(),
-                  page.getByRole('button', { name: /^×$|^close$/i }).first(),
+                  page.getByRole('button', { name: /^x$|^close$/i }).first(),
                   page.locator('a[href*="profileList"], a[href*="dashboard"]').first(),
                 ], 3000);
                 if (closeBtn) {
@@ -1655,7 +1662,7 @@ jobs:
                   await sleep(1200); break;
                 }
                 if (page.url().includes('download-installer')) {
-                  log('download-installer — navigating to profileList');
+                  log('download-installer - navigating to profileList');
                   await page.goto('https://app.gologin.com/profileList', { waitUntil: 'domcontentloaded', timeout: 30000 });
                   await sleep(2000); break;
                 }
@@ -1684,7 +1691,7 @@ jobs:
               await shot(page, '08-after-onboarding');
 
               if (!(await isDashboard(page))) {
-                log('dashboard not reached — navigating directly');
+                log('dashboard not reached - navigating directly');
                 await page.goto('https://app.gologin.com/profileList', { waitUntil: 'domcontentloaded', timeout: 30000 });
                 await sleep(3000);
                 await dismissOverlays(page, 5);
@@ -1694,15 +1701,15 @@ jobs:
               log('reached the GoLogin dashboard');
 
               // ============================================================
-              // PHASE 4: Run → API control → Copy token
+              // PHASE 4: Run -> API control -> Copy token
               // ============================================================
-              banner('Phase 4 — Run → API control → Copy token');
+              banner('Phase 4 - Run -> API control -> Copy token');
               const runBtn = await findVisible(page, [
                 page.getByRole('button', { name: 'Run', exact: true }),
               ], 20000);
 
               async function tokenViaSettings(pg) {
-                banner('Fallback — Settings → API & MCP');
+                banner('Fallback - Settings -> API & MCP');
                 await pg.goto('https://app.gologin.com/#/personalArea/TokenApi', {
                   waitUntil: 'domcontentloaded', timeout: 30000,
                 });
@@ -1751,7 +1758,7 @@ jobs:
               }
 
               if (!runBtn) {
-                log('no Run button — going to Settings API page');
+                log('no Run button - going to Settings API page');
                 await tokenViaSettings(page);
               } else {
                 await runBtn.click();
@@ -1765,7 +1772,7 @@ jobs:
                 ], 10000);
 
                 if (!apiCtrlClicked) {
-                  log('"API control" not found — going to Settings');
+                  log('"API control" not found - going to Settings');
                   await tokenViaSettings(page);
                 } else {
                   log('clicked "API control"');
@@ -1785,7 +1792,7 @@ jobs:
                     await readClipboard(page);
                     await shot(page, '12-after-copy-token');
                   } else {
-                    log('"Copy token" not found — scanning page source');
+                    log('"Copy token" not found - scanning page source');
                     await scanPage(page, 'cloud-api-control-scan');
                   }
                 }
@@ -1828,7 +1835,7 @@ jobs:
               console.log('='.repeat(60));
               console.log('device  :', IDX);
               console.log('email   :', EMAIL);
-              console.log('signup  :', result.signup ? 'OK ✓' : 'FAILED ✗');
+              console.log('signup  :', result.signup ? 'OK OK' : 'FAILED FAIL');
               console.log('proxy   :', result.proxy);
               console.log('source  :', result.tokenSource || '-');
               console.log('REST /user:', result.restStatus ?? '-');
@@ -1837,13 +1844,13 @@ jobs:
               console.log('='.repeat(60) + '\n');
 
               if (result.token) {
-                console.log(`::notice title=GoLogin API key (device ${IDX} · ${EMAIL})::${result.token}`);
+                console.log(`::notice title=GoLogin API key (device ${IDX} - ${EMAIL})::${result.token}`);
               }
 
               if (process.env.GITHUB_STEP_SUMMARY) {
                 const md = [
                   `### Device ${IDX}: ${EMAIL}`,
-                  `- Signup: **${result.signup ? 'OK ✓' : 'FAILED ✗'}**`,
+                  `- Signup: **${result.signup ? 'OK OK' : 'FAILED FAIL'}**`,
                   `- Proxy: ${result.proxy}`,
                   `- API key: \`${result.token || 'not captured'}\``,
                   `- Source: ${result.tokenSource || '-'}  |  REST: ${result.restStatus ?? '-'}`,
@@ -1862,19 +1869,19 @@ jobs:
           JSEOF
 
       # ================================================================
-      # STEP 8 — Confirm Edge is available
+      # STEP 8 - Confirm Edge is available
       # ================================================================
       - name: "[8/12] Confirm Microsoft Edge is available"
         working-directory: automation
         run: |
           if ! node probe.mjs; then
-            echo "Edge not found — installing via Playwright..."
+            echo "Edge not found - installing via Playwright..."
             npx playwright install msedge
             node probe.mjs
           fi
 
       # ================================================================
-      # STEP 9 — Install pywinauto for the auth guardian
+      # STEP 9 - Install pywinauto for the auth guardian
       # ================================================================
       - name: "[9/12] Install pywinauto (proxy auth guardian)"
         run: |
@@ -1882,7 +1889,7 @@ jobs:
           echo "pywinauto ready for guardian"
 
       # ================================================================
-      # STEP 10 — Run automation
+      # STEP 10 - Run automation
       # ================================================================
       - name: "[10/12] Run GoLogin signup automation"
         id: automation
@@ -1901,7 +1908,7 @@ jobs:
         run: node signup.mjs
 
       # ================================================================
-      # STEP 11 — Upload screenshots + result
+      # STEP 11 - Upload screenshots + result
       # ================================================================
       - name: "[11/12] Upload screenshots and result"
         if: always()
@@ -1913,7 +1920,7 @@ jobs:
           retention-days: 7
 
       # ================================================================
-      # STEP 12 — Keep device alive
+      # STEP 12 - Keep device alive
       # ================================================================
       - name: "[12/12] Keep device alive for inspection"
         if: ${{ always() && env.KEEP_MIN != '0' }}
@@ -1926,7 +1933,7 @@ jobs:
       # ================================================================
       # CLEANUP
       # ================================================================
-      - name: "Cleanup — close Edge, disconnect WARP"
+      - name: "Cleanup - close Edge, disconnect WARP"
         if: always()
         run: |
           echo "Closing Edge..."
@@ -1938,7 +1945,7 @@ jobs:
           echo "Device ${ACC_INDEX} (${ACC_EMAIL}) done. Automation: ${{ steps.automation.outcome }}"
 
 # =============================================================================
-# JOB 4 — REPORT: combined summary of all accounts + API keys
+# JOB 4 - REPORT: combined summary of all accounts + API keys
 # =============================================================================
   report:
     name: "Combined API key report"
@@ -1970,10 +1977,10 @@ jobs:
           jq -r '.[] | select(.token != null) | "\(.email)  \(.token)"' all-results.json
 
           {
-            echo "## GoLogin accounts — combined ($ok of $total with API key)"
+            echo "## GoLogin accounts - combined ($ok of $total with API key)"
             echo "| # | Email | Proxy | Signup | API key |"
             echo "|---|-------|-------|--------|---------|"
-            jq -r '.[] | "| \(.index) | \(.email) | \(.proxy // "none") | \(if .signup then "OK ✓" else "FAILED ✗" end) | `\(.token // "not captured")` |"' all-results.json
+            jq -r '.[] | "| \(.index) | \(.email) | \(.proxy // "none") | \(if .signup then "OK OK" else "FAILED FAIL" end) | `\(.token // "not captured")` |"' all-results.json
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload combined results
@@ -1987,7 +1994,7 @@ jobs:
 # =============================================================================
 # NOTES
 # =============================================================================
-# Secret GH_PAT (repo Settings → Secrets → Actions):
+# Secret GH_PAT (repo Settings -> Secrets -> Actions):
 #   Fine-grained PAT: Variables read+write, Actions read+write, Contents read+write
 #
 # PROXY INJECTION (taken from working mx10FA / Parallel mx10.9FA):
