@@ -906,276 +906,221 @@ jobs:
       # ================================================================
       - name: "[5b/11] Install pywinauto and write proxy-auth monitor"
         if: ${{ env.USE_PROXY == 'true' }}
-        shell: pwsh
+        shell: python
         env:
           PROXY_USER:   ${{ env.PROXY_USER }}
           PROXY_PASS:   ${{ env.PROXY_PASS }}
           PROXY_SERVER: ${{ env.PROXY_SERVER }}
           PROXY_TYPE:   ${{ env.PROXY_TYPE }}
         run: |
-          $ErrorActionPreference = 'Continue'
+          import os, sys, subprocess, tempfile, winreg
 
-          # Install pywinauto for native dialog automation
-          Write-Host "[pywinauto] Installing pywinauto + keyboard..."
-          python -m pip install pywinauto keyboard --quiet
-          Write-Host "[pywinauto] Installed."
+          # Install pywinauto
+          subprocess.check_call([sys.executable, "-m", "pip", "install",
+                                 "pywinauto", "keyboard", "--quiet"])
+          print("[pywinauto] Installed.")
 
-          # Write proxy-auth monitor script to TEMP
-          $monScript = Join-Path $env:TEMP "proxy_auth_monitor.py"
+          proxy_user   = os.environ.get("PROXY_USER",   "")
+          proxy_pass   = os.environ.get("PROXY_PASS",   "")
+          proxy_server = os.environ.get("PROXY_SERVER", "")
 
-          $proxyUser   = $env:PROXY_USER
-          $proxyPass   = $env:PROXY_PASS
-          $proxyServer = $env:PROXY_SERVER
+          # Mask password in logs
+          if proxy_pass and len(proxy_pass) >= 6:
+              print(f"::add-mask::{proxy_pass}", flush=True)
 
-          # Write the monitor script content
-          $scriptContent = @"
-import time, sys, os, unicodedata, re
-from pywinauto import Desktop
-from pywinauto.keyboard import send_keys
+          # --- Write monitor script using Python (avoids YAML heredoc issues) ---
+          mon_lines = [
+              "import time, sys, os, unicodedata, re",
+              "from pywinauto import Desktop",
+              "from pywinauto.keyboard import send_keys",
+              "",
+              "PROXY_USER   = os.environ.get('PROXY_USER_MON', '')",
+              "PROXY_PASS   = os.environ.get('PROXY_PASS_MON', '')",
+              "PROXY_SERVER = os.environ.get('PROXY_SERVER_MON', '')",
+              "",
+              "def log(msg): print(f'[ProxyMon] {msg}', flush=True)",
+              "",
+              "PROXY_AUTH_TITLE_KEYWORDS = [",
+              "    'sign in', 'authentication required', 'proxy authentication',",
+              "    'connect to', 'enter credentials', 'network authentication',",
+              "    'proxy auth', 'enter network credentials', 'authentication',",
+              "    'proxy', 'credential',",
+              "]",
+              "ADDRESS_BAR_NAMES = ['address and search bar','address bar','search bar','omnibox','location bar','url bar','address']",
+              "ADDRESS_BAR_AUTOMATION_IDS = ['addressEditBox','addressField','locationBar','view_1','omnibox']",
+              "USERNAME_FIELD_KEYWORDS = ['username','user name','user','login','account','email']",
+              "PASSWORD_FIELD_KEYWORDS = ['password','pass','passwd','secret','pin']",
+              "SUBMIT_BUTTON_KEYWORDS  = ['sign in','ok','connect','login','submit','authenticate']",
+              "",
+              "PROXY_AUTH_DONE = {'done': False}",
+              "",
+              "def fold(text):",
+              "    if not text: return ''",
+              "    import unicodedata as _u",
+              "    return ''.join(c for c in _u.normalize('NFKD',text) if not _u.combining(c)).lower().strip()",
+              "",
+              "def matches_any(text, kws):",
+              "    tl = fold(text)",
+              "    return any(fold(k) in tl for k in kws)",
+              "",
+              "def proxy_host_hint():",
+              "    srv = (PROXY_SERVER or '').replace('http://','').replace('https://','')",
+              "    host = srv.split('@')[-1].split(':')[0].strip()",
+              "    return host if len(host) >= 4 else ''",
+              "",
+              "PROXY_HOST_HINT = proxy_host_hint()",
+              "",
+              "def is_proxy_auth_dialog(wt):",
+              "    if not wt: return False",
+              "    return matches_any(wt, PROXY_AUTH_TITLE_KEYWORDS) or (bool(PROXY_HOST_HINT) and PROXY_HOST_HINT.lower() in wt.lower())",
+              "",
+              "def is_address_bar(ctrl):",
+              "    try:",
+              "        wt  = (ctrl.window_text() or '').lower().strip()",
+              "        aid = ''",
+              "        try: aid = (ctrl.element_info.automation_id or '').lower()",
+              "        except: pass",
+              "        for n in ADDRESS_BAR_NAMES:",
+              "            if n in wt or n in aid: return True",
+              "        for a in ADDRESS_BAR_AUTOMATION_IDS:",
+              "            if a.lower() in aid: return True",
+              "    except: pass",
+              "    return False",
+              "",
+              "def page_ctrl_keys(container, ctype):",
+              "    keys = set()",
+              "    try:",
+              "        for doc in container.descendants(control_type='Document'):",
+              "            try:",
+              "                for c in doc.descendants(control_type=ctype):",
+              "                    try: keys.add(tuple(c.element_info.runtime_id))",
+              "                    except: pass",
+              "            except: return keys, False",
+              "    except: return keys, False",
+              "    return keys, True",
+              "",
+              "def outside_page(container, ctype):",
+              "    try: all_c = container.descendants(control_type=ctype)",
+              "    except: return []",
+              "    keys, ok = page_ctrl_keys(container, ctype)",
+              "    if not ok: return []",
+              "    if not keys: return list(all_c)",
+              "    out = []",
+              "    for c in all_c:",
+              "        try: rid = tuple(c.element_info.runtime_id)",
+              "        except: rid = None",
+              "        if rid is not None and rid in keys: continue",
+              "        out.append(c)",
+              "    return out",
+              "",
+              "def inject_auth(window, label=''):",
+              "    if not PROXY_USER or not PROXY_PASS: return False",
+              "    if PROXY_AUTH_DONE['done']: return False",
+              "    try:",
+              "        edits = [c for c in outside_page(window, 'Edit') if not is_address_bar(c)]",
+              "        if len(edits) >= 2:",
+              "            log(f'[{label}] Injecting credentials...')",
+              "            window.set_focus()",
+              "            import time as _t; _t.sleep(0.5)",
+              "            edits[0].click_input(); _t.sleep(0.2)",
+              "            send_keys('^a'); _t.sleep(0.1); send_keys('{DELETE}'); _t.sleep(0.1)",
+              "            edits[0].type_keys(PROXY_USER, with_spaces=True, pause=0.02); _t.sleep(0.3)",
+              "            edits[1].click_input(); _t.sleep(0.2)",
+              "            send_keys('^a'); _t.sleep(0.1); send_keys('{DELETE}'); _t.sleep(0.1)",
+              "            edits[1].type_keys(PROXY_PASS, with_spaces=True, pause=0.02); _t.sleep(0.3)",
+              "            for btn in outside_page(window, 'Button'):",
+              "                try:",
+              "                    if matches_any(btn.window_text() or '', SUBMIT_BUTTON_KEYWORDS):",
+              "                        btn.click_input()",
+              "                        log(f'[{label}] Submit clicked.')",
+              "                        PROXY_AUTH_DONE['done'] = True",
+              "                        return True",
+              "                except: pass",
+              "            edits[1].click_input(); _t.sleep(0.2)",
+              "            send_keys('{ENTER}')",
+              "            log(f'[{label}] ENTER fallback.')",
+              "            PROXY_AUTH_DONE['done'] = True",
+              "            return True",
+              "        elif is_proxy_auth_dialog(window.window_text() or ''):",
+              "            window.set_focus()",
+              "            import time as _t; _t.sleep(0.5)",
+              "            for ch in PROXY_USER:",
+              "                send_keys(ch if ch.isalnum() or ch in '.-_=@' else '{%s}' % ch)",
+              "                _t.sleep(0.01)",
+              "            send_keys('{TAB}'); _t.sleep(0.3)",
+              "            for ch in PROXY_PASS:",
+              "                send_keys(ch if ch.isalnum() or ch in '.-_=@' else '{%s}' % ch)",
+              "                _t.sleep(0.01)",
+              "            send_keys('{ENTER}')",
+              "            log(f'[{label}] Keyboard-only auth submitted.')",
+              "            PROXY_AUTH_DONE['done'] = True",
+              "            return True",
+              "    except Exception as e: log(f'inject error: {e}')",
+              "    return False",
+              "",
+              "log(f'Monitor started. user={PROXY_USER[:6]}*** hint={PROXY_HOST_HINT}')",
+              "desktop = Desktop(backend='uia')",
+              "scan_n = 0",
+              "while True:",
+              "    try:",
+              "        scan_n += 1",
+              "        for w in desktop.windows(visible_only=True):",
+              "            try: wt = w.window_text() or ''",
+              "            except: continue",
+              "            if 'Microsoft Edge' not in wt and is_proxy_auth_dialog(wt):",
+              "                log(f'Dialog: \"{wt}\"')",
+              "                inject_auth(w, f'dialog:{wt[:30]}')",
+              "    except Exception as ex:",
+              "        if scan_n % 30 == 0: log(f'scan error: {ex}')",
+              "    import time as _t; _t.sleep(1.5)",
+          ]
 
-PROXY_USER   = os.environ.get('PROXY_USER_MON', '')
-PROXY_PASS   = os.environ.get('PROXY_PASS_MON', '')
-PROXY_SERVER = os.environ.get('PROXY_SERVER_MON', '')
+          mon_script = os.path.join(tempfile.gettempdir(), "proxy_auth_monitor.py")
+          with open(mon_script, "w", encoding="utf-8") as f:
+              f.write("\n".join(mon_lines) + "\n")
+          print(f"[pywinauto] Monitor script written: {mon_script}")
 
-def log(msg): print(f'[{time.strftime("%H:%M:%S")}][ProxyMon] {msg}', flush=True)
+          # --- Set machine-level env vars for the monitor process ---
+          import winreg
+          def set_machine_env(k, v):
+              try:
+                  key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                      r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+                      0, winreg.KEY_SET_VALUE)
+                  winreg.SetValueEx(key, k, 0, winreg.REG_SZ, v)
+                  winreg.CloseKey(key)
+              except Exception as e:
+                  print(f"  set_machine_env({k}) failed: {e}")
 
-PROXY_AUTH_TITLE_KEYWORDS = [
-    'sign in', 'authentication required', 'proxy authentication',
-    'connect to', 'enter credentials', 'network authentication',
-    'proxy auth', 'enter network credentials', 'authentication',
-    'proxy', 'credential',
-]
-ADDRESS_BAR_NAMES = ['address and search bar','address bar','search bar','omnibox','location bar','url bar','address']
-ADDRESS_BAR_AUTOMATION_IDS = ['addressEditBox','addressField','locationBar','view_1','omnibox']
-USERNAME_FIELD_KEYWORDS = ['username','user name','user','login','account','email']
-PASSWORD_FIELD_KEYWORDS = ['password','pass','passwd','secret','pin']
-SUBMIT_BUTTON_KEYWORDS  = ['sign in','ok','connect','login','submit','authenticate']
+          set_machine_env("PROXY_USER_MON",   proxy_user)
+          set_machine_env("PROXY_PASS_MON",   proxy_pass)
+          set_machine_env("PROXY_SERVER_MON", proxy_server)
+          print("[pywinauto] Machine env vars set for monitor.")
 
-PROXY_AUTH_DONE = {'done': False}
+          # --- WinINet system proxy ---
+          proxy_host = proxy_server.replace("http://","").replace("https://","")
+          if proxy_host:
+              try:
+                  key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                      r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
+                      0, winreg.KEY_SET_VALUE)
+                  winreg.SetValueEx(key, "ProxyEnable",   0, winreg.REG_DWORD, 1)
+                  winreg.SetValueEx(key, "ProxyServer",   0, winreg.REG_SZ,    proxy_host)
+                  winreg.SetValueEx(key, "ProxyOverride", 0, winreg.REG_SZ,    "<local>")
+                  winreg.CloseKey(key)
+                  print(f"[WinINet] System proxy set: {proxy_host}")
+              except Exception as e:
+                  print(f"[WinINet] Failed: {e}")
 
-_FOLD_SPECIAL_MAP = str.maketrans({'l':'l','d':'d','o':'o','ss':'ss'})
+          # --- Windows Credential Manager (belt-and-braces) ---
+          if proxy_user and proxy_pass:
+              for target in [proxy_server, proxy_host, proxy_host.split(":")[0]]:
+                  if not target: continue
+                  ret = os.system(f'cmdkey /add:"{target}" /user:"{proxy_user}" /pass:"{proxy_pass}" >nul 2>&1')
+                  print(f"[CredMan] {target} -> exit {ret}")
 
-def fold(text):
-    if not text: return ''
-    nfkd = unicodedata.normalize('NFKD', text)
-    return ''.join(ch for ch in nfkd if not unicodedata.combining(ch)).lower().strip()
+          print("[5b] Proxy pre-auth setup complete.")
 
-def matches_any(text, kws):
-    if not text: return False
-    tl = fold(text)
-    return any(fold(k) in tl for k in kws)
-
-def proxy_host_hint():
-    srv = (PROXY_SERVER or '').replace('http://','').replace('https://','')
-    host = srv.split('@')[-1].split(':')[0].strip()
-    return host if len(host) >= 4 else ''
-
-PROXY_HOST_HINT = proxy_host_hint()
-
-def is_proxy_auth_dialog(wt):
-    if not wt: return False
-    return matches_any(wt, PROXY_AUTH_TITLE_KEYWORDS) or (bool(PROXY_HOST_HINT) and PROXY_HOST_HINT.lower() in wt.lower())
-
-def is_address_bar(ctrl):
-    try:
-        wt  = (ctrl.window_text() or '').lower().strip()
-        aid = ''
-        try: aid = (ctrl.element_info.automation_id or '').lower()
-        except: pass
-        for name in ADDRESS_BAR_NAMES:
-            if name in wt or name in aid: return True
-        for a in ADDRESS_BAR_AUTOMATION_IDS:
-            if a.lower() in aid: return True
-    except: pass
-    return False
-
-def page_ctrl_keys(container, ctype):
-    keys = set()
-    try:
-        for doc in container.descendants(control_type='Document'):
-            try:
-                for c in doc.descendants(control_type=ctype):
-                    try: keys.add(tuple(c.element_info.runtime_id))
-                    except: pass
-            except: return keys, False
-    except: return keys, False
-    return keys, True
-
-def outside_page(container, ctype):
-    try:
-        all_c = container.descendants(control_type=ctype)
-    except: return []
-    keys, ok = page_ctrl_keys(container, ctype)
-    if not ok: return []
-    if not keys: return list(all_c)
-    out = []
-    for c in all_c:
-        try:
-            rid = tuple(c.element_info.runtime_id)
-        except: rid = None
-        if rid is not None and rid in keys: continue
-        out.append(c)
-    return out
-
-def find_username_fields(container):
-    results = []
-    try:
-        for ctrl in outside_page(container, 'Edit'):
-            if is_address_bar(ctrl): continue
-            try: wt = ctrl.window_text() or ''
-            except: wt = ''
-            try: name = ctrl.element_info.name or ''
-            except: name = ''
-            if matches_any(wt + ' ' + name, USERNAME_FIELD_KEYWORDS):
-                results.append(ctrl)
-    except: pass
-    return results
-
-def find_password_fields(container):
-    results = []
-    try:
-        for ctrl in outside_page(container, 'Edit'):
-            if is_address_bar(ctrl): continue
-            try: wt = ctrl.window_text() or ''
-            except: wt = ''
-            try: name = ctrl.element_info.name or ''
-            except: name = ''
-            if matches_any(wt + ' ' + name, PASSWORD_FIELD_KEYWORDS):
-                results.append(ctrl); continue
-            try:
-                state = int((ctrl.legacy_properties().get('State', 0) or 0))
-                if state & 0x20000000: results.append(ctrl); continue
-            except: pass
-    except: pass
-    return results
-
-def find_submit_button(container):
-    try:
-        for btn in outside_page(container, 'Button'):
-            try: wt = btn.window_text() or ''
-            except: wt = ''
-            try: name = btn.element_info.name or ''
-            except: name = ''
-            if matches_any(wt + ' ' + name, SUBMIT_BUTTON_KEYWORDS): return btn
-    except: pass
-    return None
-
-def inject_auth(window, label=''):
-    if not PROXY_USER or not PROXY_PASS: return False
-    if PROXY_AUTH_DONE['done']: return False
-    try:
-        user_fields = find_username_fields(window)
-        pass_fields = find_password_fields(window)
-        if not user_fields or not pass_fields:
-            edits = [c for c in outside_page(window, 'Edit') if not is_address_bar(c)]
-            if len(edits) == 2:
-                user_fields = [edits[0]]
-                pass_fields = [edits[1]]
-        if user_fields and pass_fields:
-            log(f'[{label}] Injecting credentials. User={PROXY_USER[:20]}...')
-            window.set_focus(); time.sleep(0.5)
-            try:
-                user_fields[0].click_input(); time.sleep(0.2)
-                send_keys('^a'); time.sleep(0.1)
-                send_keys('{DELETE}'); time.sleep(0.1)
-                user_fields[0].type_keys(PROXY_USER, with_spaces=True, pause=0.02)
-                time.sleep(0.3)
-            except Exception as eu: log(f'username type failed: {eu}')
-            try:
-                pass_fields[0].click_input(); time.sleep(0.2)
-                send_keys('^a'); time.sleep(0.1)
-                send_keys('{DELETE}'); time.sleep(0.1)
-                pass_fields[0].type_keys(PROXY_PASS, with_spaces=True, pause=0.02)
-                time.sleep(0.3)
-            except Exception as ep: log(f'password type failed: {ep}')
-            submit = find_submit_button(window)
-            if submit:
-                try: submit.click_input(); log(f'[{label}] Submit button clicked.'); PROXY_AUTH_DONE['done'] = True; return True
-                except Exception as eb: log(f'submit click failed: {eb}')
-            try:
-                pass_fields[0].click_input(); time.sleep(0.2)
-                send_keys('{ENTER}'); log(f'[{label}] ENTER fallback.'); PROXY_AUTH_DONE['done'] = True; return True
-            except Exception as ek: log(f'ENTER fallback failed: {ek}')
-        else:
-            wt = ''
-            try: wt = window.window_text() or ''
-            except: pass
-            if is_proxy_auth_dialog(wt):
-                log(f'[{label}] No edit fields but dialog title matches — keyboard injection.')
-                window.set_focus(); time.sleep(0.5)
-                for ch in PROXY_USER:
-                    send_keys(ch if ch.isalnum() or ch in '.-_=@' else '{%s}' % ch)
-                    time.sleep(0.01)
-                send_keys('{TAB}'); time.sleep(0.3)
-                for ch in PROXY_PASS:
-                    send_keys(ch if ch.isalnum() or ch in '.-_=@' else '{%s}' % ch)
-                    time.sleep(0.01)
-                send_keys('{ENTER}'); log(f'[{label}] Keyboard-only auth submitted.')
-                PROXY_AUTH_DONE['done'] = True; return True
-    except Exception as e: log(f'inject_auth error: {e}')
-    return False
-
-def edge_has_proxy_prompt(w):
-    try:
-        edits = [c for c in outside_page(w, 'Edit') if not is_address_bar(c)]
-        if len(edits) == 2: return True
-        for t in w.descendants(control_type='Text')[:300]:
-            tt = t.window_text() or ''
-            if tt and PROXY_HOST_HINT and PROXY_HOST_HINT.lower() in tt.lower(): return True
-    except: pass
-    return False
-
-log(f'Monitor started. PROXY_USER={PROXY_USER[:6]}*** HOST_HINT={PROXY_HOST_HINT}')
-desktop = Desktop(backend='uia')
-scan_count = 0
-while True:
-    try:
-        scan_count += 1
-        for w in desktop.windows(visible_only=True):
-            try:
-                wt = w.window_text() or ''
-            except: continue
-            # Standalone dialog window (not Edge)
-            if 'Microsoft Edge' not in wt and is_proxy_auth_dialog(wt):
-                log(f'Auth dialog window detected: "{wt}"')
-                inject_auth(w, f'dialog:{wt[:30]}')
-            # Inline Edge proxy prompt
-            elif 'Microsoft Edge' in wt and edge_has_proxy_prompt(w):
-                log(f'Edge inline proxy prompt in: "{wt}"')
-                inject_auth(w, f'edge:{wt[:30]}')
-    except Exception as ex:
-        if scan_count % 30 == 0: log(f'scan error: {ex}')
-    time.sleep(1.5)
-"@
-
-          [System.IO.File]::WriteAllText($monScript, $scriptContent, [System.Text.UTF8Encoding]::new($false))
-          Write-Host "[pywinauto] Monitor script written to: $monScript"
-
-          # Set environment variables for the monitor process
-          [System.Environment]::SetEnvironmentVariable('PROXY_USER_MON', $proxyUser,   [System.EnvironmentVariableTarget]::Machine)
-          [System.Environment]::SetEnvironmentVariable('PROXY_PASS_MON', $proxyPass,   [System.EnvironmentVariableTarget]::Machine)
-          [System.Environment]::SetEnvironmentVariable('PROXY_SERVER_MON', $proxyServer, [System.EnvironmentVariableTarget]::Machine)
-
-          # Also set system-wide WinINet proxy so Edge's underlying network stack routes through the proxy
-          $proxyHost = $proxyServer -replace '^https?://', ''
-          Write-Host "[WinProxy] Setting WinINet system proxy: $proxyHost"
-          $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
-          Set-ItemProperty -Path $regPath -Name ProxyEnable   -Value 1           -Type DWord  -Force
-          Set-ItemProperty -Path $regPath -Name ProxyServer   -Value $proxyHost  -Type String -Force
-          Set-ItemProperty -Path $regPath -Name ProxyOverride -Value '<local>'   -Type String -Force
-
-          # Pre-store in Windows Credential Manager as belt-and-braces
-          if ($proxyUser -and $proxyPass) {
-              foreach ($target in @("$proxyServer", "$proxyHost", ($proxyHost -split ':')[0])) {
-                  $r = & cmdkey /add:$target /user:$proxyUser /pass:$proxyPass 2>&1
-                  Write-Host "[CredMan] $target -> $r"
-              }
-          }
-          Write-Host "[5b] Proxy pre-auth setup complete."
-
-      # ================================================================
-      # STEP 5c — Launch pywinauto proxy-auth monitor as background process
-      # ================================================================
       - name: "[5c/11] Start proxy-auth background monitor"
         if: ${{ env.USE_PROXY == 'true' }}
         shell: pwsh
