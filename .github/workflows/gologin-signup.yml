@@ -1,26 +1,6 @@
 # Save as: .github/workflows/gologin-signup.yml
 # USE A PRIVATE REPO - inputs, logs and artifacts contain the password and API keys.
 # Requires repo secret: GH_PAT (fine-grained: Variables read+write, Actions read+write, Contents read+write)
-#
-# PROXY FIX (taken from working Parallel mx10.9FA / main109FA_fixed.yml):
-#   Chromium/Edge silently ignores credentials embedded in a proxy URL
-#   (http://user:pass@host:port). Playwright's proxy object + page.authenticate()
-#   also frequently fail to suppress the native Windows auth dialog on headed Edge.
-#
-#   Solution used here (identical pattern to the working mx10FA runner):
-#     1. Launch Edge with --proxy-server=http://HOST:PORT  (NO credentials in the URL)
-#     2. A background Python process (pywinauto) watches for the native auth dialog
-#        and injects username + password once (one-shot), exactly like mx10FA's
-#        inject_proxy_auth + PROXY_AUTH_STATE.
-#     3. Only after the dialog is handled (or confirmed absent) does the main
-#        Playwright script navigate to the GoLogin signup page.
-#     4. Proxy generation / validation / country matching is also aligned with
-#        the robust logic from the mx10FA proxy pool generator.
-#
-# Other fixes retained from previous versions:
-#   - No secrets in job outputs (prevents the strategy/fromJSON crash)
-#   - max-parallel is a real number via fromJSON(inputs.concurrency)
-#   - GoLogin proxy API supports residential / mobile / datacenter + country
 
 name: GoLogin Signup Automation
 
@@ -125,7 +105,7 @@ permissions:
   contents: write
 
 # =============================================================================
-# JOB 1 - AUTO-SAVE: rewrite YAML defaults so last inputs are pre-filled next run
+# JOB 1 - AUTO-SAVE
 # =============================================================================
 jobs:
   save_inputs:
@@ -154,7 +134,6 @@ jobs:
           IN_GS:        ${{ inputs.getscreen_email }}
           IN_GSW:       ${{ inputs.getscreen_wait_minutes }}
           IN_KEEP:      ${{ inputs.keep_alive_minutes }}
-          # gologin_email and gologin_password are intentionally NOT saved
         run: |
           import os, re, glob
 
@@ -262,14 +241,13 @@ jobs:
           git push origin HEAD || echo "Push skipped (no changes or permission issue)"
 
 # =============================================================================
-# JOB 2 - PREPARE: resolve inputs, build matrix
+# JOB 2 - PREPARE
 # =============================================================================
   prepare:
     name: "Prepare (validate inputs, build matrix)"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      # ONLY non-sensitive values go through job outputs.
       matrix:      ${{ steps.resolve.outputs.matrix }}
       job_timeout: ${{ steps.resolve.outputs.job_timeout }}
     steps:
@@ -540,7 +518,7 @@ jobs:
           fi
 
       # ================================================================
-      # STEP 5 - Proxy provisioning (aligned with mx10FA generator)
+      # STEP 5 - Proxy provisioning
       # ================================================================
       - name: "[5/12] Proxy provisioning (mx10FA-style)"
         shell: python
@@ -591,7 +569,6 @@ jobs:
           if without_proxy or not proxy_input:
               set_no_proxy(); sys.exit(0)
 
-          # ---- token classification (same as mx10FA) ----
           SCRAPEOPS_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
           REDSCRAPE_RE = re.compile(r"^[0-9a-f]{32}$", re.I)
           GOLOGIN_RE   = re.compile(r"^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
@@ -684,7 +661,6 @@ jobs:
               scheme = str(pinfo.get("scheme", "http"))
               if pw and len(pw) >= 6:
                   print(f"::add-mask::{pw}", flush=True)
-              server = f"{host}:{port}"
               server_with_proto = f"http://{host}:{port}"
               say(f"[Proxy] ACTIVE type={label} {host}:{port} user={user[:6]}***")
               set_env("USE_PROXY",    "true")
@@ -702,7 +678,6 @@ jobs:
           MAX = 12
           active = None
 
-          # ---- GoLogin built-in proxy (same endpoint + flags as mx10FA) ----
           if not active and gologin_keys:
               is_mobile = proxy_type_gl == "mobile"
               is_dc     = proxy_type_gl == "datacenter"
@@ -752,7 +727,6 @@ jobs:
                   except Exception as e:
                       say(f"  -> error: {e}"); time.sleep(3)
 
-          # ---- BytesFlow ----
           if not active and bytesflow_proxies:
               for attempt in range(MAX):
                   raw  = bytesflow_proxies[attempt % len(bytesflow_proxies)]
@@ -769,7 +743,6 @@ jobs:
                       active = pinfo; commit(pinfo, "bytesflow", res); break
                   time.sleep(2)
 
-          # ---- ScrapeOps ----
           if not active and scrapeops_keys:
               for attempt in range(MAX):
                   key  = scrapeops_keys[(acc_idx // 15 + attempt) % len(scrapeops_keys)]
@@ -785,7 +758,6 @@ jobs:
                       active = pinfo; commit(pinfo, "scrapeops", res); break
                   time.sleep(2)
 
-          # ---- FloppyData ----
           if not active and floppy_keys:
               for attempt in range(MAX):
                   key = floppy_keys[(acc_idx // 15 + attempt) % len(floppy_keys)]
@@ -811,7 +783,6 @@ jobs:
                       say(f"  -> error: {e}")
                   time.sleep(2)
 
-          # ---- Redscrape ----
           if not active and redscrape_keys:
               for attempt in range(MAX):
                   key     = redscrape_keys[(acc_idx // 15 + attempt) % len(redscrape_keys)]
@@ -824,7 +795,6 @@ jobs:
                       active = pinfo; commit(pinfo,"redscrape", res); break
                   time.sleep(2)
 
-          # ---- Manual ----
           if not active and manual_proxies:
               for attempt in range(MAX):
                   pinfo = parse_generic(manual_proxies[(acc_idx+attempt) % len(manual_proxies)])
@@ -858,315 +828,289 @@ jobs:
           echo "Playwright ${PLAYWRIGHT_VERSION} installed."
 
       # ================================================================
-      # STEP 7 - Write automation scripts + mx10FA-style auth guardian
+      # STEP 7 - Write automation scripts
       # ================================================================
       - name: "[7/12] Write automation scripts + proxy auth guardian"
+        shell: python
         run: |
-          mkdir -p automation/out
+          import os, textwrap
+
+          os.makedirs("automation/out", exist_ok=True)
 
           # ---- probe.mjs ----
-          cat > automation/probe.mjs <<'EOF'
-          import { chromium } from 'playwright';
-          try {
-            const b = await chromium.launch({
-              channel: 'msedge', headless: true,
-              args: ['--no-first-run', '--no-default-browser-check']
-            });
-            console.log('Microsoft Edge OK, version', b.version());
-            await b.close();
-          } catch (e) {
-            console.error('Edge launch failed:', e.message);
-            process.exit(1);
-          }
-          EOF
+          with open("automation/probe.mjs", "w", encoding="utf-8") as f:
+              f.write(textwrap.dedent("""\
+                  import { chromium } from 'playwright';
+                  try {
+                    const b = await chromium.launch({
+                      channel: 'msedge', headless: true,
+                      args: ['--no-first-run', '--no-default-browser-check']
+                    });
+                    console.log('Microsoft Edge OK, version', b.version());
+                    await b.close();
+                  } catch (e) {
+                    console.error('Edge launch failed:', e.message);
+                    process.exit(1);
+                  }
+              """))
 
-          # ---- proxy_auth_guardian.py  (taken from mx10FA inject_proxy_auth pattern) ----
-          cat > automation/proxy_auth_guardian.py <<'PYEOF'
-          """
-          Background guardian that watches for the native Windows proxy auth dialog
-          and injects username/password exactly once (one-shot), the same way the
-          working Parallel mx10.9FA runner does it.
-          """
-          import os, sys, time, random, tempfile
+          # ---- proxy_auth_guardian.py ----
+          guardian_code = textwrap.dedent("""\
+              import os, sys, time, tempfile
 
-          try:
-              from pywinauto import Desktop
-              from pywinauto.keyboard import send_keys
-          except ImportError:
-              import subprocess
-              subprocess.check_call([sys.executable, "-m", "pip", "install",
-                                     "pywinauto", "pyautogui", "--quiet"])
-              from pywinauto import Desktop
-              from pywinauto.keyboard import send_keys
-
-          PROXY_USER   = os.environ.get("PROXY_USER", "")
-          PROXY_PASS   = os.environ.get("PROXY_PASS", "")
-          USE_PROXY    = os.environ.get("USE_PROXY", "false").lower() == "true"
-          PROXY_SERVER = os.environ.get("PROXY_SERVER", "")
-          DONE_FLAG    = os.path.join(tempfile.gettempdir(), "proxy_auth_done.flag")
-          FAIL_FLAG    = os.path.join(tempfile.gettempdir(), "proxy_auth_fail.flag")
-          LOG_FILE     = os.path.join(tempfile.gettempdir(), "proxy_auth_guardian.log")
-
-          def log(msg):
-              line = f"[{time.strftime('%H:%M:%S')}] {msg}"
-              print(line, flush=True)
               try:
-                  with open(LOG_FILE, "a", encoding="utf-8") as f:
-                      f.write(line + "\n")
-              except Exception:
-                  pass
+                  from pywinauto import Desktop
+                  from pywinauto.keyboard import send_keys
+              except ImportError:
+                  import subprocess
+                  subprocess.check_call([sys.executable, "-m", "pip", "install",
+                                         "pywinauto", "pyautogui", "--quiet"])
+                  from pywinauto import Desktop
+                  from pywinauto.keyboard import send_keys
 
-          if not USE_PROXY or not PROXY_USER or not PROXY_PASS:
-              log("No proxy credentials - guardian exiting cleanly.")
-              open(DONE_FLAG, "w").write("no-proxy")
+              PROXY_USER   = os.environ.get("PROXY_USER", "")
+              PROXY_PASS   = os.environ.get("PROXY_PASS", "")
+              USE_PROXY    = os.environ.get("USE_PROXY", "false").lower() == "true"
+              PROXY_SERVER = os.environ.get("PROXY_SERVER", "")
+              DONE_FLAG    = os.path.join(tempfile.gettempdir(), "proxy_auth_done.flag")
+              LOG_FILE     = os.path.join(tempfile.gettempdir(), "proxy_auth_guardian.log")
+
+              def log(msg):
+                  line = f"[{time.strftime('%H:%M:%S')}] {msg}"
+                  print(line, flush=True)
+                  try:
+                      with open(LOG_FILE, "a", encoding="utf-8") as fh:
+                          fh.write(line + "\\n")
+                  except Exception:
+                      pass
+
+              def write_flag(value):
+                  with open(DONE_FLAG, "w", encoding="utf-8") as fh:
+                      fh.write(value)
+
+              if not USE_PROXY or not PROXY_USER or not PROXY_PASS:
+                  log("No proxy credentials - guardian exiting cleanly.")
+                  write_flag("no-proxy")
+                  sys.exit(0)
+
+              AUTH_TITLE_KW = [
+                  "authentication required", "proxy authentication", "sign in",
+                  "enter your credentials", "proxy requires authentication",
+                  "authentication", "login", "credentials", "username",
+                  "password required", "proxy auth", "http authentication",
+                  "authentification", "identifiant", "mot de passe",
+                  "benutzername", "passwort", "autenticazione", "credenciales",
+              ]
+
+              def fold(s):
+                  if not s: return ""
+                  try:
+                      import unicodedata
+                      s = unicodedata.normalize("NFKD", s)
+                      s = "".join(c for c in s if not unicodedata.combining(c))
+                  except Exception:
+                      pass
+                  return s.lower()
+
+              def matches_any(text, kws):
+                  tl = fold(text or "")
+                  return any(fold(k) in tl for k in kws)
+
+              def host_hint():
+                  srv = (PROXY_SERVER or "").replace("http://","").replace("https://","")
+                  host = srv.split("@")[-1].split(":")[0].strip()
+                  return host if len(host) >= 4 else ""
+
+              HOST_HINT = host_hint()
+
+              def is_auth_dialog(wt):
+                  if not wt: return False
+                  if matches_any(wt, AUTH_TITLE_KW): return True
+                  if HOST_HINT and HOST_HINT.lower() in wt.lower(): return True
+                  return False
+
+              def is_address_bar(ctrl):
+                  try:
+                      aid  = (ctrl.element_info.automation_id or "").lower()
+                      name = (ctrl.element_info.name or "").lower()
+                      return any(x in aid or x in name for x in
+                                 ("address", "omnibox", "url", "location", "search"))
+                  except Exception:
+                      return False
+
+              def outside_page(window, control_type):
+                  results = []
+                  try:
+                      docs = set()
+                      for d in window.descendants(control_type="Document"):
+                          try:
+                              for c in d.descendants(control_type=control_type):
+                                  docs.add(id(c.element_info))
+                          except Exception:
+                              pass
+                      for c in window.descendants(control_type=control_type):
+                          try:
+                              if id(c.element_info) not in docs:
+                                  results.append(c)
+                          except Exception:
+                              pass
+                  except Exception:
+                      pass
+                  return results
+
+              def find_username_fields(window):
+                  fields = []
+                  for e in outside_page(window, "Edit"):
+                      if is_address_bar(e): continue
+                      try:
+                          name = fold((e.element_info.name or "") + " " + (e.window_text() or ""))
+                          if any(k in name for k in ("user", "login", "email", "account", "name", "id")):
+                              fields.append(e)
+                      except Exception:
+                          pass
+                  return fields
+
+              def find_password_fields(window):
+                  fields = []
+                  for e in outside_page(window, "Edit"):
+                      if is_address_bar(e): continue
+                      try:
+                          is_pw = False
+                          try:
+                              is_pw = bool(getattr(e.element_info, "is_password", False))
+                          except Exception:
+                              pass
+                          name = fold((e.element_info.name or "") + " " + (e.window_text() or ""))
+                          if is_pw or "pass" in name or "pwd" in name or "mot de passe" in name:
+                              fields.append(e)
+                      except Exception:
+                          pass
+                  return fields
+
+              def structural_two_fields(window):
+                  try:
+                      edits = [c for c in outside_page(window, "Edit") if not is_address_bar(c)]
+                      if len(edits) == 2:
+                          return edits[0], edits[1]
+                  except Exception:
+                      pass
+                  return None, None
+
+              def inject(window, label=""):
+                  try:
+                      user_fields = find_username_fields(window)
+                      pass_fields = find_password_fields(window)
+
+                      if (user_fields and not pass_fields) or (pass_fields and not user_fields):
+                          all_edits = [c for c in outside_page(window, "Edit") if not is_address_bar(c)]
+                          if len(all_edits) == 2:
+                              known = (user_fields or pass_fields)[0]
+                              other = [c for c in all_edits if c != known]
+                              if other:
+                                  if user_fields and not pass_fields:
+                                      pass_fields = [other[0]]
+                                  else:
+                                      user_fields = [other[0]]
+
+                      if not user_fields or not pass_fields:
+                          u, p = structural_two_fields(window)
+                          if u and p:
+                              user_fields, pass_fields = [u], [p]
+                              log(f"[{label}] Using structural 2-field detection.")
+
+                      if not user_fields or not pass_fields:
+                          return False
+
+                      if is_address_bar(user_fields[0]) or is_address_bar(pass_fields[0]):
+                          log(f"[{label}] BLOCKED - fields look like address bars.")
+                          return False
+
+                      log(f"[{label}] Injecting credentials (user={PROXY_USER[:12]}...)")
+                      window.set_focus()
+                      time.sleep(0.4)
+
+                      try:
+                          user_fields[0].set_focus()
+                          time.sleep(0.15)
+                          user_fields[0].type_keys("^a{BACKSPACE}", pause=0.05)
+                          time.sleep(0.1)
+                          user_fields[0].type_keys(PROXY_USER, with_spaces=True, pause=0.02)
+                      except Exception:
+                          send_keys("^a{BACKSPACE}")
+                          time.sleep(0.1)
+                          send_keys(PROXY_USER, with_spaces=True)
+
+                      time.sleep(0.25)
+
+                      try:
+                          pass_fields[0].set_focus()
+                          time.sleep(0.15)
+                          pass_fields[0].type_keys("^a{BACKSPACE}", pause=0.05)
+                          time.sleep(0.1)
+                          pass_fields[0].type_keys(PROXY_PASS, with_spaces=True, pause=0.02)
+                      except Exception:
+                          send_keys("{TAB}")
+                          time.sleep(0.15)
+                          send_keys("^a{BACKSPACE}")
+                          time.sleep(0.1)
+                          send_keys(PROXY_PASS, with_spaces=True)
+
+                      time.sleep(0.3)
+                      send_keys("{ENTER}")
+                      log(f"[{label}] Credentials submitted + ENTER.")
+                      return True
+                  except Exception as e:
+                      log(f"[{label}] inject exception: {e}")
+                      return False
+
+              log(f"Guardian started. Watching for proxy auth dialog (host hint={HOST_HINT or 'none'}).")
+              start     = time.time()
+              timeout   = 90
+              done      = False
+              last_scan = 0
+
+              while time.time() - start < timeout and not done:
+                  now = time.time()
+                  if now - last_scan < 1.2:
+                      time.sleep(0.3)
+                      continue
+                  last_scan = now
+                  try:
+                      desktop = Desktop(backend="uia")
+                      for w in desktop.windows(visible_only=True):
+                          try:
+                              wt = w.window_text() or ""
+                          except Exception:
+                              continue
+                          if not wt:
+                              continue
+                          if "Microsoft Edge" in wt and wt.strip() not in ("Microsoft Edge", "Edge"):
+                              if inject(w, label="edge-embedded"):
+                                  done = True
+                                  break
+                              continue
+                          if is_auth_dialog(wt):
+                              log(f"Top-level auth dialog detected: '{wt[:60]}'")
+                              if inject(w, label="toplevel"):
+                                  done = True
+                                  break
+                  except Exception as e:
+                      log(f"scan error: {e}")
+                  time.sleep(0.8)
+
+              if done:
+                  log("Proxy auth completed successfully.")
+                  write_flag("ok")
+              else:
+                  log("No auth dialog appeared within timeout - assuming already authenticated or IP-auth.")
+                  write_flag("no-dialog")
               sys.exit(0)
+          """)
+          with open("automation/proxy_auth_guardian.py", "w", encoding="utf-8") as f:
+              f.write(guardian_code)
 
-          # Keywords that indicate a proxy authentication dialog (accent-folded later)
-          AUTH_TITLE_KW = [
-              "authentication required", "proxy authentication", "sign in",
-              "enter your credentials", "proxy requires authentication",
-              "authentication", "login", "credentials", "username",
-              "password required", "proxy auth", "http authentication",
-              "authentification", "identifiant", "mot de passe",
-              "benutzername", "passwort", "autenticazione", "credenciales",
-          ]
-
-          def fold(s):
-              if not s: return ""
-              try:
-                  import unicodedata
-                  s = unicodedata.normalize("NFKD", s)
-                  s = "".join(c for c in s if not unicodedata.combining(c))
-              except Exception:
-                  pass
-              return s.lower()
-
-
-          def matches_any(text, kws):
-              tl = fold(text or "")
-              return any(fold(k) in tl for k in kws)
-
-          def host_hint():
-              srv = (PROXY_SERVER or "").replace("http://","").replace("https://","")
-              host = srv.split("@")[-1].split(":")[0].strip()
-              return host if len(host) >= 4 else ""
-
-          HOST_HINT = host_hint()
-
-          def is_auth_dialog(wt):
-              if not wt: return False
-              if matches_any(wt, AUTH_TITLE_KW): return True
-              if HOST_HINT and HOST_HINT.lower() in wt.lower(): return True
-              return False
-
-          def is_address_bar(ctrl):
-              try:
-                  aid = (ctrl.element_info.automation_id or "").lower()
-                  name = (ctrl.element_info.name or "").lower()
-                  return any(x in aid or x in name for x in
-                             ("address", "omnibox", "url", "location", "search"))
-              except Exception:
-                  return False
-
-          def outside_page(window, control_type):
-              """Return controls that are NOT inside a Document (web page content)."""
-              results = []
-              try:
-                  docs = set()
-                  for d in window.descendants(control_type="Document"):
-                      try:
-                          for c in d.descendants(control_type=control_type):
-                              docs.add(id(c.element_info))
-                      except Exception:
-                          pass
-                  for c in window.descendants(control_type=control_type):
-                      try:
-                          if id(c.element_info) not in docs:
-                              results.append(c)
-                      except Exception:
-                          pass
-              except Exception:
-                  pass
-              return results
-
-          def find_username_fields(window):
-              fields = []
-              for e in outside_page(window, "Edit"):
-                  if is_address_bar(e): continue
-                  try:
-                      name = fold((e.element_info.name or "") + " " + (e.window_text() or ""))
-                      if any(k in name for k in ("user", "login", "email", "account", "name", "id")):
-                          fields.append(e)
-                  except Exception:
-                      pass
-              return fields
-
-          def find_password_fields(window):
-              fields = []
-              for e in outside_page(window, "Edit"):
-                  if is_address_bar(e): continue
-                  try:
-                      # password fields usually have is_password or name contains "pass"
-                      is_pw = False
-                      try:
-                          is_pw = bool(getattr(e.element_info, "is_password", False))
-                      except Exception:
-                          pass
-                      name = fold((e.element_info.name or "") + " " + (e.window_text() or ""))
-                      if is_pw or "pass" in name or "pwd" in name or "mot de passe" in name:
-                          fields.append(e)
-                  except Exception:
-                      pass
-              return fields
-
-          def structural_two_fields(window):
-              """Fallback: any top-level window with exactly two non-address Edit controls."""
-              try:
-                  edits = [c for c in outside_page(window, "Edit") if not is_address_bar(c)]
-                  if len(edits) == 2:
-                      return edits[0], edits[1]
-              except Exception:
-                  pass
-              return None, None
-
-          def inject(window, label=""):
-              try:
-                  user_fields = find_username_fields(window)
-                  pass_fields = find_password_fields(window)
-
-                  if (user_fields and not pass_fields) or (pass_fields and not user_fields):
-                      all_edits = [c for c in outside_page(window, "Edit") if not is_address_bar(c)]
-                      if len(all_edits) == 2:
-                          known = (user_fields or pass_fields)[0]
-                          other = [c for c in all_edits if c != known]
-                          if other:
-                              if user_fields and not pass_fields:
-                                  pass_fields = [other[0]]
-                              else:
-                                  user_fields = [other[0]]
-
-                  if not user_fields or not pass_fields:
-                      u, p = structural_two_fields(window)
-                      if u and p:
-                          user_fields, pass_fields = [u], [p]
-                          log(f"[{label}] Using structural 2-field detection.")
-
-                  if not user_fields or not pass_fields:
-                      return False
-
-                  if is_address_bar(user_fields[0]) or is_address_bar(pass_fields[0]):
-                      log(f"[{label}] BLOCKED - fields look like address bars.")
-                      return False
-
-                  log(f"[{label}] Injecting credentials (user={PROXY_USER[:12]}...)")
-                  window.set_focus()
-                  time.sleep(0.4)
-
-                  # Clear + type username
-                  try:
-                      user_fields[0].set_focus()
-                      time.sleep(0.15)
-                      user_fields[0].type_keys("^a{BACKSPACE}", pause=0.05)
-                      time.sleep(0.1)
-                      user_fields[0].type_keys(PROXY_USER, with_spaces=True, pause=0.02)
-                  except Exception:
-                      # keyboard fallback
-                      send_keys("^a{BACKSPACE}")
-                      time.sleep(0.1)
-                      send_keys(PROXY_USER, with_spaces=True)
-
-                  time.sleep(0.25)
-
-                  # Clear + type password
-                  try:
-                      pass_fields[0].set_focus()
-                      time.sleep(0.15)
-                      pass_fields[0].type_keys("^a{BACKSPACE}", pause=0.05)
-                      time.sleep(0.1)
-                      pass_fields[0].type_keys(PROXY_PASS, with_spaces=True, pause=0.02)
-                  except Exception:
-                      send_keys("{TAB}")
-                      time.sleep(0.15)
-                      send_keys("^a{BACKSPACE}")
-                      time.sleep(0.1)
-                      send_keys(PROXY_PASS, with_spaces=True)
-
-                  time.sleep(0.3)
-                  send_keys("{ENTER}")
-                  log(f"[{label}] Credentials submitted + ENTER.")
-                  return True
-              except Exception as e:
-                  log(f"[{label}] inject exception: {e}")
-                  return False
-
-          # ---------------------------------------------------------------------------
-          # Main loop - one-shot
-          # ---------------------------------------------------------------------------
-          log(f"Guardian started. Watching for proxy auth dialog (host hint={HOST_HINT or 'none'}).")
-          start = time.time()
-          timeout = 90          # give Edge plenty of time to show the dialog
-          done = False
-          last_scan = 0
-
-          while time.time() - start < timeout and not done:
-              now = time.time()
-              if now - last_scan < 1.2:
-                  time.sleep(0.3)
-                  continue
-              last_scan = now
-
-              try:
-                  desktop = Desktop(backend="uia")
-                  for w in desktop.windows(visible_only=True):
-                      try:
-                          wt = w.window_text() or ""
-                      except Exception:
-                          continue
-                      if not wt:
-                          continue
-                      # skip pure Edge main windows that already have a real title
-                      if "Microsoft Edge" in wt and wt.strip() not in ("Microsoft Edge", "Edge"):
-                          # still check structure inside Edge for embedded prompt
-                          if inject(w, label="edge-embedded"):
-                              done = True
-                              break
-                          continue
-                      if is_auth_dialog(wt):
-                          log(f"Top-level auth dialog detected: '{wt[:60]}'")
-                          if inject(w, label="toplevel"):
-                              done = True
-                              break
-              except Exception as e:
-                  log(f"scan error: {e}")
-
-              time.sleep(0.8)
-
-          if done:
-              log("Proxy auth completed successfully.")
-              open(DONE_FLAG, "w").write("ok")
-          else:
-              # Maybe the proxy was already authenticated / no dialog appeared
-              log("No auth dialog appeared within timeout - assuming already authenticated or IP-auth.")
-              open(DONE_FLAG, "w").write("no-dialog")
-          sys.exit(0)
-          PYEOF
-
-          # ---- signup.mjs (proxy launch uses --proxy-server WITHOUT credentials) ----
-          cat > automation/signup.mjs <<'JSEOF'
-          /**
-           * GoLogin signup automation - Windows / Microsoft Edge
-           *
-           * PROXY INJECTION (mx10FA pattern):
-           *   1. Edge is launched with --proxy-server=http://HOST:PORT
-           *      (credentials are NEVER put in the URL - Chromium ignores them).
-           *   2. A background Python guardian (proxy_auth_guardian.py) watches
-           *      for the native Windows auth dialog and injects user/pass once.
-           *   3. Playwright still uses its proxy object as a secondary layer and
-           *      registers page.authenticate + dialog handlers.
-           *   4. Navigation to GoLogin only starts after the guardian has finished
-           *      (or timed out safely).
-           */
-
+          # ---- signup.mjs ----
+          signup_code = r"""
           import { chromium } from 'playwright';
           import fs   from 'node:fs';
           import path from 'node:path';
@@ -1185,7 +1129,7 @@ jobs:
           const PROXY_PASS   = process.env.PROXY_PASS   || '';
           const PROXY_SCHEME = process.env.PROXY_SCHEME || 'http';
           const PROXY_LABEL  = process.env.PROXY_LABEL  || 'none';
-          const PROXY_SERVER = process.env.PROXY_SERVER  || (PROXY_HOST ? `http://${PROXY_HOST}:${PROXY_PORT}` : '');
+          const PROXY_SERVER = process.env.PROXY_SERVER || (PROXY_HOST ? `http://${PROXY_HOST}:${PROXY_PORT}` : '');
 
           fs.mkdirSync(OUT, { recursive: true });
 
@@ -1278,7 +1222,7 @@ jobs:
             }
             if (!iframeVisible) { log(`${label}no Turnstile iframe - skipping`); return false; }
             log(`${label}Turnstile iframe detected...`);
-            const cfFrame   = page.frameLocator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first();
+            const cfFrame    = page.frameLocator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first();
             const cfCheckbox = cfFrame.locator('input[type="checkbox"]');
             let checkboxAppeared = false;
             for (let i = 0; i < 30; i++) {
@@ -1383,9 +1327,6 @@ jobs:
             });
           }
 
-          // ================================================================
-          // MAIN
-          // ================================================================
           (async () => {
             const proxyDisplay = USE_PROXY
               ? `${PROXY_LABEL}:${PROXY_HOST}:${PROXY_PORT} user=${PROXY_USER.slice(0,6)}***`
@@ -1402,7 +1343,6 @@ jobs:
             try {
               banner('Launching Microsoft Edge (Windows, headed, mx10FA-style proxy)');
 
-              // Start the pywinauto guardian FIRST so it is ready when Edge opens
               if (USE_PROXY && PROXY_USER && PROXY_PASS) {
                 log('Starting proxy auth guardian (pywinauto)...');
                 const guardianPath = path.resolve('proxy_auth_guardian.py');
@@ -1412,12 +1352,9 @@ jobs:
                 });
                 guardianProc.stdout.on('data', d => process.stdout.write(`[guardian] ${d}`));
                 guardianProc.stderr.on('data', d => process.stderr.write(`[guardian] ${d}`));
-                // give it a moment to initialise
                 await sleep(1500);
               }
 
-              // Build Playwright proxy object (secondary layer).
-              // CRITICAL: server must be bare scheme://host:port - NO credentials in URL.
               let proxyOption = undefined;
               if (USE_PROXY && PROXY_HOST && PROXY_PORT) {
                 proxyOption = {
@@ -1432,7 +1369,6 @@ jobs:
 
               const userDataDir = path.join(os.tmpdir(), `edge-profile-${IDX}-${Date.now()}`);
 
-              // Launch args: include --proxy-server WITHOUT credentials (mx10FA pattern)
               const launchArgs = [
                 '--disable-blink-features=AutomationControlled',
                 '--no-first-run',
@@ -1445,8 +1381,6 @@ jobs:
                 '--use-mock-keychain',
               ];
               if (USE_PROXY && PROXY_HOST && PROXY_PORT) {
-                // Explicit CLI flag - this is what forces the native auth dialog
-                // that the guardian will catch (same as mx10FA).
                 launchArgs.push(`--proxy-server=${PROXY_SCHEME}://${PROXY_HOST}:${PROXY_PORT}`);
               }
 
@@ -1454,7 +1388,6 @@ jobs:
                 channel:  'msedge',
                 headless: false,
                 args:     launchArgs,
-                // Playwright proxy object as secondary / complementary layer
                 proxy:    proxyOption,
                 viewport: null,
                 locale:   'en-US',
@@ -1477,7 +1410,6 @@ jobs:
                 });
               }
 
-              // clipboard intercept
               await context.exposeFunction('__gl_copy', t => {
                 for (const m of String(t).match(JWT) || []) addCandidate(m, 'copy-token-click');
               });
@@ -1507,7 +1439,6 @@ jobs:
               page.setDefaultTimeout(25000);
               await attachProxyAuth(page);
 
-              // Wait for the guardian to finish (or time out) BEFORE navigating
               if (USE_PROXY && PROXY_USER && PROXY_PASS) {
                 log('Waiting for proxy auth guardian to finish (max 95s)...');
                 const doneFlag = path.join(os.tmpdir(), 'proxy_auth_done.flag');
@@ -1520,11 +1451,9 @@ jobs:
                   }
                   await sleep(1500);
                 }
-                // Extra settle time after credentials are submitted
                 await sleep(2500);
               }
 
-              // Verify proxy is actually working before we start the signup flow
               if (USE_PROXY && PROXY_HOST) {
                 log('Verifying proxy connectivity from browser...');
                 try {
@@ -1543,7 +1472,6 @@ jobs:
                 }
               }
 
-              // Block downloads
               try {
                 const client = await context.newCDPSession(page);
                 await client.send('Browser.setDownloadBehavior', {
@@ -1552,9 +1480,6 @@ jobs:
                 log('CDP download behaviour: deny');
               } catch (e) { log('CDP download deny failed (non-fatal):', e.message.split('\n')[0]); }
 
-              // ============================================================
-              // PHASE 1: Sign-up page
-              // ============================================================
               banner('Phase 1 - sign_up page');
               log('navigating to https://app.gologin.com/sign_up');
               await page.goto('https://app.gologin.com/sign_up', {
@@ -1586,9 +1511,6 @@ jobs:
               ], 10000);
               await sleep(rand(2000, 3500));
 
-              // ============================================================
-              // PHASE 2: Password page
-              // ============================================================
               banner('Phase 2 - Create a password');
               const passField = page.getByPlaceholder(/your password/i).first();
               const stage1 = await waitAny([
@@ -1645,9 +1567,6 @@ jobs:
               result.signup = true;
               log(`ACCOUNT CREATED: ${EMAIL}  (stage=${stage2})`);
 
-              // ============================================================
-              // PHASE 3: Onboarding
-              // ============================================================
               banner('Phase 3 - onboarding / popups');
               for (let i = 0; i < 5; i++) {
                 const closeBtn = await findVisible(page, [
@@ -1700,9 +1619,6 @@ jobs:
               await shot(page, '09-dashboard');
               log('reached the GoLogin dashboard');
 
-              // ============================================================
-              // PHASE 4: Run -> API control -> Copy token
-              // ============================================================
               banner('Phase 4 - Run -> API control -> Copy token');
               const runBtn = await findVisible(page, [
                 page.getByRole('button', { name: 'Run', exact: true }),
@@ -1835,7 +1751,7 @@ jobs:
               console.log('='.repeat(60));
               console.log('device  :', IDX);
               console.log('email   :', EMAIL);
-              console.log('signup  :', result.signup ? 'OK OK' : 'FAILED FAIL');
+              console.log('signup  :', result.signup ? 'OK' : 'FAILED');
               console.log('proxy   :', result.proxy);
               console.log('source  :', result.tokenSource || '-');
               console.log('REST /user:', result.restStatus ?? '-');
@@ -1850,7 +1766,7 @@ jobs:
               if (process.env.GITHUB_STEP_SUMMARY) {
                 const md = [
                   `### Device ${IDX}: ${EMAIL}`,
-                  `- Signup: **${result.signup ? 'OK OK' : 'FAILED FAIL'}**`,
+                  `- Signup: **${result.signup ? 'OK' : 'FAILED'}**`,
                   `- Proxy: ${result.proxy}`,
                   `- API key: \`${result.token || 'not captured'}\``,
                   `- Source: ${result.tokenSource || '-'}  |  REST: ${result.restStatus ?? '-'}`,
@@ -1866,7 +1782,11 @@ jobs:
               if (context) await context.close().catch(() => {});
             }
           })();
-          JSEOF
+          """
+          with open("automation/signup.mjs", "w", encoding="utf-8") as f:
+              f.write(signup_code.lstrip("\n"))
+
+          print("All automation scripts written successfully.")
 
       # ================================================================
       # STEP 8 - Confirm Edge is available
@@ -1945,7 +1865,7 @@ jobs:
           echo "Device ${ACC_INDEX} (${ACC_EMAIL}) done. Automation: ${{ steps.automation.outcome }}"
 
 # =============================================================================
-# JOB 4 - REPORT: combined summary of all accounts + API keys
+# JOB 4 - REPORT
 # =============================================================================
   report:
     name: "Combined API key report"
@@ -1980,7 +1900,7 @@ jobs:
             echo "## GoLogin accounts - combined ($ok of $total with API key)"
             echo "| # | Email | Proxy | Signup | API key |"
             echo "|---|-------|-------|--------|---------|"
-            jq -r '.[] | "| \(.index) | \(.email) | \(.proxy // "none") | \(if .signup then "OK OK" else "FAILED FAIL" end) | `\(.token // "not captured")` |"' all-results.json
+            jq -r '.[] | "| \(.index) | \(.email) | \(.proxy // "none") | \(if .signup then "OK" else "FAILED" end) | `\(.token // "not captured")` |"' all-results.json
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload combined results
@@ -1990,21 +1910,3 @@ jobs:
           path: all-results.json
           if-no-files-found: ignore
           retention-days: 7
-
-# =============================================================================
-# NOTES
-# =============================================================================
-# Secret GH_PAT (repo Settings -> Secrets -> Actions):
-#   Fine-grained PAT: Variables read+write, Actions read+write, Contents read+write
-#
-# PROXY INJECTION (taken from working mx10FA / Parallel mx10.9FA):
-#   1. Edge launched with --proxy-server=http://HOST:PORT (NO credentials in URL).
-#   2. Background Python guardian (pywinauto) watches for the native Windows
-#      auth dialog and injects username + password once (one-shot).
-#   3. Playwright also receives the proxy object + page.authenticate as
-#      secondary layers.
-#   4. Navigation to GoLogin only starts after the guardian finishes.
-#
-# This is the exact pattern that works reliably on headed Edge in the
-# Parallel mx10.9FA workflow.
-# =============================================================================
