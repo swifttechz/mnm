@@ -882,8 +882,8 @@ jobs:
           country_input = os.environ.get("COUNTRY", "USA")
           fallback_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
           _pt = os.environ.get("PROXY_TYPE", os.environ.get("MOBILE", "Mobile")).strip().lower()
-mobile = _pt in ("mobile", "true", "1", "yes")
-is_datacenter = _pt in ("datacenter", "dc")
+          mobile = _pt in ("mobile", "true", "1", "yes")
+          is_datacenter = _pt in ("datacenter", "dc")
           sticky = os.environ.get("STICKY", "false").lower() == "true"
 
           country_map = {
@@ -1573,8 +1573,8 @@ is_datacenter = _pt in ("datacenter", "dc")
           country_input = os.environ.get("COUNTRY", "USA")
           fallback_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
           _pt = os.environ.get("PROXY_TYPE", os.environ.get("MOBILE", "Mobile")).strip().lower()
-mobile = _pt in ("mobile", "true", "1", "yes")
-is_datacenter = _pt in ("datacenter", "dc")
+          mobile = _pt in ("mobile", "true", "1", "yes")
+          is_datacenter = _pt in ("datacenter", "dc")
           sticky = os.environ.get("STICKY", "false").lower() == "true"
 
           country_map = {
@@ -4419,8 +4419,8 @@ is_datacenter = _pt in ("datacenter", "dc")
               country_input = os.environ.get("COUNTRY", "USA")
               fallback_country_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
               _pt = os.environ.get("PROXY_TYPE", os.environ.get("MOBILE", "Mobile")).strip().lower()
-mobile = _pt in ("mobile", "true", "1", "yes")
-is_datacenter = _pt in ("datacenter", "dc")
+              mobile = _pt in ("mobile", "true", "1", "yes")
+              is_datacenter = _pt in ("datacenter", "dc")
               sticky = os.environ.get("STICKY", "false").lower() == "true"
               absolute_idx = int(os.environ.get("ABSOLUTE_IDX", "1")) - 1
               task_index = int(os.environ.get("TASK_INDEX", "1"))
