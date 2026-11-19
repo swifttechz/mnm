@@ -1,4 +1,4 @@
-name: Parallel mx10.9FA
+name: Parallel mx10.11FA
 
 on:
   workflow_dispatch:
@@ -199,11 +199,19 @@ on:
         required: true
         type: boolean
         default: true
-      generate_all_proxies:
-        description: 'Proxy Pool Mode (5% pool first, then keeps feeding devices)'
+      initial_proxy_pool:
+        description: 'Initial Proxy Pool % (0% = no pool / direct API gen per device; higher % = generate that % of the planned pool FIRST, devices start only after it is uploaded, then continuous feed)'
         required: true
-        type: boolean
-        default: true
+        type: choice
+        options:
+          - '0%'
+          - '5%'
+          - '10%'
+          - '20%'
+          - '30%'
+          - '40%'
+          - '50%'
+        default: '10%'
 
 permissions:
   actions: write
@@ -239,7 +247,7 @@ jobs:
           IN_MOBILE: ${{ inputs.mobile_proxies }}
           IN_STICKY: ${{ inputs.sticky_sessions }}
           IN_PROXY_INPUT: ${{ inputs.scrapeops_api_key }}
-          IN_GENERATE_ALL: ${{ inputs.generate_all_proxies }}
+          IN_INITIAL_POOL: ${{ inputs.initial_proxy_pool }}
           IN_SCROLL: ${{ inputs.enable_scroll }}
           IN_SURF_ENABLE: ${{ inputs.enable_surf }}
           IN_REUSE: ${{ inputs.reuse_proxies }}
@@ -247,7 +255,7 @@ jobs:
         run: |
           import os, re, glob
 
-          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.9FA")
+          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.11FA")
           workflow_dir = ".github/workflows"
           target_file = None
 
@@ -285,7 +293,7 @@ jobs:
               "fallback_country": os.getenv("IN_FALLBACK"),
               "mobile_proxies": os.getenv("IN_MOBILE"),
               "sticky_sessions": os.getenv("IN_STICKY"),
-              "generate_all_proxies": os.getenv("IN_GENERATE_ALL"),
+              "initial_proxy_pool": os.getenv("IN_INITIAL_POOL"),
               "enable_scroll": os.getenv("IN_SCROLL"),
               "enable_surf": os.getenv("IN_SURF_ENABLE"),
               "reuse_proxies": os.getenv("IN_REUSE"),
@@ -324,7 +332,7 @@ jobs:
 
           in_inputs_section = False
 
-          bool_keys = ["run_manual_link", "apply_masking", "use_without_proxy", "mobile_proxies", "sticky_sessions", "generate_all_proxies", "enable_scroll", "enable_surf", "reuse_proxies", "unique_ip"]
+          bool_keys = ["run_manual_link", "apply_masking", "use_without_proxy", "mobile_proxies", "sticky_sessions", "enable_scroll", "enable_surf", "reuse_proxies", "unique_ip"]
 
           for line in lines:
               if re.match(r"^[ \t]*inputs:\s*$", line):
@@ -388,6 +396,8 @@ jobs:
       chunk_count: ${{ steps.set-matrix.outputs.chunk_count }}
       chunks_total: ${{ steps.set-matrix.outputs.chunks_total }}
       extra_pct: ${{ steps.set-matrix.outputs.extra_pct }}
+      initial_pct: ${{ steps.set-matrix.outputs.initial_pct }}
+      pool_active: ${{ steps.set-matrix.outputs.pool_active }}
     steps:
       - name: Generate Dynamic Matrix Queue
         id: set-matrix
@@ -403,7 +413,7 @@ jobs:
           SOFTWARE_CHOICE: ${{ inputs.software_choice }}
           MANUAL_URL: ${{ inputs.manual_software_url }}
           RUN_MANUAL: ${{ inputs.run_manual_link }}
-          GENERATE_ALL_PROXIES: ${{ inputs.generate_all_proxies }}
+          INITIAL_PROXY_POOL: ${{ inputs.initial_proxy_pool }}
           ENABLE_SCROLL: ${{ inputs.enable_scroll }}
           ENABLE_SURF: ${{ inputs.enable_surf }}
           REUSE_PROXIES: ${{ inputs.reuse_proxies }}
@@ -583,11 +593,69 @@ jobs:
                       return f"{prefix}-{list_name}"
               return choice.replace(" ", "").replace("-", "")
 
+          def slug_from_manual_url(url):
+              """Extract a short, name-safe slug from a manual link.
+              https://relinks.pages.dev/markxsmrt  -> markxsmrt
+              https://dub.sh/harrarixsmrt           -> harrarixsmrt
+              https://admaxflow.com/track.php?subid1=adxopx -> adxopx
+              Falls back to MANUAL only if nothing usable is found.
+              """
+              from urllib.parse import urlparse, unquote
+              GENERIC = {"track", "index", "go", "redirect", "link", "r", "out", "click", "c", "t", "u", "url"}
+              try:
+                  raw = (url or "").strip()
+                  if not raw:
+                      return "MANUAL"
+                  p = urlparse(raw)
+                  path = unquote(p.path or "").rstrip("/")
+                  path_slug = ""
+                  if path:
+                      last = path.split("/")[-1].strip()
+                      if last and last not in (".", ".."):
+                          last = re.sub(r"\.(html?|php|aspx?)$", "", last, flags=re.I)
+                          path_slug = re.sub(r"[^A-Za-z0-9_-]", "", last)
+
+                  query_slug = ""
+                  if p.query:
+                      # Prefer longer / more distinctive query values (subid, etc.)
+                      candidates = []
+                      for part in p.query.split("&"):
+                          if "=" not in part:
+                              continue
+                          _, v = part.split("=", 1)
+                          v = unquote(v).strip()
+                          v = re.sub(r"[^A-Za-z0-9_-]", "", v)
+                          if v and len(v) >= 3:
+                              candidates.append(v)
+                      if candidates:
+                          candidates.sort(key=len, reverse=True)
+                          query_slug = candidates[0][:48]
+
+                  # Prefer a meaningful path slug; if path is generic script name, prefer query
+                  if path_slug and len(path_slug) >= 2 and path_slug.lower() not in GENERIC:
+                      return path_slug[:48]
+                  if query_slug:
+                      return query_slug
+                  if path_slug and len(path_slug) >= 2:
+                      return path_slug[:48]
+
+                  host = (p.hostname or "").replace("www.", "")
+                  host = re.sub(r"[^A-Za-z0-9_-]", "", host.split(".")[0] if host else "")
+                  if host and len(host) >= 3:
+                      return host[:48]
+              except Exception:
+                  pass
+              return "MANUAL"
+
           short_os_tag = short_os(os_version)
-          short_sw_tag = "MANUAL" if manual_url else short_software(software_choice)
+          if manual_url:
+              short_sw_tag = slug_from_manual_url(manual_url)
+              print(f"[Naming] Manual link detected -> software tag slug: {short_sw_tag}  (from {manual_url})")
+          else:
+              short_sw_tag = short_software(software_choice)
 
           # ========== BATCH PROXY GENERATION ==========
-          generate_all = os.environ.get("GENERATE_ALL_PROXIES", "false").lower() == "true"
+          # generate_all replaced by initial_pct > 0
           without_proxy = os.environ.get("WITHOUT_PROXY", "false").lower() == "true"
           proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
           country_input = os.environ.get("COUNTRY", "USA")
@@ -604,23 +672,34 @@ jobs:
 
           # ========== PROXY POOL PLAN ==========
           # pool_total = tasks + 10-15% extra buffer.
-          # Chunk 0 (initial) = 5% of pool_total, generated BEFORE any device starts.
-          # Remaining proxies are produced by a continuous feed (chunk matrix) while devices run.
+          # Chunk 0 (initial) = user-selected % of pool_total, generated and uploaded BEFORE any device starts.
+          # Remaining proxies are produced by a continuous feed while devices run.
+          # 0% = no pool; every device generates its proxy on-demand via API keys.
           import math
-          initial_pct = 5
+          raw_pct = os.environ.get("INITIAL_PROXY_POOL", "10%").strip().rstrip("%")
+          try:
+              initial_pct = max(0, min(50, int(raw_pct)))
+          except ValueError:
+              initial_pct = 10
           extra_pct = random.randint(10, 15)
           extra_count = math.ceil(tasks_total * extra_pct / 100.0)
           pool_total = tasks_total + extra_count
-          initial_target = math.ceil(pool_total * initial_pct / 100.0)
-          floor_devices = os.environ.get("INITIAL_FLOOR_TO_DEVICES", "true").lower() == "true"
-          if floor_devices:
-              initial_target = max(initial_target, num_devices)
-          initial_target = max(1, min(initial_target, pool_total))
-          remaining = pool_total - initial_target
-          chunk_size = max(10, num_devices)
-          if remaining > 0:
-              chunk_size = max(chunk_size, math.ceil(remaining / 40.0))
-          chunk_count = math.ceil(remaining / chunk_size) if remaining > 0 else 0
+          if initial_pct == 0:
+              initial_target = 0
+              remaining = 0
+              chunk_size = 0
+              chunk_count = 0
+          else:
+              initial_target = math.ceil(pool_total * initial_pct / 100.0)
+              floor_devices = os.environ.get("INITIAL_FLOOR_TO_DEVICES", "true").lower() == "true"
+              if floor_devices:
+                  initial_target = max(initial_target, num_devices)
+              initial_target = max(1, min(initial_target, pool_total))
+              remaining = pool_total - initial_target
+              chunk_size = max(10, num_devices)
+              if remaining > 0:
+                  chunk_size = max(chunk_size, math.ceil(remaining / 40.0))
+              chunk_count = math.ceil(remaining / chunk_size) if remaining > 0 else 0
 
           chunk_includes = []
           nxt = initial_target + 1
@@ -633,13 +712,13 @@ jobs:
               nxt = end + 1
 
           preassigned_proxies = []
-          pool_active = generate_all and not without_proxy
+          pool_active = (initial_pct > 0) and not without_proxy
           print("========== PROXY POOL PLAN ==========")
           print(f"[Pool] Pool mode active        : {pool_active} (generate_all={generate_all}, without_proxy={without_proxy})")
           print(f"[Pool] Tasks / devices         : {tasks_total} tasks, {num_devices} in parallel")
           print(f"[Pool] Extra buffer            : {extra_pct}% = +{extra_count} proxies")
           print(f"[Pool] Total proxies planned   : {pool_total}")
-          print(f"[Pool] Initial pool (chunk 0)  : {initial_target} proxies ({initial_target / pool_total * 100:.1f}% of pool; 5% target{', raised to num_devices' if floor_devices and initial_target == num_devices else ''})")
+          print(f"[Pool] Initial pool (chunk 0)  : {initial_target} proxies ({(initial_target / pool_total * 100.0) if pool_total else 0:.1f}% of pool; user selected {initial_pct}%" + (", raised to num_devices" if initial_pct > 0 and initial_target == num_devices else "") + ")")
           print(f"[Pool] Continuous feed         : {remaining} proxies in {chunk_count} chunk(s) of up to {chunk_size}")
           for c in chunk_includes:
               print(f"[Pool]   chunk {c['chunk_idx']:>3}: proxies #{c['start_seq']}-#{c['end_seq']} ({c['size']})")
@@ -743,17 +822,24 @@ jobs:
               f.write(f"chunk_count={chunk_count}\n")
               f.write(f"chunks_total={chunk_count + 1}\n")
               f.write(f"extra_pct={extra_pct}\n")
+              f.write(f"initial_pct={initial_pct}\n")
+              f.write(f"pool_active={\"true\" if pool_active else \"false\"}\n")
           print("========== MATRIX STRUCTURE COMPLETE ==========")
-          print(f"[Matrix] {len(includes)} tasks queued. the Proxy Pool job generates the first {initial_target} proxies (5%); devices hold at a gate until they exist.")
+          print(f"[Matrix] {len(includes)} tasks queued. Initial proxy pool job generates the first {initial_target} proxies ({initial_pct}%); devices start ONLY after that job finishes.")
 
 
 
-  proxy_pool:
-    name: "Proxy Pool (5% first, then continuous feed)"
+  initial_proxy_pool:
+    name: "Initial Proxy Pool (user % first)"
     needs: prepare_matrix
-    if: ${{ needs.prepare_matrix.outputs.has_tasks == 'true' && inputs.generate_all_proxies == true && inputs.use_without_proxy != true }}
+    # Always run when there are tasks so remote_session can safely depend on it.
+    # When initial_pct==0 or use_without_proxy the steps become no-ops.
+    if: ${{ needs.prepare_matrix.outputs.has_tasks == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 120
+    outputs:
+      initial_ready: ${{ steps.mark_ready.outputs.ready }}
+      generated: ${{ steps.gen000.outputs.generated }}
     steps:
       - name: "Pool Plan Overview"
         env:
@@ -770,12 +856,12 @@ jobs:
           echo "Tasks (devices total)      : $TASKS_TOTAL"
           echo "Extra buffer               : ${EXTRA_PCT}%"
           echo "Total proxies planned      : $POOL_TOTAL"
-          echo "Step group 1 (Chunk 000)   : initial $INITIAL_TARGET proxies (5% target) -> device runners hold at a gate until this is uploaded"
+          echo "Step group 1 (Chunk 000)   : initial $INITIAL_TARGET proxies (user-selected %) -> devices start ONLY after this job finishes"
           echo "Step group 2 (Chunk 001+)  : $CHUNK_COUNT continuous chunk(s) of up to $CHUNK_SIZE, uploaded one by one while devices run"
           {
             echo "## Proxy Pool Plan"
             echo "- Tasks: **$TASKS_TOTAL** | Extra buffer: **${EXTRA_PCT}%** | Planned pool: **$POOL_TOTAL**"
-            echo "- Chunk 000 (initial, before devices): **$INITIAL_TARGET**"
+            echo "- Chunk 000 (initial, before devices): **$INITIAL_TARGET** (user %)"
             echo "- Continuous feed: **$CHUNK_COUNT** chunk(s) of up to **$CHUNK_SIZE** (steps Chunk 001 ... Chunk $(printf '%03d' $CHUNK_COUNT))"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -1423,7 +1509,8 @@ jobs:
           python3 -m py_compile gen_chunk.py report_pool.py
           echo "Generator scripts installed and compiled OK."
 
-      - name: "Chunk 000 - Generate (initial 5%)"
+      - name: "Chunk 000 - Generate (initial %)"
+        if: ${{ needs.prepare_matrix.outputs.pool_active == 'true' && fromJSON(needs.prepare_matrix.outputs.initial_target) > 0 }}
         id: gen000
         env:
           CHUNK_IDX: '0'
@@ -1450,18 +1537,687 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
 
-      - name: "Initial 5% ready - device runners may proceed"
+      - name: "Initial pool ready - device runners may proceed"
         if: ${{ always() }}
         run: |
           echo "============================================================"
           echo " INITIAL POOL STEP FINISHED - generated: ${{ steps.gen000.outputs.generated }} / ${{ needs.prepare_matrix.outputs.initial_target }}"
-          echo " Device runners waiting at their gate are released now."
-          echo " Continuous feed (Chunk 001+) keeps running in this same job."
+          echo "ready=true" >> $GITHUB_OUTPUT
+      - name: "Mark initial pool ready (or skipped)"
+        id: mark_ready
+        if: always()
+        run: |
+          if [ "${{ needs.prepare_matrix.outputs.pool_active }}" = "true" ] && [ "${{ needs.prepare_matrix.outputs.initial_target }}" != "0" ]; then
+            echo "ready=true" >> $GITHUB_OUTPUT
+            echo "Initial proxy pool is ready. Device runners can start."
+          else
+            echo "ready=skipped" >> $GITHUB_OUTPUT
+            echo "Initial proxy pool skipped (0% or use_without_proxy). Devices will use on-demand API generation."
+          fi
+          echo " Continuous feed (if any) continues in the separate proxy_feed job."
           echo "============================================================"
+
+
+  proxy_feed:
+    name: "Proxy Feed (continuous after initial)"
+    needs: [prepare_matrix, initial_proxy_pool]
+    if: ${{ needs.prepare_matrix.outputs.has_tasks == 'true' && needs.prepare_matrix.outputs.pool_active == 'true' && fromJSON(needs.prepare_matrix.outputs.chunk_count) > 0 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: "Continuous feed plan"
+        run: |
+          echo "Continuing proxy generation for remaining chunks after initial pool."
+          echo "Devices are already allowed to start (they depend only on initial_proxy_pool)."
+
+      - name: "Install Pool Generator Scripts"
+        run: |
+          python3 -m pip install --quiet "requests[socks]" urllib3 || true
+          cat > gen_chunk.py <<'GEN_PY_EOF'
+          import os, sys, json, re, time, random, string, glob, datetime, subprocess
+
+          try:
+              import requests, urllib3
+          except ImportError:
+              subprocess.check_call([sys.executable, "-m", "pip", "install", "requests[socks]", "urllib3", "--quiet"])
+              import requests, urllib3
+          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+          def say(m=""):
+              print(m, flush=True)
+
+
+          def group(t):
+              print("::group::" + t, flush=True)
+
+
+          def endgroup():
+              print("::endgroup::", flush=True)
+
+
+          def geti(k, d=0):
+              try:
+                  return int(os.environ.get(k, str(d)))
+              except Exception:
+                  return d
+
+
+          def bar(done, total, width=30):
+              pct = (done / total * 100.0) if total else 0.0
+              filled = int(width * min(done, total) / total) if total else 0
+              return "[" + "#" * filled + "-" * (width - filled) + f"] {pct:5.1f}%"
+
+
+          def rand_letters(n=6):
+              return "".join(random.choices(string.ascii_lowercase, k=n))
+
+
+          def now_iso():
+              return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+          # ----------------------------------------------------------------------------
+          # Config
+          # ----------------------------------------------------------------------------
+          CHUNK_IDX = geti("CHUNK_IDX")
+          TASKS_TOTAL = geti("TASKS_TOTAL")
+          POOL_TOTAL = geti("POOL_TOTAL")
+          CHUNKS_TOTAL = geti("CHUNKS_TOTAL", 1)
+          NUM_DEVICES = geti("NUM_DEVICES", 1)
+          INITIAL_TARGET = max(1, geti("INITIAL_TARGET", 1))
+          CHUNK_SIZE = max(1, geti("CHUNK_SIZE", 10))
+          if CHUNK_IDX == 0:
+              START_SEQ, END_SEQ = 1, min(INITIAL_TARGET, POOL_TOTAL)
+          else:
+              START_SEQ = INITIAL_TARGET + (CHUNK_IDX - 1) * CHUNK_SIZE + 1
+              END_SEQ = min(INITIAL_TARGET + CHUNK_IDX * CHUNK_SIZE, POOL_TOTAL)
+          COUNT = max(0, END_SEQ - START_SEQ + 1)
+          OUT_FILE = os.environ.get("OUT_FILE", f"proxy_chunk_{CHUNK_IDX:03d}.json")
+          PRIOR_DIR = os.environ.get("PRIOR_DIR", ".")
+          IS_INITIAL = CHUNK_IDX == 0
+          TAG = "INITIAL 5%" if IS_INITIAL else f"CHUNK {CHUNK_IDX}/{CHUNKS_TOTAL - 1}"
+
+          proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
+          country_input = os.environ.get("COUNTRY", "USA")
+          fallback_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
+          mobile = os.environ.get("MOBILE", "false").lower() == "true"
+          sticky = os.environ.get("STICKY", "false").lower() == "true"
+
+          country_map = {
+              "USA": "us", "UK": "gb", "Canada": "ca", "Australia": "au", "Germany": "de", "France": "fr",
+              "Brazil": "br", "Mexico": "mx", "Spain": "es", "Vietnam": "vn", "Switzerland": "ch",
+              "Indonesia": "id", "Italy": "it", "Netherlands": "nl", "Poland": "pl",
+          }
+          cc_primary = country_map.get(country_input, "us").upper()
+          cc_fallback = None if fallback_input == "No Fallback" else country_map.get(fallback_input, "us").upper()
+
+
+          def country_code_to_locale(cc):
+              _m = {"US": "en-US", "GB": "en-GB", "CA": "en-CA", "AU": "en-AU", "DE": "de-DE",
+                    "FR": "fr-FR", "BR": "pt-BR", "MX": "es-MX", "ES": "es-ES", "VN": "vi-VN",
+                    "CH": "de-CH", "ID": "id-ID", "IT": "it-IT", "NL": "nl-NL", "PL": "pl-PL"}
+              return _m.get(cc.upper(), "en-US")
+
+
+          def country_code_to_keyboard(cc):
+              _m = {"US": "0409:00000409", "GB": "0809:00000809", "CA": "1009:00000409",
+                    "AU": "0C09:00000409", "DE": "0407:00000407", "FR": "040C:0000040C",
+                    "BR": "0416:00000416", "MX": "080A:0000080A", "ES": "0C0A:0000080A",
+                    "VN": "042A:0000042A", "CH": "0807:00000807", "ID": "0421:00000409",
+                    "IT": "0410:00000410", "NL": "0413:00020409", "PL": "0415:00000415"}
+              return _m.get(cc.upper(), "0409:00000409")
+
+
+          def tz_to_windows_tz(iana_tz):
+              _m = {"America/New_York": "Eastern Standard Time", "America/Chicago": "Central Standard Time",
+                    "America/Denver": "Mountain Standard Time", "America/Phoenix": "US Mountain Standard Time",
+                    "America/Los_Angeles": "Pacific Standard Time", "America/Toronto": "Eastern Standard Time",
+                    "America/Sao_Paulo": "E. South America Standard Time",
+                    "America/Mexico_City": "Central Standard Time (Mexico)",
+                    "Europe/London": "GMT Standard Time", "Europe/Paris": "Romance Standard Time",
+                    "Europe/Berlin": "W. Europe Standard Time", "Europe/Madrid": "Romance Standard Time",
+                    "Europe/Rome": "W. Europe Standard Time", "Europe/Amsterdam": "W. Europe Standard Time",
+                    "Europe/Warsaw": "Central European Standard Time",
+                    "Asia/Ho_Chi_Minh": "SE Asia Standard Time", "Europe/Zurich": "W. Europe Standard Time",
+                    "Asia/Jakarta": "SE Asia Standard Time", "Australia/Sydney": "AUS Eastern Standard Time"}
+              return _m.get(iana_tz, "UTC")
+
+
+          # ----------------------------------------------------------------------------
+          # Banner + plan
+          # ----------------------------------------------------------------------------
+          prior_count, prior_chunks = 0, 0
+          for fp in glob.glob(os.path.join(PRIOR_DIR, "**", "proxy_chunk_*.json"), recursive=True):
+              try:
+                  with open(fp, "r", encoding="utf-8") as fh:
+                      d = json.load(fh)
+                  if d.get("chunk_idx") == CHUNK_IDX:
+                      continue
+                  prior_count += len(d.get("proxies", []))
+                  prior_chunks += 1
+              except Exception:
+                  pass
+
+          say("=" * 72)
+          say(f" PROXY POOL GENERATION  |  {TAG}")
+          say("=" * 72)
+          say(f"[Pool] Tasks total            : {TASKS_TOTAL}")
+          say(f"[Pool] Pool total (tasks+extra): {POOL_TOTAL}  (extra buffer = {POOL_TOTAL - TASKS_TOTAL})")
+          say(f"[Pool] This chunk range       : #{START_SEQ} -> #{END_SEQ}  ({COUNT} proxies)")
+          say(f"[Pool] Already in pool        : {prior_count} proxies across {prior_chunks} earlier chunk(s)")
+          say(f"[Pool] Pool progress (before) : {bar(prior_count, POOL_TOTAL)}  {prior_count}/{POOL_TOTAL}")
+          say(f"[Pool] Country                : {cc_primary} | Fallback: {cc_fallback or 'none'} | Mobile: {mobile} | Sticky: {sticky}")
+          say(f"[Pool] Naming format          : <number>-<COUNTRY>-<6 random letters>   e.g. {START_SEQ}-{cc_primary}-{rand_letters()}")
+          say("")
+
+          # ----------------------------------------------------------------------------
+          # Key / proxy parsing
+          # ----------------------------------------------------------------------------
+          SCRAPEOPS_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+          REDSCRAPE_RE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)
+          GOLOGIN_RE = re.compile(r"^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
+          FLOPPY_RE = re.compile(r"^[A-Za-z0-9_]{30,80}$")
+
+          gologin_keys, bytesflow_proxies, scrapeops_keys, manual_proxies = [], [], [], []
+          other_keys = 0
+          for item in proxy_input.split():
+              item = item.strip()
+              if not item:
+                  continue
+              if GOLOGIN_RE.match(item):
+                  gologin_keys.append(item)
+              elif "bytesflows.com" in item.lower():
+                  bytesflow_proxies.append(item)
+              elif REDSCRAPE_RE.match(item):
+                  other_keys += 1
+              elif SCRAPEOPS_RE.match(item):
+                  scrapeops_keys.append(item)
+              elif FLOPPY_RE.match(item) and len(item) >= 30:
+                  other_keys += 1
+              elif (":" in item or "@" in item or "://" in item or "." in item) and len(item) > 5:
+                  manual_proxies.append(item)
+
+
+          def parse_generic_proxy(proxy_str):
+              original = proxy_str.strip()
+              if not original:
+                  return None
+              protocol, rest = "http", original
+              if "://" in rest:
+                  protocol, rest = rest.split("://", 1)
+                  if protocol.lower() == "geolocation":
+                      protocol = "http"
+              rest = re.sub(r":(\d+):[A-Za-z].*$", r":\1", rest)
+              m = re.search(r"([^:@\s]+):([^:@\s]+)@([^:@\s]+):(\d+)", rest)
+              if m:
+                  u, p, h, pt = m.groups()
+                  return {"username": u, "password": p, "host": h, "port": int(pt)}
+              m = re.search(r"^([^:@\s]+):(\d+):([^:@\s]+):([^:@\s]+)", rest)
+              if m:
+                  h, pt, u, p = m.groups()
+                  return {"username": u, "password": p, "host": h, "port": int(pt)}
+              m = re.search(r"^([^:@\s]+):([^:@\s]+):([^:@\s]+):(\d+)", rest)
+              if m:
+                  u, p, h, pt = m.groups()
+                  return {"username": u, "password": p, "host": h, "port": int(pt)}
+              m = re.search(r"^([^:@\s]+):(\d+)", rest)
+              if m:
+                  h, pt = m.groups()
+                  return {"username": "", "password": "", "host": h, "port": int(pt)}
+              return None
+
+
+          # ----------------------------------------------------------------------------
+          # Validation (HTTP only - the device Edge launcher consumes http://host:port)
+          # ----------------------------------------------------------------------------
+          def validate_proxy(pinfo):
+              auth = f"{pinfo['username']}:{pinfo['password']}@" if pinfo.get("username") else ""
+              url = f"http://{auth}{pinfo['host']}:{pinfo['port']}"
+              cfg = {"http": url, "https": url}
+              endpoints = [
+                  ("http://ip-api.com/json/", "ip-api.com"),
+                  ("https://ipinfo.io/json", "ipinfo.io"),
+                  ("http://ipwho.is/", "ipwho.is"),
+                  ("https://api.myip.com", "myip.com"),
+              ]
+              for ep, name in endpoints:
+                  t0 = time.time()
+                  try:
+                      r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
+                      if r.status_code != 200:
+                          say(f"      - {name}: HTTP {r.status_code}")
+                          continue
+                      d = r.json()
+                      cc = tz = city = region = ""
+                      ip = None
+                      if name == "ip-api.com" and d.get("status") == "success":
+                          cc, tz, ip, city, region = d.get("countryCode"), d.get("timezone"), d.get("query"), d.get("city"), d.get("regionName")
+                      elif name == "ipinfo.io" and "ip" in d:
+                          cc, tz, ip, city, region = d.get("country"), d.get("timezone"), d.get("ip"), d.get("city"), d.get("region")
+                      elif name == "ipwho.is" and d.get("success"):
+                          cc, tz, ip, city, region = d.get("country_code"), (d.get("timezone") or {}).get("id"), d.get("ip"), d.get("city"), d.get("region")
+                      elif name == "myip.com" and "ip" in d:
+                          cc, ip = d.get("cc"), d.get("ip")
+                      if ip:
+                          say(f"      - validated via {name} in {int((time.time() - t0) * 1000)} ms -> IP {ip} ({cc})")
+                          return {"ip": ip, "cc": (cc or "US").upper(), "tz": tz or "UTC", "city": city or "",
+                                  "region": region or "", "latency_ms": int((time.time() - t0) * 1000)}
+                  except Exception as e:
+                      say(f"      - {name} failed: {type(e).__name__}")
+              return None
+
+
+          # ----------------------------------------------------------------------------
+          # Providers: each returns (pinfo | None, error_text)
+          # ----------------------------------------------------------------------------
+          GOLOGIN_API = "https://api.gologin.com"
+          _logged_gologin_shape = {"done": False}
+
+
+          def make_gologin(seq, cc, name, tries):
+              """Create a GoLogin *profile* first, then attach a high-quality
+              Gologin proxy to that profile and extract the credentials.
+              This avoids the standalone ~100-proxy creation limit because
+              proxies bound to profiles are not counted the same way."""
+              key = gologin_keys[(seq // 15 + tries) % len(gologin_keys)]
+              hdrs = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+              say(f"      - GoLogin API key ...{key[-6:]} -> PROFILE-based proxy '{name}' (country={cc}, mobile={mobile})")
+
+              # 1) Create a lightweight browser profile
+              profile_id = None
+              try:
+                  pr = requests.post(
+                      f"{GOLOGIN_API}/browser/quick",
+                      headers=hdrs,
+                      json={"os": "win", "name": name, "osSpec": "win11"},
+                      timeout=30, verify=False,
+                  )
+                  if pr.status_code == 429:
+                      say("      - GoLogin rate limit (429) on profile create -> backing off 12s")
+                      time.sleep(12)
+                      return None, "rate limited (429) on profile create"
+                  if pr.status_code not in (200, 201):
+                      return None, f"profile create HTTP {pr.status_code}: {pr.text[:180]}"
+                  pdata = pr.json()
+                  profile_id = pdata.get("id") or pdata.get("_id")
+                  if not profile_id:
+                      return None, f"profile create returned no id: {str(pdata)[:160]}"
+                  say(f"      - Profile created: {profile_id} (name='{name}')")
+              except Exception as e:
+                  return None, f"profile create error {type(e).__name__}: {e}"
+
+              # 2) Attach a Gologin high-quality proxy to the profile
+              try:
+                  body = {
+                      "countryCode": cc.lower(),
+                      "isMobile": bool(mobile),
+                      "isDC": False,
+                      "customName": name,
+                      "profileIdToLink": profile_id,
+                  }
+                  r = requests.post(
+                      f"{GOLOGIN_API}/users-proxies/mobile-proxy",
+                      headers=hdrs,
+                      json=body,
+                      timeout=30, verify=False,
+                  )
+              except Exception as e:
+                  return None, f"proxy-attach request error {type(e).__name__}: {e}"
+
+              if r.status_code == 429:
+                  say("      - GoLogin rate limit (429) on proxy attach -> backing off 12s")
+                  time.sleep(12)
+                  return None, "rate limited (429) on proxy attach"
+              if r.status_code not in (200, 201):
+                  # still try to read credentials from the profile in case partial success
+                  say(f"      - proxy-attach HTTP {r.status_code}: {r.text[:140]} (will try to read profile anyway)")
+
+              # 3) Read the profile to obtain the actual proxy credentials
+              host = port = user = pwd = pid = None
+              try:
+                  time.sleep(0.8)  # brief settle
+                  gr = requests.get(
+                      f"{GOLOGIN_API}/browser/{profile_id}",
+                      headers=hdrs,
+                      timeout=25, verify=False,
+                  )
+                  if gr.status_code == 200:
+                      g = gr.json()
+                      # Prefer the structured proxy object
+                      px = g.get("proxy") or {}
+                      if isinstance(px, dict) and px.get("host"):
+                          host = px.get("host")
+                          port = px.get("port") or 80
+                          user = px.get("username") or px.get("user") or ""
+                          pwd  = px.get("password") or px.get("pass") or ""
+                          pid  = px.get("id") or px.get("_id") or ""
+                      # Fallback: autoProxy* fields used by Gologin built-in proxies
+                      if not host:
+                          auto = g.get("autoProxyServer") or ""
+                          # formats seen: http://user:pass@host:port  OR  host:port
+                          if "://" in auto:
+                              auto = auto.split("://", 1)[-1]
+                          if "@" in auto:
+                              cred, rest = auto.rsplit("@", 1)
+                              if ":" in cred:
+                                  user, pwd = cred.split(":", 1)
+                              hostport = rest
+                          else:
+                              hostport = auto
+                          if ":" in hostport:
+                              host, port_s = hostport.rsplit(":", 1)
+                              try:
+                                  port = int(port_s)
+                              except Exception:
+                                  port = 80
+                          else:
+                              host = hostport or None
+                          user = user or g.get("autoProxyUsername") or ""
+                          pwd  = pwd  or g.get("autoProxyPassword") or ""
+                      if not _logged_gologin_shape["done"]:
+                          say(f"      - Profile proxy fields sample: proxy.keys={list((g.get('proxy') or {}).keys())} autoProxyServer={str(g.get('autoProxyServer'))[:60]}")
+                          _logged_gologin_shape["done"] = True
+              except Exception as e:
+                  say(f"      - profile GET error: {type(e).__name__}: {e}")
+
+              # 4) Last-resort: parse the mobile-proxy response itself
+              if not host:
+                  try:
+                      d = r.json() if r is not None else {}
+                      host = d.get("host") or d.get("ip") or d.get("server")
+                      port = d.get("port") or d.get("httpPort") or 8080
+                      user = d.get("username") or d.get("user") or d.get("login") or ""
+                      pwd  = d.get("password") or d.get("pass") or ""
+                      pid  = d.get("id") or d.get("_id") or d.get("proxyId") or ""
+                  except Exception:
+                      pass
+
+              if not host:
+                  return None, f"could not extract proxy credentials from profile {profile_id}"
+
+              try:
+                  port = int(port)
+              except Exception:
+                  port = 8080
+
+              say(f"      - PROFILE-PROXY READY '{name}' (profile={profile_id}, proxy_id={pid or 'n/a'}) -> {host}:{port}")
+              return {
+                  "username": user or "",
+                  "password": pwd or "",
+                  "host": host,
+                  "port": port,
+                  "gologin_id": pid or "",
+                  "gologin_profile_id": profile_id,
+              }, ""
+
+
+          def make_bytesflow(seq, cc, name, tries):
+              base = parse_generic_proxy(bytesflow_proxies[tries % len(bytesflow_proxies)])
+              if not base or not base.get("username"):
+                  return None, "could not parse BytesFlow proxy string"
+              m = re.search(r"^(?:u-)?([A-Za-z0-9]+)", base["username"])
+              base_user = m.group(1) if m else base["username"].split("-")[0]
+              user = "-".join([f"u-{base_user}", f"loc-{cc}", "t-10", f"s-{rand_letters(8)}"])
+              return {"username": user, "password": base["password"], "host": base["host"], "port": base["port"]}, ""
+
+
+          def make_scrapeops(seq, cc, name, tries):
+              key = scrapeops_keys[(seq // 15 + tries) % len(scrapeops_keys)]
+              user = f"scrapeops.country={cc.lower()}"
+              if mobile:
+                  user += ".mobile=true"
+              if sticky:
+                  user += f".sticky_session=p{seq}{rand_letters(4)}"
+              return {"username": user, "password": key, "host": "residential-proxy.scrapeops.io", "port": 8181}, ""
+
+
+          def make_manual(seq, cc, name, tries):
+              p = parse_generic_proxy(manual_proxies[(seq - 1 + tries) % len(manual_proxies)])
+              if not p:
+                  return None, "could not parse manual proxy string"
+              return p, ""
+
+
+          providers = []  # (label, fn, lenient_country_when_no_fallback)
+          if gologin_keys:
+              providers.append(("gologin", make_gologin, True))
+          if bytesflow_proxies:
+              providers.append(("bytesflow", make_bytesflow, False))
+          if scrapeops_keys:
+              providers.append(("scrapeops", make_scrapeops, False))
+          if manual_proxies:
+              providers.append(("manual", make_manual, True))
+
+          say(f"[Pool] Providers detected      : " + (", ".join(p[0] for p in providers) if providers else "NONE"))
+          if other_keys:
+              say(f"[Pool] NOTE: {other_keys} key(s) of types not supported by the pool (Redscrape/FloppyData) are ignored here; devices handle them on-demand.")
+
+          collected = []
+          failures = []
+          started = time.time()
+          MAX_CONSEC = 10
+          MAX_ATTEMPTS = COUNT * 4 + 10
+          attempts = 0
+          consec = 0
+          seq_fail = 0
+          prov_idx = 0
+
+          if not providers:
+              say("::error title=Proxy Pool::No supported proxy provider/API key found in the input. Devices will fall back to on-demand generation.")
+          elif COUNT <= 0:
+              say("[Pool] Nothing to generate for this chunk.")
+          else:
+              while len(collected) < COUNT and attempts < MAX_ATTEMPTS:
+                  label, fn, lenient = providers[prov_idx]
+                  seq = START_SEQ + len(collected)
+                  expected = cc_primary
+                  if cc_fallback and seq_fail >= 7 and cc_fallback != cc_primary:
+                      expected = cc_fallback
+                  name = f"{seq}-{expected}-{rand_letters()}"
+                  attempts += 1
+                  t0 = time.time()
+                  group(f"[{TAG}] Proxy #{seq} ({len(collected) + 1}/{COUNT}) | attempt {seq_fail + 1} | provider={label}")
+                  pinfo, err = fn(seq, expected, name, seq_fail)
+                  res = None
+                  if pinfo:
+                      res = validate_proxy(pinfo)
+                      if res and not (res["cc"] == expected or (lenient and cc_fallback is None)):
+                          say(f"      - country mismatch: got {res['cc']} expected {expected}")
+                          err = f"country mismatch {res['cc']} != {expected}"
+                          res = None
+                      elif not res:
+                          err = "validation failed (no echo endpoint reachable through proxy)"
+                          if label == "gologin":
+                              say(f"      - NOTE: proxy '{name}' exists in GoLogin dashboard but failed validation (not deleted).")
+                  endgroup()
+
+                  if pinfo and res:
+                      if len(pinfo.get("password", "")) >= 8:
+                          print(f"::add-mask::{pinfo['password']}", flush=True)
+                      rec = {
+                          "seq": seq, "name": name, "gologin_id": pinfo.get("gologin_id", ""), "source": label,
+                          "host": pinfo["host"], "port": pinfo["port"],
+                          "username": pinfo.get("username", ""), "password": pinfo.get("password", ""),
+                          "server": f"{pinfo['host']}:{pinfo['port']}",
+                          "server_with_proto": f"http://{pinfo['host']}:{pinfo['port']}",
+                          "proxy_type_label": label, "working": True,
+                          "country_code": res["cc"], "country_name": res["cc"], "ip": res["ip"],
+                          "city": res["city"], "region": res["region"],
+                          "timezone_iana": res["tz"], "timezone_windows": tz_to_windows_tz(res["tz"]),
+                          "windows_locale": country_code_to_locale(res["cc"]),
+                          "windows_keyboard": country_code_to_keyboard(res["cc"]),
+                          "latency_ms": res["latency_ms"], "chunk_idx": CHUNK_IDX, "created_at": now_iso(),
+                      }
+                      collected.append(rec)
+                      consec = 0
+                      seq_fail = 0
+                      total_now = prior_count + len(collected)
+                      say(f"[Pool] OK  #{seq:<4} '{name}' | IP {res['ip']} | {res['cc']} {res['city']} | {int(time.time() - t0)}s")
+                      say(f"[Pool]     chunk {len(collected)}/{COUNT} {bar(len(collected), COUNT, 20)} | POOL {total_now}/{POOL_TOTAL} {bar(total_now, POOL_TOTAL)}")
+                  else:
+                      consec += 1
+                      seq_fail += 1
+                      failures.append({"seq": seq, "name": name, "reason": err})
+                      say(f"[Pool] FAIL #{seq:<4} '{name}' | {err} | consecutive failures: {consec}/{MAX_CONSEC}")
+                      if consec >= MAX_CONSEC:
+                          if prov_idx + 1 < len(providers):
+                              prov_idx += 1
+                              consec = 0
+                              say(f"[Pool] Switching provider -> {providers[prov_idx][0]}")
+                          else:
+                              say(f"::warning title=Proxy Pool {TAG}::Stopping early after {consec} consecutive failures (quota/limit?). Generated {len(collected)}/{COUNT}.")
+                              break
+                  time.sleep(0.7)
+
+          # ----------------------------------------------------------------------------
+          # Output
+          # ----------------------------------------------------------------------------
+          elapsed = int(time.time() - started)
+          total_after = prior_count + len(collected)
+          payload = {
+              "chunk_idx": CHUNK_IDX, "start_seq": START_SEQ, "end_seq": END_SEQ, "requested": COUNT,
+              "generated": len(collected), "failed_attempts": len(failures), "created_at": now_iso(),
+              "proxies": collected,
+          }
+          with open(OUT_FILE, "w", encoding="utf-8") as fh:
+              json.dump(payload, fh, indent=2)
+
+          say("")
+          say("=" * 72)
+          say(f" {TAG} COMPLETE in {elapsed}s")
+          say("=" * 72)
+          say(f"[Pool] Generated this chunk : {len(collected)}/{COUNT}  (failed attempts: {len(failures)})")
+          say(f"[Pool] Pool now holds       : {total_after}/{POOL_TOTAL}  {bar(total_after, POOL_TOTAL)}")
+          say(f"[Pool] Covers tasks         : {min(total_after, TASKS_TOTAL)}/{TASKS_TOTAL} (+{max(0, total_after - TASKS_TOTAL)} spare)")
+          say(f"[Pool] Artifact             : {OUT_FILE}")
+          if collected:
+              say("[Pool] Names created in GoLogin dashboard (app.gologin.com/proxy):" if gologin_keys else "[Pool] Proxy names:")
+              say("       " + ", ".join(p["name"] for p in collected))
+          if len(collected) < COUNT:
+              say(f"::warning title=Proxy Pool {TAG}::Only {len(collected)}/{COUNT} proxies generated. Devices needing the missing numbers fall back to API-key generation.")
+
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write(f"## Proxy Pool - {TAG}\n\n")
+                  fh.write(f"- Range: **#{START_SEQ} - #{END_SEQ}** ({COUNT} requested)\n")
+                  fh.write(f"- Generated this chunk: **{len(collected)}/{COUNT}** | failed attempts: {len(failures)} | time: {elapsed}s\n")
+                  fh.write(f"- Pool progress: **{total_after}/{POOL_TOTAL}** ({(total_after / POOL_TOTAL * 100.0) if POOL_TOTAL else 0:.1f}%)\n")
+                  fh.write(f"- Tasks covered: {min(total_after, TASKS_TOTAL)}/{TASKS_TOTAL}\n\n")
+                  if collected:
+                      fh.write("| # | Dashboard name | IP | Country | City | Latency |\n|---|---|---|---|---|---|\n")
+                      for p in collected:
+                          fh.write(f"| {p['seq']} | `{p['name']}` | {p['ip']} | {p['country_code']} | {p['city']} | {p['latency_ms']} ms |\n")
+                  if failures:
+                      fh.write("\n<details><summary>Failed attempts</summary>\n\n")
+                      for f_ in failures[:50]:
+                          fh.write(f"- #{f_['seq']} `{f_['name']}`: {f_['reason']}\n")
+                      fh.write("\n</details>\n")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"generated={len(collected)}\n")
+              fh.write(f"pool_now={total_after}\n")
+
+          if len(collected) == 0 and COUNT > 0:
+              say(f"::error title=Proxy Pool {TAG}::Zero proxies generated for this chunk.")
+              sys.exit(1)
+          GEN_PY_EOF
+          cat > report_pool.py <<'REPORT_PY_EOF'
+          import os, json, glob
+          from collections import Counter
+
+
+          def geti(k, d=0):
+              try:
+                  return int(os.environ.get(k, str(d)))
+              except Exception:
+                  return d
+
+
+          POOL_TOTAL = geti("POOL_TOTAL")
+          TASKS_TOTAL = geti("TASKS_TOTAL")
+          INITIAL = geti("INITIAL_TARGET")
+          EXTRA_PCT = geti("EXTRA_PCT")
+          CHUNKS = geti("CHUNK_COUNT") + 1
+
+          chunks, proxies = [], []
+          for fp in sorted(glob.glob("**/proxy_chunk_*.json", recursive=True)):
+              try:
+                  with open(fp, "r", encoding="utf-8") as fh:
+                      d = json.load(fh)
+                  chunks.append(d)
+                  proxies.extend(d.get("proxies", []))
+              except Exception as e:
+                  print(f"[Report] could not read {fp}: {e}")
+
+          seqs = {p["seq"] for p in proxies}
+          missing = [s for s in range(1, POOL_TOTAL + 1) if s not in seqs]
+
+
+          def ranges(nums):
+              out, start, prev = [], None, None
+              for n in nums:
+                  if start is None:
+                      start = prev = n
+                  elif n == prev + 1:
+                      prev = n
+                  else:
+                      out.append((start, prev))
+                      start = prev = n
+              if start is not None:
+                  out.append((start, prev))
+              return ", ".join(f"#{a}" if a == b else f"#{a}-#{b}" for a, b in out)
+
+
+          total = len(proxies)
+          pct = (total / POOL_TOTAL * 100.0) if POOL_TOTAL else 0.0
+          countries = Counter(p.get("country_code", "?") for p in proxies)
+          sources = Counter(p.get("source", "?") for p in proxies)
+
+          lines = []
+          lines.append("# Proxy Pool - Final Report\n")
+          lines.append(f"| Metric | Value |\n|---|---|")
+          lines.append(f"| Tasks (devices) | {TASKS_TOTAL} |")
+          lines.append(f"| Extra buffer | {EXTRA_PCT}% |")
+          lines.append(f"| Planned pool size | {POOL_TOTAL} |")
+          lines.append(f"| Initial chunk (5% target) | {INITIAL} |")
+          lines.append(f"| Chunks planned / completed | {CHUNKS} / {len(chunks)} |")
+          lines.append(f"| **Proxies generated** | **{total}/{POOL_TOTAL} ({pct:.1f}%)** |")
+          lines.append(f"| Tasks covered | {min(total, TASKS_TOTAL)}/{TASKS_TOTAL} |")
+          lines.append(f"| Spare proxies | {max(0, total - TASKS_TOTAL)} |")
+          lines.append(f"| Countries | {dict(countries)} |")
+          lines.append(f"| Providers | {dict(sources)} |")
+          lines.append(f"| Missing numbers | {ranges(missing) if missing else 'none'} |")
+          lines.append("")
+          lines.append("## Per-chunk results\n")
+          lines.append("| Chunk | Range | Generated | Failed attempts |\n|---|---|---|---|")
+          for d in sorted(chunks, key=lambda x: x.get("chunk_idx", 0)):
+              lines.append(f"| {d.get('chunk_idx')} | #{d.get('start_seq')}-#{d.get('end_seq')} | {d.get('generated')}/{d.get('requested')} | {d.get('failed_attempts')} |")
+          lines.append("")
+          lines.append("## Names in the GoLogin dashboard (app.gologin.com/proxy)\n")
+          lines.append("These proxies are never deleted by this workflow.\n")
+          names = [p["name"] for p in sorted(proxies, key=lambda x: x["seq"])]
+          lines.append("```\n" + "\n".join(names) + "\n```" if names else "_none_")
+
+          report = "\n".join(lines)
+          print(report)
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write(report + "\n")
+
+          if missing:
+              print(f"::warning title=Proxy Pool::{len(missing)} proxy number(s) missing: {ranges(missing)}")
+          print(f"::notice title=Proxy Pool::{total}/{POOL_TOTAL} generated ({pct:.1f}%)")
+          REPORT_PY_EOF
+          python3 -m py_compile gen_chunk.py report_pool.py
+          echo "Generator scripts installed and compiled OK."
+
 
       - name: "Chunk 001 - Generate (continuous feed)"
         id: gen001
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 1 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 1 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '1'
@@ -1490,7 +2246,7 @@ jobs:
 
       - name: "Chunk 002 - Generate (continuous feed)"
         id: gen002
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 2 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 2 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '2'
@@ -1519,7 +2275,7 @@ jobs:
 
       - name: "Chunk 003 - Generate (continuous feed)"
         id: gen003
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 3 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 3 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '3'
@@ -1548,7 +2304,7 @@ jobs:
 
       - name: "Chunk 004 - Generate (continuous feed)"
         id: gen004
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 4 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 4 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '4'
@@ -1577,7 +2333,7 @@ jobs:
 
       - name: "Chunk 005 - Generate (continuous feed)"
         id: gen005
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 5 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 5 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '5'
@@ -1606,7 +2362,7 @@ jobs:
 
       - name: "Chunk 006 - Generate (continuous feed)"
         id: gen006
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 6 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 6 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '6'
@@ -1635,7 +2391,7 @@ jobs:
 
       - name: "Chunk 007 - Generate (continuous feed)"
         id: gen007
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 7 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 7 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '7'
@@ -1664,7 +2420,7 @@ jobs:
 
       - name: "Chunk 008 - Generate (continuous feed)"
         id: gen008
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 8 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 8 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '8'
@@ -1693,7 +2449,7 @@ jobs:
 
       - name: "Chunk 009 - Generate (continuous feed)"
         id: gen009
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 9 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 9 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '9'
@@ -1722,7 +2478,7 @@ jobs:
 
       - name: "Chunk 010 - Generate (continuous feed)"
         id: gen010
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 10 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 10 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '10'
@@ -1751,7 +2507,7 @@ jobs:
 
       - name: "Chunk 011 - Generate (continuous feed)"
         id: gen011
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 11 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 11 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '11'
@@ -1780,7 +2536,7 @@ jobs:
 
       - name: "Chunk 012 - Generate (continuous feed)"
         id: gen012
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 12 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 12 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '12'
@@ -1809,7 +2565,7 @@ jobs:
 
       - name: "Chunk 013 - Generate (continuous feed)"
         id: gen013
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 13 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 13 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '13'
@@ -1838,7 +2594,7 @@ jobs:
 
       - name: "Chunk 014 - Generate (continuous feed)"
         id: gen014
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 14 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 14 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '14'
@@ -1867,7 +2623,7 @@ jobs:
 
       - name: "Chunk 015 - Generate (continuous feed)"
         id: gen015
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 15 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 15 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '15'
@@ -1896,7 +2652,7 @@ jobs:
 
       - name: "Chunk 016 - Generate (continuous feed)"
         id: gen016
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 16 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 16 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '16'
@@ -1925,7 +2681,7 @@ jobs:
 
       - name: "Chunk 017 - Generate (continuous feed)"
         id: gen017
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 17 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 17 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '17'
@@ -1954,7 +2710,7 @@ jobs:
 
       - name: "Chunk 018 - Generate (continuous feed)"
         id: gen018
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 18 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 18 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '18'
@@ -1983,7 +2739,7 @@ jobs:
 
       - name: "Chunk 019 - Generate (continuous feed)"
         id: gen019
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 19 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 19 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '19'
@@ -2012,7 +2768,7 @@ jobs:
 
       - name: "Chunk 020 - Generate (continuous feed)"
         id: gen020
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 20 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 20 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '20'
@@ -2041,7 +2797,7 @@ jobs:
 
       - name: "Chunk 021 - Generate (continuous feed)"
         id: gen021
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 21 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 21 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '21'
@@ -2070,7 +2826,7 @@ jobs:
 
       - name: "Chunk 022 - Generate (continuous feed)"
         id: gen022
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 22 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 22 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '22'
@@ -2099,7 +2855,7 @@ jobs:
 
       - name: "Chunk 023 - Generate (continuous feed)"
         id: gen023
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 23 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 23 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '23'
@@ -2128,7 +2884,7 @@ jobs:
 
       - name: "Chunk 024 - Generate (continuous feed)"
         id: gen024
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 24 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 24 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '24'
@@ -2157,7 +2913,7 @@ jobs:
 
       - name: "Chunk 025 - Generate (continuous feed)"
         id: gen025
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 25 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 25 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '25'
@@ -2186,7 +2942,7 @@ jobs:
 
       - name: "Chunk 026 - Generate (continuous feed)"
         id: gen026
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 26 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 26 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '26'
@@ -2215,7 +2971,7 @@ jobs:
 
       - name: "Chunk 027 - Generate (continuous feed)"
         id: gen027
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 27 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 27 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '27'
@@ -2244,7 +3000,7 @@ jobs:
 
       - name: "Chunk 028 - Generate (continuous feed)"
         id: gen028
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 28 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 28 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '28'
@@ -2273,7 +3029,7 @@ jobs:
 
       - name: "Chunk 029 - Generate (continuous feed)"
         id: gen029
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 29 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 29 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '29'
@@ -2302,7 +3058,7 @@ jobs:
 
       - name: "Chunk 030 - Generate (continuous feed)"
         id: gen030
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 30 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 30 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '30'
@@ -2331,7 +3087,7 @@ jobs:
 
       - name: "Chunk 031 - Generate (continuous feed)"
         id: gen031
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 31 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 31 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '31'
@@ -2360,7 +3116,7 @@ jobs:
 
       - name: "Chunk 032 - Generate (continuous feed)"
         id: gen032
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 32 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 32 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '32'
@@ -2389,7 +3145,7 @@ jobs:
 
       - name: "Chunk 033 - Generate (continuous feed)"
         id: gen033
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 33 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 33 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '33'
@@ -2418,7 +3174,7 @@ jobs:
 
       - name: "Chunk 034 - Generate (continuous feed)"
         id: gen034
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 34 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 34 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '34'
@@ -2447,7 +3203,7 @@ jobs:
 
       - name: "Chunk 035 - Generate (continuous feed)"
         id: gen035
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 35 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 35 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '35'
@@ -2476,7 +3232,7 @@ jobs:
 
       - name: "Chunk 036 - Generate (continuous feed)"
         id: gen036
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 36 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 36 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '36'
@@ -2505,7 +3261,7 @@ jobs:
 
       - name: "Chunk 037 - Generate (continuous feed)"
         id: gen037
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 37 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 37 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '37'
@@ -2534,7 +3290,7 @@ jobs:
 
       - name: "Chunk 038 - Generate (continuous feed)"
         id: gen038
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 38 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 38 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '38'
@@ -2563,7 +3319,7 @@ jobs:
 
       - name: "Chunk 039 - Generate (continuous feed)"
         id: gen039
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 39 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 39 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '39'
@@ -2592,7 +3348,7 @@ jobs:
 
       - name: "Chunk 040 - Generate (continuous feed)"
         id: gen040
-        if: ${{ !cancelled() && steps.gen000.outcome == 'success' && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 40 }}
+        if: ${{ !cancelled() && always() && fromJSON(needs.prepare_matrix.outputs.chunk_count) >= 40 }}
         continue-on-error: true
         env:
           CHUNK_IDX: '40'
@@ -2629,12 +3385,13 @@ jobs:
           CHUNK_COUNT: ${{ needs.prepare_matrix.outputs.chunk_count }}
         run: python3 report_pool.py
 
+
   remote_session:
     name: ${{ matrix.display_name }}
     # GitHub cannot start a dependent job while another job is still running, and the combined Proxy Pool job
     # keeps running (continuous feed). So device runners start alongside it and the FIRST step below holds
     # each device at a gate until the initial 5% chunk exists. No device does any work before that.
-    needs: prepare_matrix
+    needs: [prepare_matrix, initial_proxy_pool]
     if: ${{ needs.prepare_matrix.outputs.has_tasks == 'true' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -2645,354 +3402,6 @@ jobs:
       matrix: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
 
     steps:
-      - name: "Gate - Wait for Initial 5% Proxy Pool"
-        shell: python
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          POOL_ENABLED: ${{ inputs.generate_all_proxies == true && inputs.use_without_proxy != true && 'true' || 'false' }}
-          TASK_INDEX: ${{ matrix.task_index }}
-          TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
-          POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
-          INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
-          CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
-          POOL_MODE: gate
-          GATE_WAIT_MINUTES: '20'
-        run: |
-          import os, sys, json, time, io, zipfile, subprocess
-          import urllib.request, urllib.error
-
-
-          def say(m=""):
-              print(m, flush=True)
-
-
-          def geti(k, d=0):
-              try:
-                  return int(os.environ.get(k, str(d)))
-              except Exception:
-                  return d
-
-
-          TASK = geti("TASK_INDEX", 1)
-          TASKS_TOTAL = geti("TASKS_TOTAL")
-          POOL_TOTAL = geti("POOL_TOTAL")
-          INITIAL = max(1, geti("INITIAL_TARGET", 1))
-          CHUNK_SIZE = max(1, geti("CHUNK_SIZE", 10))
-          WAIT_MIN = geti("POOL_WAIT_MINUTES", 12)
-          POOL_ENABLED = os.environ.get("POOL_ENABLED", "false").lower() == "true"
-          TEMP = os.environ.get("RUNNER_TEMP", ".")
-          OUT = os.path.join(TEMP, "pool_proxy.json")
-          GH_ENV = os.environ.get("GITHUB_ENV")
-          TOKEN = os.environ.get("GH_TOKEN", "")
-          REPO = os.environ.get("REPO", "")
-          RUN_ID = os.environ.get("RUN_ID", "")
-          API = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
-          HDR = {
-              "Authorization": f"Bearer {TOKEN}",
-              "Accept": "application/vnd.github+json",
-              "X-GitHub-Api-Version": "2022-11-28",
-              "User-Agent": "proxy-pool-client",
-          }
-
-
-          def set_env(k, v):
-              if GH_ENV:
-                  with open(GH_ENV, "a", encoding="utf-8") as f:
-                      f.write(f"{k}={v}\n")
-
-
-          def finish_none(reason):
-              say(f"[Pool] RESULT: no pool proxy for device #{TASK} ({reason})")
-              say("[Pool] -> Device will FALL BACK to API-key proxy generation (last resort).")
-              set_env("POOL_PROXY_SOURCE", "none")
-              sys.exit(0)
-
-
-          MODE = os.environ.get("POOL_MODE", "fetch")
-          GATE_WAIT_MIN = geti("GATE_WAIT_MINUTES", 20)
-          say("=" * 72)
-          say(f" DEVICE #{TASK}: " + ("GATE - WAIT FOR THE INITIAL 5% PROXY POOL" if MODE == "gate" else "ACQUIRE PROXY FROM POOL"))
-          say("=" * 72)
-          say(f"[Pool] Needs proxy number      : #{TASK}  (pool = tasks {TASKS_TOTAL} + spares {max(0, POOL_TOTAL - TASKS_TOTAL)} = {POOL_TOTAL})")
-
-          if not POOL_ENABLED:
-              say("[Pool] Pool is disabled or was skipped (use_without_proxy / generate_all_proxies off).")
-              set_env("POOL_PROXY_SOURCE", "none")
-              sys.exit(0)
-
-          if os.path.isfile(OUT):
-              os.remove(OUT)
-
-
-          class NoRedirect(urllib.request.HTTPRedirectHandler):
-              def redirect_request(self, *a, **k):
-                  return None
-
-
-          def gh_json(url):
-              # Retry on all transient GitHub API errors (403/404 can be transient during
-              # runner spin-up when the artifact namespace isn't visible yet).
-              last = None
-              for i in range(5):
-                  try:
-                      with urllib.request.urlopen(urllib.request.Request(url, headers=HDR), timeout=30) as r:
-                          return json.loads(r.read())
-                  except urllib.error.HTTPError as e:
-                      last = e
-                      if e.code in (403, 404, 429, 500, 502, 503, 504) and i < 4:
-                          time.sleep(4 + i * 3)
-                          continue
-                      raise
-                  except Exception as e:
-                      last = e
-                      if i < 4:
-                          time.sleep(4 + i * 3)
-                          continue
-              raise last
-
-
-          def list_artifacts(name=None):
-              url = f"{API}/repos/{REPO}/actions/runs/{RUN_ID}/artifacts?per_page=100"
-              if name:
-                  url += f"&name={name}"
-              return [a for a in gh_json(url).get("artifacts", []) if not a.get("expired")]
-
-
-          def download_zip(art_id):
-              url = f"{API}/repos/{REPO}/actions/artifacts/{art_id}/zip"
-              opener = urllib.request.build_opener(NoRedirect)
-              try:
-                  with opener.open(urllib.request.Request(url, headers=HDR), timeout=30) as r:
-                      return r.read()
-              except urllib.error.HTTPError as e:
-                  if e.code in (301, 302, 303, 307, 308):
-                      loc = e.headers.get("Location")
-                      with urllib.request.urlopen(urllib.request.Request(loc, headers={"User-Agent": "proxy-pool-client"}), timeout=60) as r2:
-                          return r2.read()
-                  raise
-
-
-          _job_cache = {"id": None}
-
-
-          def find_pool_job():
-              if _job_cache["id"]:
-                  try:
-                      return gh_json(f"{API}/repos/{REPO}/actions/jobs/{_job_cache['id']}")
-                  except Exception:
-                      _job_cache["id"] = None
-              for page in range(1, 11):
-                  data = gh_json(f"{API}/repos/{REPO}/actions/runs/{RUN_ID}/jobs?per_page=100&page={page}&filter=latest")
-                  jobs = data.get("jobs", [])
-                  for j in jobs:
-                      if (j.get("name") or "").startswith("Proxy Pool"):
-                          _job_cache["id"] = j["id"]
-                          return j
-                  if len(jobs) < 100:
-                      break
-              return None
-
-
-          def chunk_job_state(c):
-              """'finished' when the pool job (or that chunk's upload step) is done, 'running', or 'unknown'."""
-              job = find_pool_job()
-              if not job:
-                  return "unknown"
-              if job.get("status") == "completed":
-                  return "finished"
-              prefix = f"Chunk {c:03d} - Upload"
-              for st in job.get("steps", []):
-                  if (st.get("name") or "").startswith(prefix):
-                      return "finished" if st.get("status") == "completed" else "running"
-              return "running"
-
-
-          def chunk_for(seq):
-              if seq <= INITIAL:
-                  return 0
-              return 1 + (seq - INITIAL - 1) // CHUNK_SIZE
-
-
-          _cache = {}
-
-
-          def get_chunk(c, deadline):
-              if c in _cache:
-                  return _cache[c]
-              name = f"proxy-chunk-{c:03d}"
-              last_status = 0.0
-              last_job = 0.0
-              finished_seen = False
-              waited_from = time.time()
-              while True:
-                  arts = list_artifacts(name)
-                  if arts:
-                      blob = download_zip(arts[0]["id"])
-                      with zipfile.ZipFile(io.BytesIO(blob)) as z:
-                          fn = [n for n in z.namelist() if n.endswith(".json")][0]
-                          data = json.loads(z.read(fn))
-                      _cache[c] = data
-                      say(f"[Pool] Chunk {c} loaded ({data.get('generated')}/{data.get('requested')} proxies, range #{data.get('start_seq')}-#{data.get('end_seq')})")
-                      return data
-                  if c == 0:
-                      say("[Pool] Chunk 0 artifact missing although the initial pool job already finished.")
-                      return None
-                  if finished_seen:
-                      say(f"[Pool] Chunk {c} generator job finished but produced no artifact.")
-                      return None
-                  now = time.time()
-                  if now - last_job >= 45:
-                      last_job = now
-                      try:
-                          st = chunk_job_state(c)
-                      except Exception as e:
-                          st = "unknown"
-                          say(f"[Pool] (job state check failed: {type(e).__name__})")
-                      if st == "finished":
-                          finished_seen = True
-                          time.sleep(5)
-                          continue
-                  if now >= deadline:
-                      say(f"[Pool] Gave up waiting for chunk {c} after {int(now - waited_from)}s.")
-                      return None
-                  if now - last_status >= 60 or last_status == 0:
-                      last_status = now
-                      say(f"[Pool] Waiting for chunk {c} (proxy batch still generating)... {int(now - waited_from)}s elapsed, limit {WAIT_MIN} min")
-                  time.sleep(15)
-
-
-          def quick_check(p):
-              try:
-                  import requests, urllib3
-              except ImportError:
-                  subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "urllib3", "--quiet"])
-                  import requests, urllib3
-              urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-              auth = f"{p['username']}:{p['password']}@" if p.get("username") else ""
-              url = f"http://{auth}{p['host']}:{p['port']}"
-              cfg = {"http": url, "https": url}
-              for attempt in range(2):
-                  for ep in ("http://ip-api.com/json/", "https://ipinfo.io/json"):
-                      try:
-                          r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
-                          if r.status_code == 200 and ("ip" in r.json() or "query" in r.json()):
-                              return True
-                      except Exception:
-                          pass
-                  time.sleep(2)
-              return False
-
-
-          def find_seq(data, seq):
-              if not data:
-                  return None
-              for p in data.get("proxies", []):
-                  if p.get("seq") == seq:
-                      return p
-              return None
-
-
-          def run_gate():
-              wait_s = GATE_WAIT_MIN * 60
-              t0 = time.time()
-              last_log = 0.0
-              say("[Gate] Runner is up. Holding here until the initial 5% proxy pool (chunk 0) has been uploaded...")
-              while True:
-                  try:
-                      if list_artifacts("proxy-chunk-000"):
-                          say(f"[Gate] Initial pool is READY after {int(time.time() - t0)}s -> device may proceed.")
-                          return
-                  except Exception as e:
-                      say(f"[Gate] artifact check error: {type(e).__name__}")
-                  try:
-                      st = chunk_job_state(0)
-                  except Exception:
-                      st = "unknown"
-                  if st == "finished":
-                      time.sleep(5)
-                      try:
-                          if list_artifacts("proxy-chunk-000"):
-                              say("[Gate] Initial pool is READY -> device may proceed.")
-                              return
-                      except Exception:
-                          pass
-                      say("[Gate] Pool job finished WITHOUT an initial chunk -> continuing; this device will use the API-key fallback.")
-                      return
-                  now = time.time()
-                  if now - t0 >= wait_s:
-                      say(f"::warning title=Gate::Initial pool not ready after {GATE_WAIT_MIN} min -> continuing (API-key fallback).")
-                      return
-                  if now - last_log >= 30:
-                      last_log = now
-                      say(f"[Gate] ...still generating the initial 5% (pool job state: {st}) - waited {int(now - t0)}s of max {GATE_WAIT_MIN * 60}s")
-                  time.sleep(10)
-
-
-          if MODE == "gate":
-              run_gate()
-              sys.exit(0)
-
-
-          try:
-              visible = sorted(a["name"] for a in list_artifacts() if a["name"].startswith("proxy-chunk-"))
-              say(f"[Pool] Chunks visible right now : {len(visible)} -> {', '.join(visible) if visible else 'none'}")
-
-              deadline = time.time() + WAIT_MIN * 60
-              c = chunk_for(TASK)
-              say(f"[Pool] Proxy #{TASK} lives in chunk {c} (artifact proxy-chunk-{c:03d})")
-              chosen, origin = None, ""
-
-              p = find_seq(get_chunk(c, deadline), TASK)
-              if p:
-                  say(f"[Pool] Found proxy #{TASK} '{p['name']}' -> IP {p['ip']} ({p['country_code']}). Health-checking...")
-                  if quick_check(p):
-                      chosen, origin = p, "primary"
-                  else:
-                      say(f"[Pool] Proxy #{TASK} failed the device-side health check.")
-              else:
-                  say(f"[Pool] Proxy #{TASK} is not present in chunk {c}.")
-
-              if not chosen:
-                  extra = POOL_TOTAL - TASKS_TOTAL
-                  if extra > 0:
-                      say(f"[Pool] Trying spare proxies (#{TASKS_TOTAL + 1}-#{POOL_TOTAL}) before touching the API key...")
-                      for attempt in range(3):
-                          sp = TASKS_TOTAL + 1 + ((TASK * 7 + attempt * 13) % extra)
-                          sc = chunk_for(sp)
-                          try:
-                              cand = find_seq(get_chunk(sc, time.time()), sp)
-                          except Exception as e:
-                              cand = None
-                              say(f"[Pool] spare lookup error: {type(e).__name__}")
-                          if cand and quick_check(cand):
-                              chosen, origin = cand, f"spare #{sp}"
-                              break
-                          say(f"[Pool] Spare #{sp} unavailable.")
-
-              if not chosen:
-                  finish_none("proxy missing/unhealthy and no spare available")
-
-              if len(chosen.get("password", "")) >= 8:
-                  print(f"::add-mask::{chosen['password']}", flush=True)
-              chosen["assigned_origin"] = origin
-              with open(OUT, "w", encoding="utf-8") as f:
-                  json.dump(chosen, f)
-              set_env("POOL_PROXY_SOURCE", "pool")
-              set_env("POOL_PROXY_NAME", chosen["name"])
-              say("")
-              say(f"[Pool] RESULT: device #{TASK} uses POOL proxy #{chosen['seq']} ({origin})")
-              say(f"[Pool]   dashboard name : {chosen['name']}   (app.gologin.com/proxy)")
-              say(f"[Pool]   exit IP        : {chosen['ip']} | {chosen['country_code']} {chosen.get('city', '')}")
-              say(f"[Pool]   provider       : {chosen['source']}")
-              say("[Pool] API-key generation will NOT be used for this device.")
-          except SystemExit:
-              raise
-          except Exception as e:
-              say(f"::warning title=Pool fetch::{type(e).__name__}: {e}")
-              finish_none(f"pool lookup error {type(e).__name__}")
-
       - name: Device Spawn Delay (Batch Intermission)
         shell: python
         env:
@@ -3019,26 +3428,45 @@ jobs:
           else:
               print(f"Device {idx} (Batch {batch}) requires no spawn delay. Executing immediately.")
 
+      - name: "Download Initial Proxy Chunk (official action - avoids 403)"
+        if: ${{ needs.prepare_matrix.outputs.pool_active == 'true' && fromJSON(needs.prepare_matrix.outputs.initial_target) > 0 }}
+        uses: actions/download-artifact@v4
+        with:
+          name: proxy-chunk-000
+          path: ${{ runner.temp }}/proxy_pool
+        continue-on-error: true
+
       - name: Acquire Proxy From Pool (wait for batch, API key only as last resort)
         shell: python
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
-          POOL_ENABLED: ${{ inputs.generate_all_proxies == true && inputs.use_without_proxy != true && 'true' || 'false' }}
+          POOL_ENABLED: ${{ needs.prepare_matrix.outputs.pool_active == 'true' && 'true' || 'false' }}
           TASK_INDEX: ${{ matrix.task_index }}
           TASKS_TOTAL: ${{ needs.prepare_matrix.outputs.tasks_total }}
           POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
           INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
           CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
           POOL_MODE: fetch
-          POOL_WAIT_MINUTES: '12'
+          POOL_WAIT_MINUTES: '6'
+          INITIAL_ALREADY_READY: 'true'  # devices only start after initial_proxy_pool finished
           RUN_ATTEMPT: ${{ github.run_attempt }}
           REUSE_PROXIES: ${{ inputs.reuse_proxies }}
           UNIQUE_IP: ${{ inputs.unique_ip }}
         run: |
           import os, sys, json, time, io, zipfile, subprocess
           import urllib.request, urllib.error
+
+          # ========== ROBUST PROXY ACQUISITION POLICY ==========
+          # 1. Devices only reach this step AFTER initial_proxy_pool job has finished
+          #    (or was intentionally skipped for 0%). No long gate wait.
+          # 2. Prefer pool proxy #TASK (1-based). If unique_ip and that exit IP is
+          #    already claimed by another device, try the next proxies in order
+          #    (wrap when reuse_proxies=true). Re-validate exit IP every time because
+          #    sticky/mobile sessions can rotate the IP; a changed IP is a new claim.
+          # 3. API-key / on-demand generation is the last resort after pool attempts.
+          # 4. 403 / transient artifact errors use exponential backoff (max ~6 min).
 
           def _ipc_api(method, path, body=None):
               import os, json, urllib.request, urllib.error
@@ -3303,7 +3731,7 @@ jobs:
           say(f"[Pool] Needs proxy number      : #{TASK}  (pool = tasks {TASKS_TOTAL} + spares {max(0, POOL_TOTAL - TASKS_TOTAL)} = {POOL_TOTAL})")
 
           if not POOL_ENABLED:
-              say("[Pool] Pool is disabled or was skipped (use_without_proxy / generate_all_proxies off).")
+              say("[Pool] Pool is disabled or was skipped (use_without_proxy / initial_proxy_pool off).")
               set_env("POOL_PROXY_SOURCE", "none")
               sys.exit(0)
 
@@ -3348,15 +3776,29 @@ jobs:
           def download_zip(art_id):
               url = f"{API}/repos/{REPO}/actions/artifacts/{art_id}/zip"
               opener = urllib.request.build_opener(NoRedirect)
-              try:
-                  with opener.open(urllib.request.Request(url, headers=HDR), timeout=30) as r:
-                      return r.read()
-              except urllib.error.HTTPError as e:
-                  if e.code in (301, 302, 303, 307, 308):
-                      loc = e.headers.get("Location")
-                      with urllib.request.urlopen(urllib.request.Request(loc, headers={"User-Agent": "proxy-pool-client"}), timeout=60) as r2:
-                          return r2.read()
-                  raise
+              last_err = None
+              for attempt in range(1, 6):
+                  try:
+                      with opener.open(urllib.request.Request(url, headers=HDR), timeout=30) as r:
+                          return r.read()
+                  except urllib.error.HTTPError as e:
+                      last_err = e
+                      if e.code in (301, 302, 303, 307, 308):
+                          loc = e.headers.get("Location")
+                          with urllib.request.urlopen(urllib.request.Request(loc, headers={"User-Agent": "proxy-pool-client"}), timeout=60) as r2:
+                              return r2.read()
+                      if e.code in (403, 429, 500, 502, 503, 504):
+                          wait = min(30, 2 ** attempt)
+                          say(f"[Pool] artifact download HTTP {e.code} (attempt {attempt}/5) - backoff {wait}s")
+                          time.sleep(wait)
+                          continue
+                      raise
+                  except Exception as e:
+                      last_err = e
+                      time.sleep(min(20, 2 ** attempt))
+              if last_err:
+                  raise last_err
+              raise RuntimeError("download_zip failed")
 
 
           _job_cache = {"id": None}
@@ -8311,99 +8753,6 @@ jobs:
           HDR = {"Authorization": f"Bearer {os.environ.get('GH_TOKEN', '')}", "Accept": "application/vnd.github+json",
                  "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "failure-guard"}
           GUARD_STEP = "Failure Guard"
-          DEVICE_MARKER = "Gate - Wait for Initial 5% Proxy Pool"
-
-
-          def say(m=""):
-              print(m, flush=True)
-
-
-          def call(method, path):
-              req = urllib.request.Request(API + path, method=method, headers=HDR)
-              try:
-                  with urllib.request.urlopen(req, timeout=30) as r:
-                      return r.status, r.read()
-              except urllib.error.HTTPError as e:
-                  try:
-                      return e.code, e.read()
-                  except Exception:
-                      return e.code, b""
-              except Exception as e:
-                  return 0, str(e).encode()
-
-
-          def list_jobs():
-              jobs = []
-              for page in range(1, 11):
-                  st, body = call("GET", f"/repos/{REPO}/actions/runs/{RUN_ID}/jobs?per_page=100&page={page}&filter=latest")
-                  if st != 200:
-                      break
-                  batch = json.loads(body).get("jobs", [])
-                  jobs += batch
-                  if len(batch) < 100:
-                      break
-              return jobs
-
-
-          def is_device_job(job):
-              return any((s.get("name") or "").startswith(DEVICE_MARKER) for s in job.get("steps", []))
-
-
-          def failed_step(job):
-              for s in job.get("steps", []):
-                  if s.get("conclusion") == "failure" and not (s.get("name") or "").startswith(GUARD_STEP):
-                      return s.get("name")
-              return None
-
-
-          say("=" * 72)
-          say(f" FAILURE GUARD  |  job: {ME}  |  threshold: {TH} device jobs failing on the SAME step")
-          say("=" * 72)
-
-          my_step = None
-          by_step = {}
-          for attempt in range(4):
-              time.sleep(4 if attempt == 0 else 6)       # let step conclusions propagate in the API
-              jobs = list_jobs()
-              devices = [j for j in jobs if is_device_job(j)]
-              mine = next((j for j in devices if j.get("name") == ME), None)
-              my_step = failed_step(mine) if mine else None
-              by_step = {}
-              for j in devices:
-                  fs = failed_step(j)
-                  if fs and (j.get("conclusion") == "failure" or j.get("status") == "in_progress"):
-                      by_step.setdefault(fs, []).append(j.get("name"))
-              if my_step:
-                  break
-
-          if not my_step:
-              say("[Guard] Could not determine which step failed for this job (API lag?). Not cancelling.")
-              sys.exit(0)
-
-          counts = Counter({k: len(v) for k, v in by_step.items()})
-          say(f"[Guard] This job failed at step: '{my_step}'")
-          for step, names in sorted(by_step.items(), key=lambda kv: -len(kv[1])):
-              say(f"[Guard]   {len(names):>3} device job(s) failed at '{step}': {', '.join(names[:8])}{' ...' if len(names) > 8 else ''}")
-
-          summary = os.environ.get("GITHUB_STEP_SUMMARY")
-          if counts[my_step] >= TH:
-              say("")
-              say("!" * 72)
-              say(f"::error title=Run cancelled by Failure Guard::{counts[my_step]} device jobs failed at the same step '{my_step}' - cancelling the whole run.")
-              say("!" * 72)
-              st, body = call("POST", f"/repos/{REPO}/actions/runs/{RUN_ID}/cancel")
-              say(f"[Guard] Cancel request sent -> HTTP {st}")
-              if summary:
-                  with open(summary, "a", encoding="utf-8") as fh:
-                      fh.write(f"## Run cancelled by Failure Guard\n{counts[my_step]} device jobs failed at the same step: **{my_step}**\n\n"
-                               + "\n".join(f"- {n}" for n in by_step[my_step]) + "\n")
-          else:
-              say(f"[Guard] {counts[my_step]}/{TH} failures at this step so far - run continues.")
-              if summary:
-                  with open(summary, "a", encoding="utf-8") as fh:
-                      fh.write(f"Failure Guard: {counts[my_step]}/{TH} device jobs failed at `{my_step}` - run continues.\n")
-
-
       - name: Keep Runner Alive
         if: always() && matrix.action_mode == 'install' && env.SOFTWARE_DOWNLOADED == 'true'
         shell: pwsh
