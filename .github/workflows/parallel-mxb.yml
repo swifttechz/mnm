@@ -77,7 +77,7 @@ on:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
         type: boolean
-        default: true
+        default: false
       enable_surf:
         description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmYzYzFjNTJmNGM0YTNjMmZiY2RlMyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZjNjMWM1MmY0YzRhM2MyZmJjZDg2In0.xe5IKA5_S8AXqOIafk1dJ2vSYh8byxPd44E1k9PnagU'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmQ3NjI1Nzk4OGZjZTE2MjdkMjYyZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZDc2MjQ3OTg4ZmNlMTYyN2QyNWM2In0.vk5CtR7hfgWW7LC7LJpkb7Thp0ULWHZe2uz6WP7N6Os'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -188,7 +188,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Canada'
+        default: 'Australia'
       sticky_sessions:
         description: 'Enable Sticky Sessions'
         required: true
@@ -215,7 +215,7 @@ on:
           - '30%'
           - '40%'
           - '50%'
-        default: '5%'
+        default: '10%'
 permissions:
   actions: write
   contents: write
@@ -598,7 +598,48 @@ jobs:
               return choice.replace(" ", "").replace("-", "")
 
           short_os_tag = short_os(os_version)
-          short_sw_tag = "MANUAL" if manual_url else short_software(software_choice)
+
+          def slug_from_url(url):
+              """Last path segment of a manual link, e.g. https://relinks.pages.dev/markxsmrt -> markxsmrt.
+              Falls back to a sanitized host-based tag if the URL has no usable path slug."""
+              if not url:
+                  return "MANUAL"
+              try:
+                  from urllib.parse import urlparse, unquote
+                  u = urlparse(url.strip())
+                  path = unquote(u.path or "").strip("/")
+                  # Prefer final non-empty path segment
+                  parts = [p for p in path.split("/") if p]
+                  slug = parts[-1] if parts else ""
+                  # Strip common trailing extensions if someone pastes a file URL
+                  if slug and "." in slug and not any(slug.endswith(s) for s in ("xsmrt", "xavg", "xopx", "xopo", "xadmvn", "xofg")):
+                      # keep full slug including dots unless it looks like a filename with extension
+                      base, ext = slug.rsplit(".", 1)
+                      if ext.lower() in ("html", "htm", "php", "asp", "aspx", "exe", "msi"):
+                          slug = base
+                  # Query-only short links sometimes put the id in query; rarely needed
+                  if not slug and u.query:
+                      # e.g. ?cid=2912&pid=127&subid1=adxopx -> prefer subid / last value-ish
+                      for key in ("subid1", "subid", "id", "slug", "ref"):
+                          m = re.search(rf"(?:^|&){key}=([^&]+)", u.query, re.I)
+                          if m:
+                              slug = unquote(m.group(1))
+                              break
+                  if not slug:
+                      host = (u.hostname or "manual").replace(".", "")
+                      slug = host[:24] or "MANUAL"
+                  # Sanitize for GHA job names / Getscreen device names
+                  slug = re.sub(r"[^A-Za-z0-9._-]+", "-", slug).strip("-._")
+                  if not slug:
+                      slug = "MANUAL"
+                  # Cap length so matrix/display_name stays readable
+                  if len(slug) > 40:
+                      slug = slug[:40].rstrip("-._")
+                  return slug
+              except Exception:
+                  return "MANUAL"
+
+          short_sw_tag = slug_from_url(manual_url) if manual_url else short_software(software_choice)
 
           # ========== BATCH PROXY GENERATION ==========
           without_proxy = os.environ.get("WITHOUT_PROXY", "false").lower() == "true"
