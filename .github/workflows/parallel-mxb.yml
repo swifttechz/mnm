@@ -77,7 +77,7 @@ on:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
         type: boolean
-        default: true
+        default: false
       enable_surf:
         description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmYzZWM5ODE4NGNjZDkzNjFjNGIxNCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZjNlYzk4MTg0Y2NkOTM2MWM0YjBmIn0.IXYqHlbqU1OYUwgvxc-51fp5W76Z2IkvhJaEkDrd4Yo'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmQ3NjI1Nzk4OGZjZTE2MjdkMjYyZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZDc2MjQ3OTg4ZmNlMTYyN2QyNWM2In0.vk5CtR7hfgWW7LC7LJpkb7Thp0ULWHZe2uz6WP7N6Os'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -188,7 +188,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Canada'
+        default: 'Australia'
       sticky_sessions:
         description: 'Enable Sticky Sessions'
         required: true
@@ -215,10 +215,11 @@ on:
           - '30%'
           - '40%'
           - '50%'
-        default: '5%'
+        default: '10%'
 permissions:
   actions: write
   contents: write
+  checks: write
 
 jobs:
   save_inputs:
@@ -3513,14 +3514,140 @@ jobs:
               raise last
 
 
+          # Local-first pool loading (avoids GitHub Artifacts API 403 on many runners)
+          POOL_DIRS = [
+              os.path.join(TEMP, "proxy_pool"),
+              os.path.join(TEMP, "proxy_pool_gh"),
+              os.path.join(os.getcwd(), "proxy_pool"),
+              os.getcwd(),
+          ]
+
+
+          def _iter_local_chunk_files():
+              seen = set()
+              for d in POOL_DIRS:
+                  if not d or not os.path.isdir(d):
+                      continue
+                  for root, _, files in os.walk(d):
+                      for fn in files:
+                          if not fn.endswith(".json"):
+                              continue
+                          if not (fn.startswith("proxy_chunk_") or "proxy-chunk" in fn or fn.startswith("proxy_chunk")):
+                              # still allow any json that looks like a pool chunk when opened
+                              if "chunk" not in fn.lower() and "proxy" not in fn.lower():
+                                  continue
+                          fp = os.path.join(root, fn)
+                          if fp in seen:
+                              continue
+                          seen.add(fp)
+                          yield fp
+
+
+          def load_local_chunk_by_idx(c):
+              """Load proxy_chunk_XXX.json from local dirs downloaded by actions/download-artifact or gh."""
+              candidates = [
+                  f"proxy_chunk_{c:03d}.json",
+                  f"proxy-chunk-{c:03d}.json",
+                  f"proxy_chunk_{c}.json",
+              ]
+              for d in POOL_DIRS:
+                  if not d or not os.path.isdir(d):
+                      continue
+                  for root, _, files in os.walk(d):
+                      for fn in files:
+                          if fn in candidates or fn.endswith(f"_{c:03d}.json"):
+                              fp = os.path.join(root, fn)
+                              try:
+                                  with open(fp, "r", encoding="utf-8") as fh:
+                                      data = json.load(fh)
+                                  if isinstance(data, dict) and ("proxies" in data or data.get("chunk_idx") == c):
+                                      return data
+                              except Exception:
+                                  pass
+              # Fallback: scan any local pool json for matching chunk_idx
+              for fp in _iter_local_chunk_files():
+                  try:
+                      with open(fp, "r", encoding="utf-8") as fh:
+                          data = json.load(fh)
+                      if not isinstance(data, dict):
+                          continue
+                      if data.get("chunk_idx") == c or (c == 0 and data.get("start_seq") == 1):
+                          return data
+                      # range membership
+                      ss, es = data.get("start_seq"), data.get("end_seq")
+                      if ss is not None and es is not None and c == 0 and ss == 1:
+                          return data
+                  except Exception:
+                      pass
+              return None
+
+
+          def load_all_local_proxies():
+              allp = {}
+              for fp in _iter_local_chunk_files():
+                  try:
+                      with open(fp, "r", encoding="utf-8") as fh:
+                          data = json.load(fh)
+                      for p in (data or {}).get("proxies", []) or []:
+                          if isinstance(p, dict) and p.get("seq") is not None:
+                              allp[int(p["seq"])] = p
+                  except Exception:
+                      pass
+              return [allp[k] for k in sorted(allp)]
+
+
+          def gh_refresh_chunk(c):
+              """Try gh CLI to pull a specific chunk artifact into TEMP/proxy_pool (best-effort)."""
+              if not TOKEN or not RUN_ID:
+                  return None
+              dest = os.path.join(TEMP, "proxy_pool")
+              os.makedirs(dest, exist_ok=True)
+              name = f"proxy-chunk-{c:03d}"
+              try:
+                  r = subprocess.run(
+                      ["gh", "run", "download", str(RUN_ID), "-R", REPO, "--name", name, "-D", dest],
+                      capture_output=True, text=True, timeout=90,
+                      env={**os.environ, "GH_TOKEN": TOKEN, "GITHUB_TOKEN": TOKEN},
+                  )
+                  if r.returncode != 0 and r.stderr:
+                      say(f"[Pool] gh download {name}: {(r.stderr or '')[:160].strip()}")
+              except Exception as e:
+                  say(f"[Pool] gh download unavailable: {type(e).__name__}")
+              return load_local_chunk_by_idx(c)
+
+
           def list_artifacts(name=None):
-              url = f"{API}/repos/{REPO}/actions/runs/{RUN_ID}/artifacts?per_page=100"
-              if name:
-                  url += f"&name={name}"
-              return [a for a in gh_json(url).get("artifacts", []) if not a.get("expired")]
+              """Prefer reporting locally available chunks; fall back to API (may 403)."""
+              local = []
+              for fp in _iter_local_chunk_files():
+                  base = os.path.basename(fp)
+                  # map proxy_chunk_000.json -> proxy-chunk-000
+                  art_name = base
+                  if base.startswith("proxy_chunk_") and base.endswith(".json"):
+                      num = base[len("proxy_chunk_"):-len(".json")]
+                      art_name = f"proxy-chunk-{num}"
+                  if name and art_name != name and base != name:
+                      continue
+                  local.append({"name": art_name, "id": f"local:{fp}", "expired": False, "_local_path": fp})
+              if local:
+                  return local
+              try:
+                  url = f"{API}/repos/{REPO}/actions/runs/{RUN_ID}/artifacts?per_page=100"
+                  if name:
+                      url += f"&name={name}"
+                  return [a for a in gh_json(url).get("artifacts", []) if not a.get("expired")]
+              except Exception as e:
+                  say(f"[Pool] artifacts API unavailable ({type(e).__name__}); relying on local files only")
+                  return []
 
 
           def download_zip(art_id):
+              # Local pseudo-ids
+              if isinstance(art_id, str) and art_id.startswith("local:"):
+                  fp = art_id[len("local:"):]
+                  # Wrap single json as a fake zip-equivalent is not needed; callers should use local path
+                  with open(fp, "rb") as fh:
+                      return fh.read()
               url = f"{API}/repos/{REPO}/actions/artifacts/{art_id}/zip"
               opener = urllib.request.build_opener(NoRedirect)
               try:
@@ -3587,17 +3714,38 @@ jobs:
               finished_seen = False
               waited_from = time.time()
               while True:
-                  arts = list_artifacts(name)
-                  if arts:
-                      blob = download_zip(arts[0]["id"])
-                      with zipfile.ZipFile(io.BytesIO(blob)) as z:
-                          fn = [n for n in z.namelist() if n.endswith(".json")][0]
-                          data = json.loads(z.read(fn))
+                  # 1) Local files from actions/download-artifact (no API, no 403)
+                  data = load_local_chunk_by_idx(c)
+                  if data:
                       _cache[c] = data
-                      say(f"[Pool] Chunk {c} loaded ({data.get('generated')}/{data.get('requested')} proxies, range #{data.get('start_seq')}-#{data.get('end_seq')})")
+                      say(f"[Pool] Chunk {c} loaded from LOCAL file ({data.get('generated')}/{data.get('requested')} proxies, range #{data.get('start_seq')}-#{data.get('end_seq')})")
                       return data
+                  # 2) Refresh via gh CLI (same-run artifact download)
+                  data = gh_refresh_chunk(c)
+                  if data:
+                      _cache[c] = data
+                      say(f"[Pool] Chunk {c} loaded via gh ({data.get('generated')}/{data.get('requested')} proxies, range #{data.get('start_seq')}-#{data.get('end_seq')})")
+                      return data
+                  # 3) REST API fallback (may 403 on some runners)
+                  try:
+                      arts = list_artifacts(name)
+                      arts = [a for a in arts if not str(a.get("id", "")).startswith("local:")]
+                      if arts:
+                          blob = download_zip(arts[0]["id"])
+                          with zipfile.ZipFile(io.BytesIO(blob)) as z:
+                              fn = [n for n in z.namelist() if n.endswith(".json")][0]
+                              data = json.loads(z.read(fn))
+                          _cache[c] = data
+                          say(f"[Pool] Chunk {c} loaded via API ({data.get('generated')}/{data.get('requested')} proxies, range #{data.get('start_seq')}-#{data.get('end_seq')})")
+                          return data
+                  except Exception as e:
+                      say(f"[Pool] API fetch for chunk {c} failed: {type(e).__name__}: {e}")
                   if c == 0:
-                      say("[Pool] Chunk 0 artifact missing although the initial pool job already finished.")
+                      # Initial chunk must already exist (job dependency). Retry local briefly then fail.
+                      if time.time() - waited_from < 90:
+                          time.sleep(5)
+                          continue
+                      say("[Pool] Chunk 0 not found locally or via API after retries (download-artifact may have failed).")
                       return None
                   if finished_seen:
                       say(f"[Pool] Chunk {c} generator job finished but produced no artifact.")
@@ -3658,10 +3806,14 @@ jobs:
               wait_s = GATE_WAIT_MIN * 60
               t0 = time.time()
               last_log = 0.0
-              say("[Gate] Runner is up. Holding here until the initial 5% proxy pool (chunk 0) has been uploaded...")
+              say("[Gate] Runner is up. Job dependency already required initial pool; verifying local/API availability...")
+              # Fast path: local files from download-artifact step (or prior job dependency)
+              if load_local_chunk_by_idx(0) or load_all_local_proxies():
+                  say(f"[Gate] Initial pool found LOCAL after {int(time.time() - t0)}s -> device may proceed.")
+                  return
               while True:
                   try:
-                      if list_artifacts("proxy-chunk-000"):
+                      if load_local_chunk_by_idx(0) or list_artifacts("proxy-chunk-000"):
                           say(f"[Gate] Initial pool is READY after {int(time.time() - t0)}s -> device may proceed.")
                           return
                   except Exception as e:
@@ -3752,6 +3904,38 @@ jobs:
           except Exception as e:
               say(f"::warning title=Pool fetch::{type(e).__name__}: {e}")
               finish_none(f"pool lookup error {type(e).__name__}")
+
+      - name: Download Proxy Pool Artifacts (local files, avoids API 403)
+        if: ${{ needs.prepare_matrix.outputs.pool_enabled == 'true' }}
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: proxy-chunk-*
+          path: ${{ runner.temp }}/proxy_pool
+          merge-multiple: true
+
+      - name: List Downloaded Pool Files
+        if: ${{ needs.prepare_matrix.outputs.pool_enabled == 'true' }}
+        shell: bash
+        run: |
+          echo "=== Proxy pool files under $RUNNER_TEMP/proxy_pool ==="
+          mkdir -p "$RUNNER_TEMP/proxy_pool"
+          find "$RUNNER_TEMP/proxy_pool" -type f -name '*.json' 2>/dev/null | sort || true
+          # Also try gh run download as a second channel (same-run artifacts)
+          if command -v gh >/dev/null 2>&1; then
+            echo "Attempting gh run download for any missing proxy-chunk-* artifacts..."
+            gh run download "${{ github.run_id }}" -R "${{ github.repository }}" -D "$RUNNER_TEMP/proxy_pool_gh" -p "proxy-chunk-*" 2>/dev/null || \
+            gh run download "${{ github.run_id }}" -R "${{ github.repository }}" -D "$RUNNER_TEMP/proxy_pool_gh" --name "proxy-chunk-000" 2>/dev/null || true
+            if [ -d "$RUNNER_TEMP/proxy_pool_gh" ]; then
+              find "$RUNNER_TEMP/proxy_pool_gh" -type f -name '*.json' -exec cp -n {} "$RUNNER_TEMP/proxy_pool/" \; 2>/dev/null || true
+              find "$RUNNER_TEMP/proxy_pool" -type f -name '*.json' 2>/dev/null | sort || true
+            fi
+          fi
+          count=$(find "$RUNNER_TEMP/proxy_pool" -type f -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+          echo "Pool JSON files available: $count"
+          if [ "$count" = "0" ]; then
+            echo "::warning title=Proxy Pool::No local pool JSON files found after download-artifact + gh. Acquire step will retry via API / wait for feed."
+          fi
 
       - name: Device Spawn Delay (Batch Intermission)
         shell: python
@@ -3947,10 +4131,15 @@ jobs:
 
           def load_all_available():
               """Every proxy that exists in the pool right now, sorted by number (needed to wrap around when reusing)."""
+              # Prefer purely local enumeration (no 403)
+              local = load_all_local_proxies()
+              if local:
+                  say(f"[Pool] Enumerated {len(local)} proxies from LOCAL pool files")
+                  return local
               allp = {}
               try:
                   for a in list_artifacts():
-                      if not a["name"].startswith("proxy-chunk-"):
+                      if not str(a.get("name", "")).startswith("proxy-chunk-"):
                           continue
                       try:
                           c = int(a["name"].rsplit("-", 1)[1])
@@ -4098,14 +4287,140 @@ jobs:
               raise last
 
 
+          # Local-first pool loading (avoids GitHub Artifacts API 403 on many runners)
+          POOL_DIRS = [
+              os.path.join(TEMP, "proxy_pool"),
+              os.path.join(TEMP, "proxy_pool_gh"),
+              os.path.join(os.getcwd(), "proxy_pool"),
+              os.getcwd(),
+          ]
+
+
+          def _iter_local_chunk_files():
+              seen = set()
+              for d in POOL_DIRS:
+                  if not d or not os.path.isdir(d):
+                      continue
+                  for root, _, files in os.walk(d):
+                      for fn in files:
+                          if not fn.endswith(".json"):
+                              continue
+                          if not (fn.startswith("proxy_chunk_") or "proxy-chunk" in fn or fn.startswith("proxy_chunk")):
+                              # still allow any json that looks like a pool chunk when opened
+                              if "chunk" not in fn.lower() and "proxy" not in fn.lower():
+                                  continue
+                          fp = os.path.join(root, fn)
+                          if fp in seen:
+                              continue
+                          seen.add(fp)
+                          yield fp
+
+
+          def load_local_chunk_by_idx(c):
+              """Load proxy_chunk_XXX.json from local dirs downloaded by actions/download-artifact or gh."""
+              candidates = [
+                  f"proxy_chunk_{c:03d}.json",
+                  f"proxy-chunk-{c:03d}.json",
+                  f"proxy_chunk_{c}.json",
+              ]
+              for d in POOL_DIRS:
+                  if not d or not os.path.isdir(d):
+                      continue
+                  for root, _, files in os.walk(d):
+                      for fn in files:
+                          if fn in candidates or fn.endswith(f"_{c:03d}.json"):
+                              fp = os.path.join(root, fn)
+                              try:
+                                  with open(fp, "r", encoding="utf-8") as fh:
+                                      data = json.load(fh)
+                                  if isinstance(data, dict) and ("proxies" in data or data.get("chunk_idx") == c):
+                                      return data
+                              except Exception:
+                                  pass
+              # Fallback: scan any local pool json for matching chunk_idx
+              for fp in _iter_local_chunk_files():
+                  try:
+                      with open(fp, "r", encoding="utf-8") as fh:
+                          data = json.load(fh)
+                      if not isinstance(data, dict):
+                          continue
+                      if data.get("chunk_idx") == c or (c == 0 and data.get("start_seq") == 1):
+                          return data
+                      # range membership
+                      ss, es = data.get("start_seq"), data.get("end_seq")
+                      if ss is not None and es is not None and c == 0 and ss == 1:
+                          return data
+                  except Exception:
+                      pass
+              return None
+
+
+          def load_all_local_proxies():
+              allp = {}
+              for fp in _iter_local_chunk_files():
+                  try:
+                      with open(fp, "r", encoding="utf-8") as fh:
+                          data = json.load(fh)
+                      for p in (data or {}).get("proxies", []) or []:
+                          if isinstance(p, dict) and p.get("seq") is not None:
+                              allp[int(p["seq"])] = p
+                  except Exception:
+                      pass
+              return [allp[k] for k in sorted(allp)]
+
+
+          def gh_refresh_chunk(c):
+              """Try gh CLI to pull a specific chunk artifact into TEMP/proxy_pool (best-effort)."""
+              if not TOKEN or not RUN_ID:
+                  return None
+              dest = os.path.join(TEMP, "proxy_pool")
+              os.makedirs(dest, exist_ok=True)
+              name = f"proxy-chunk-{c:03d}"
+              try:
+                  r = subprocess.run(
+                      ["gh", "run", "download", str(RUN_ID), "-R", REPO, "--name", name, "-D", dest],
+                      capture_output=True, text=True, timeout=90,
+                      env={**os.environ, "GH_TOKEN": TOKEN, "GITHUB_TOKEN": TOKEN},
+                  )
+                  if r.returncode != 0 and r.stderr:
+                      say(f"[Pool] gh download {name}: {(r.stderr or '')[:160].strip()}")
+              except Exception as e:
+                  say(f"[Pool] gh download unavailable: {type(e).__name__}")
+              return load_local_chunk_by_idx(c)
+
+
           def list_artifacts(name=None):
-              url = f"{API}/repos/{REPO}/actions/runs/{RUN_ID}/artifacts?per_page=100"
-              if name:
-                  url += f"&name={name}"
-              return [a for a in gh_json(url).get("artifacts", []) if not a.get("expired")]
+              """Prefer reporting locally available chunks; fall back to API (may 403)."""
+              local = []
+              for fp in _iter_local_chunk_files():
+                  base = os.path.basename(fp)
+                  # map proxy_chunk_000.json -> proxy-chunk-000
+                  art_name = base
+                  if base.startswith("proxy_chunk_") and base.endswith(".json"):
+                      num = base[len("proxy_chunk_"):-len(".json")]
+                      art_name = f"proxy-chunk-{num}"
+                  if name and art_name != name and base != name:
+                      continue
+                  local.append({"name": art_name, "id": f"local:{fp}", "expired": False, "_local_path": fp})
+              if local:
+                  return local
+              try:
+                  url = f"{API}/repos/{REPO}/actions/runs/{RUN_ID}/artifacts?per_page=100"
+                  if name:
+                      url += f"&name={name}"
+                  return [a for a in gh_json(url).get("artifacts", []) if not a.get("expired")]
+              except Exception as e:
+                  say(f"[Pool] artifacts API unavailable ({type(e).__name__}); relying on local files only")
+                  return []
 
 
           def download_zip(art_id):
+              # Local pseudo-ids
+              if isinstance(art_id, str) and art_id.startswith("local:"):
+                  fp = art_id[len("local:"):]
+                  # Wrap single json as a fake zip-equivalent is not needed; callers should use local path
+                  with open(fp, "rb") as fh:
+                      return fh.read()
               url = f"{API}/repos/{REPO}/actions/artifacts/{art_id}/zip"
               opener = urllib.request.build_opener(NoRedirect)
               try:
@@ -4172,17 +4487,38 @@ jobs:
               finished_seen = False
               waited_from = time.time()
               while True:
-                  arts = list_artifacts(name)
-                  if arts:
-                      blob = download_zip(arts[0]["id"])
-                      with zipfile.ZipFile(io.BytesIO(blob)) as z:
-                          fn = [n for n in z.namelist() if n.endswith(".json")][0]
-                          data = json.loads(z.read(fn))
+                  # 1) Local files from actions/download-artifact (no API, no 403)
+                  data = load_local_chunk_by_idx(c)
+                  if data:
                       _cache[c] = data
-                      say(f"[Pool] Chunk {c} loaded ({data.get('generated')}/{data.get('requested')} proxies, range #{data.get('start_seq')}-#{data.get('end_seq')})")
+                      say(f"[Pool] Chunk {c} loaded from LOCAL file ({data.get('generated')}/{data.get('requested')} proxies, range #{data.get('start_seq')}-#{data.get('end_seq')})")
                       return data
+                  # 2) Refresh via gh CLI (same-run artifact download)
+                  data = gh_refresh_chunk(c)
+                  if data:
+                      _cache[c] = data
+                      say(f"[Pool] Chunk {c} loaded via gh ({data.get('generated')}/{data.get('requested')} proxies, range #{data.get('start_seq')}-#{data.get('end_seq')})")
+                      return data
+                  # 3) REST API fallback (may 403 on some runners)
+                  try:
+                      arts = list_artifacts(name)
+                      arts = [a for a in arts if not str(a.get("id", "")).startswith("local:")]
+                      if arts:
+                          blob = download_zip(arts[0]["id"])
+                          with zipfile.ZipFile(io.BytesIO(blob)) as z:
+                              fn = [n for n in z.namelist() if n.endswith(".json")][0]
+                              data = json.loads(z.read(fn))
+                          _cache[c] = data
+                          say(f"[Pool] Chunk {c} loaded via API ({data.get('generated')}/{data.get('requested')} proxies, range #{data.get('start_seq')}-#{data.get('end_seq')})")
+                          return data
+                  except Exception as e:
+                      say(f"[Pool] API fetch for chunk {c} failed: {type(e).__name__}: {e}")
                   if c == 0:
-                      say("[Pool] Chunk 0 artifact missing although the initial pool job already finished.")
+                      # Initial chunk must already exist (job dependency). Retry local briefly then fail.
+                      if time.time() - waited_from < 90:
+                          time.sleep(5)
+                          continue
+                      say("[Pool] Chunk 0 not found locally or via API after retries (download-artifact may have failed).")
                       return None
                   if finished_seen:
                       say(f"[Pool] Chunk {c} generator job finished but produced no artifact.")
@@ -4243,10 +4579,14 @@ jobs:
               wait_s = GATE_WAIT_MIN * 60
               t0 = time.time()
               last_log = 0.0
-              say("[Gate] Runner is up. Holding here until the initial 5% proxy pool (chunk 0) has been uploaded...")
+              say("[Gate] Runner is up. Job dependency already required initial pool; verifying local/API availability...")
+              # Fast path: local files from download-artifact step (or prior job dependency)
+              if load_local_chunk_by_idx(0) or load_all_local_proxies():
+                  say(f"[Gate] Initial pool found LOCAL after {int(time.time() - t0)}s -> device may proceed.")
+                  return
               while True:
                   try:
-                      if list_artifacts("proxy-chunk-000"):
+                      if load_local_chunk_by_idx(0) or list_artifacts("proxy-chunk-000"):
                           say(f"[Gate] Initial pool is READY after {int(time.time() - t0)}s -> device may proceed.")
                           return
                   except Exception as e:
@@ -4406,12 +4746,20 @@ jobs:
               try:
                   with open(pool_file, "r", encoding="utf-8") as fh:
                       p = json.load(fh)
+                  host = p.get("host") or ""
+                  port = p.get("port") or ""
+                  raw_server = p.get("server_with_proto") or p.get("server") or ""
+                  if not raw_server and host and port:
+                      raw_server = f"http://{host}:{port}"
+                  server_no_proto = raw_server.replace("http://", "").replace("https://", "")
+                  if not server_no_proto and host and port:
+                      server_no_proto = f"{host}:{port}"
                   active_proxy = {
-                      'server': (p.get("server_with_proto") or p.get("server") or "").replace("http://", "").replace("https://", ""),
-                      'server_with_proto': p.get("server_with_proto") or p.get("server") or "",
+                      'server': server_no_proto,
+                      'server_with_proto': raw_server if raw_server.startswith("http") else (f"http://{server_no_proto}" if server_no_proto else ""),
                       'username': p.get("username") or "",
                       'password': p.get("password") or "",
-                      'proxy_type_label': p.get("proxy_type_label") or "pool",
+                      'proxy_type_label': p.get("proxy_type_label") or p.get("source") or "pool",
                       'country_code': (p.get("country_code") or "US").upper(),
                       'city': p.get("city") or "",
                       'region': p.get("region") or "",
@@ -4422,6 +4770,8 @@ jobs:
                       'windows_keyboard': p.get("windows_keyboard") or "0409:00000409",
                       'working': True
                   }
+                  if not active_proxy['server']:
+                      raise ValueError("pool proxy missing host/port/server fields")
                   use_proxy = True
                   print("========== USING PROXY FROM POOL (no API-key generation) ==========")
                   print(f"Pool proxy #{p.get('seq')} '{p.get('name')}' ({p.get('assigned_origin')}) -> IP {active_proxy['ip']} ({active_proxy['country_code']}) | provider: {active_proxy['proxy_type_label']}")
