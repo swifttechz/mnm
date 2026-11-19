@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '5'
+        default: '10'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '245'
+        default: '240'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -135,12 +135,12 @@ on:
         description: 'Apply Fingerprint Masking'
         required: true
         type: boolean
-        default: false
+        default: true
       scrapeops_api_key:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmViMGM3NGEzNWU3N2U0NjdiY2Y0YyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZWIwYzc0YTM1ZTc3ZTQ2N2JjZjFhIn0.AU69lADisxEuz4YbdaBeygDdgF2Dj8HjVMWrKMeyPec'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmViMzdmYzYxZGM2M2I3YzljMjBkYyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZWIzN2VjNjFkYzYzYjdjOWMyMDY2In0.ZpAs00B99_BT8FvWcB0ENlz9yRGM1jhKnECHZ35jbjg'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -166,7 +166,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'France'
+        default: 'USA'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -188,7 +188,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Australia'
+        default: 'Canada'
       mobile_proxies:
         description: 'Use Mobile Proxies'
         required: true
