@@ -1,4 +1,4 @@
-name: Parallel mx10.13FA
+name: Parallel mx10.14FA
 
 on:
   workflow_dispatch:
@@ -57,7 +57,7 @@ on:
           - '10 minutes'
           - '11 minutes'
           - '12 minutes'
-        default: '10 minutes'
+        default: '9 minutes'
       num_installs:
         description: 'Installs'
         required: true
@@ -77,7 +77,7 @@ on:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
         type: boolean
-        default: true
+        default: false
       enable_surf:
         description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmYzYTU0MjgzNzhjM2IwYTkwOTI0MyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZjNhNTQyODM3OGMzYjBhOTA5MjI0In0.Ll5xgnE02TmV730dZ_rpgsqSP9SR2a8fq27MV_sUtX0'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmQ3NjI1Nzk4OGZjZTE2MjdkMjYyZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZDc2MjQ3OTg4ZmNlMTYyN2QyNWM2In0.vk5CtR7hfgWW7LC7LJpkb7Thp0ULWHZe2uz6WP7N6Os'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -188,7 +188,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Canada'
+        default: 'Australia'
       proxy_type:
         description: 'Proxy Type (Residential / Datacenter / Mobile)'
         required: true
@@ -215,11 +215,12 @@ on:
           - '30%'
           - '40%'
           - '50%'
-        default: '5%'
+        default: '10%'
 
 permissions:
   actions: write
   contents: write
+  checks: write
 
 jobs:
   save_inputs:
@@ -259,7 +260,7 @@ jobs:
         run: |
           import os, re, glob
 
-          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.13FA")
+          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.14FA")
           workflow_dir = ".github/workflows"
           target_file = None
 
@@ -3478,7 +3479,16 @@ jobs:
           path: ${{ runner.temp }}/proxy_pool
           merge-multiple: true
 
-      - name: Acquire Proxy From Pool (wait for batch, API key only as last resort)
+      - name: "List downloaded pool files (debug)"
+        if: ${{ needs.prepare_matrix.outputs.pool_active == 'true' }}
+        shell: bash
+        run: |
+          echo "RUNNER_TEMP=$RUNNER_TEMP"
+          echo "--- tree ---"
+          find "${RUNNER_TEMP}/proxy_pool" -type f 2>/dev/null | head -50 || echo "(no proxy_pool dir yet)"
+          find "${RUNNER_TEMP}" -name 'proxy_chunk_*.json' 2>/dev/null | head -50 || true
+
+      - name: Acquire Proxy From Pool (local-first, multi-method, no on-device API)
         shell: python
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3490,35 +3500,311 @@ jobs:
           POOL_TOTAL: ${{ needs.prepare_matrix.outputs.pool_total }}
           INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
           CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
-          POOL_MODE: fetch
-          POOL_WAIT_MINUTES: '15'
-          INITIAL_ALREADY_READY: 'true'  # devices only start after initial_proxy_pool finished
+          POOL_WAIT_MINUTES: '18'
           RUN_ATTEMPT: ${{ github.run_attempt }}
           REUSE_PROXIES: ${{ inputs.reuse_proxies }}
           UNIQUE_IP: ${{ inputs.unique_ip }}
+          GITHUB_SHA: ${{ github.sha }}
         run: |
-          import os, sys, json, time, io, zipfile, subprocess
+          import os, sys, json, time, io, zipfile, subprocess, glob, random, re
           import urllib.request, urllib.error
 
-          # ========== ROBUST PROXY ACQUISITION POLICY ==========
-          # 1. Devices only reach this step AFTER initial_proxy_pool job has finished
-          #    (or was intentionally skipped for 0%). No long gate wait.
-          # 2. Prefer pool proxy #TASK (1-based). If unique_ip and that exit IP is
-          #    already claimed by another device, try the next proxies in order
-          #    (wrap when reuse_proxies=true). Re-validate exit IP every time because
-          #    sticky/mobile sessions can rotate the IP; a changed IP is a new claim.
-          # 3. API-key / on-demand generation is the last resort after pool attempts.
-          # 4. 403 / transient artifact errors use exponential backoff (max ~6 min).
+          def say(m=""):
+              print(m, flush=True)
 
+          def geti(k, d=0):
+              try:
+                  return int(os.environ.get(k, str(d)))
+              except Exception:
+                  return d
+
+          TASK = geti("TASK_INDEX", 1)
+          TASKS_TOTAL = geti("TASKS_TOTAL")
+          POOL_TOTAL = geti("POOL_TOTAL")
+          INITIAL = max(0, geti("INITIAL_TARGET", 0))
+          CHUNK_SIZE = max(1, geti("CHUNK_SIZE", 10))
+          WAIT_MIN = geti("POOL_WAIT_MINUTES", 18)
+          POOL_ENABLED = os.environ.get("POOL_ENABLED", "false").lower() == "true"
+          TEMP = os.environ.get("RUNNER_TEMP") or os.environ.get("TEMP") or os.getcwd()
+          OUT = os.path.join(TEMP, "pool_proxy.json")
+          GH_ENV = os.environ.get("GITHUB_ENV")
+          TOKEN = os.environ.get("GH_TOKEN", "")
+          REPO = os.environ.get("REPO", "")
+          RUN_ID = os.environ.get("RUN_ID", "")
+          API = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+          HDR = {
+              "Authorization": f"Bearer {TOKEN}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "proxy-pool-client",
+          }
+          REUSE = os.environ.get("REUSE_PROXIES", "false").lower() == "true"
+          UNIQUE = os.environ.get("UNIQUE_IP", "false").lower() == "true"
+
+          def set_env(k, v):
+              if GH_ENV:
+                  with open(GH_ENV, "a", encoding="utf-8") as f:
+                      f.write(f"{k}={v}\n")
+
+          def finish_ok(chosen, origin):
+              if len(chosen.get("password", "")) >= 8:
+                  print(f"::add-mask::{chosen['password']}", flush=True)
+              chosen["assigned_origin"] = origin
+              with open(OUT, "w", encoding="utf-8") as f:
+                  json.dump(chosen, f)
+              set_env("POOL_PROXY_SOURCE", "pool")
+              set_env("POOL_PROXY_NAME", chosen.get("name", ""))
+              set_env("POOL_PROXY_IP", chosen.get("ip", ""))
+              say("")
+              say(f"[Pool] RESULT: device #{TASK} uses POOL proxy #{chosen.get('seq')} ({origin})")
+              say(f"[Pool]   name     : {chosen.get('name')}")
+              say(f"[Pool]   exit IP  : {chosen.get('ip')} | {chosen.get('country_code', '')} {chosen.get('city', '')}")
+              say(f"[Pool]   claim    : {chosen.get('ip_claim')}")
+              say(f"[Pool]   provider : {chosen.get('source')}")
+              say("[Pool] API-key generation will NOT be used for this device.")
+              sys.exit(0)
+
+          def finish_none(reason):
+              say(f"[Pool] RESULT: no pool proxy for device #{TASK} ({reason})")
+              say("[Pool] -> Pool mode is ON: API-key generation on the device is DISABLED.")
+              say("::error title=No pool proxy::Device could not obtain a proxy from the pool. "
+                  "API keys are only used by the Initial Proxy Pool / Proxy Feed jobs, not by device runners.")
+              set_env("POOL_PROXY_SOURCE", "none")
+              sys.exit(1)
+
+          say("=" * 72)
+          say(f" DEVICE #{TASK}: ACQUIRE PROXY FROM POOL")
+          say("=" * 72)
+          say(f"[Pool] Needs proxy number      : #{TASK}  (pool = tasks {TASKS_TOTAL} + spares {max(0, POOL_TOTAL - TASKS_TOTAL)} = {POOL_TOTAL})")
+          say(f"[Pool] Initial target          : {INITIAL} | chunk_size={CHUNK_SIZE} | reuse={REUSE} | unique_ip={UNIQUE}")
+
+          if not POOL_ENABLED:
+              say("[Pool] Pool is disabled. Device may use on-demand API generation later.")
+              set_env("POOL_PROXY_SOURCE", "none")
+              sys.exit(0)
+
+          if os.path.isfile(OUT):
+              try:
+                  os.remove(OUT)
+              except Exception:
+                  pass
+
+          # ------------------------------------------------------------------
+          # LOCAL DISCOVERY (primary path - avoids GitHub API 403 storms)
+          # ------------------------------------------------------------------
+          def local_search_roots():
+              roots = [
+                  os.path.join(TEMP, "proxy_pool"),
+                  os.path.join(TEMP, "proxy_pool", "proxy-chunk-000"),
+                  TEMP,
+                  os.getcwd(),
+                  os.path.join(os.getcwd(), "proxy_pool"),
+              ]
+              # download-artifact@v4 with pattern may create one subdir per artifact
+              base = os.path.join(TEMP, "proxy_pool")
+              if os.path.isdir(base):
+                  try:
+                      for name in os.listdir(base):
+                          p = os.path.join(base, name)
+                          if os.path.isdir(p):
+                              roots.append(p)
+                  except Exception:
+                      pass
+              return roots
+
+          def load_all_local():
+              """Return dict seq -> proxy from every proxy_chunk_*.json found on disk."""
+              found = {}
+              files = []
+              for root in local_search_roots():
+                  if not root or not os.path.isdir(root):
+                      continue
+                  files.extend(glob.glob(os.path.join(root, "proxy_chunk_*.json")))
+                  files.extend(glob.glob(os.path.join(root, "**", "proxy_chunk_*.json"), recursive=True))
+              # de-dupe paths
+              seen_fp = set()
+              for fp in files:
+                  fp = os.path.normpath(fp)
+                  if fp in seen_fp:
+                      continue
+                  seen_fp.add(fp)
+                  try:
+                      with open(fp, "r", encoding="utf-8") as fh:
+                          data = json.load(fh)
+                      n = 0
+                      for p in data.get("proxies", []):
+                          seq = p.get("seq")
+                          if seq is not None:
+                              found[int(seq)] = p
+                              n += 1
+                      say(f"[Pool] LOCAL loaded {fp} -> {n} proxies (chunk_idx={data.get('chunk_idx')})")
+                  except Exception as e:
+                      say(f"[Pool] LOCAL skip {fp}: {type(e).__name__}: {e}")
+              return found
+
+          # ------------------------------------------------------------------
+          # BACKUP METHOD 1: gh CLI (often works when raw REST hits 403)
+          # ------------------------------------------------------------------
+          def fetch_via_gh_cli():
+              """Download all proxy-chunk-* artifacts for this run into TEMP/proxy_pool using gh."""
+              dest = os.path.join(TEMP, "proxy_pool")
+              os.makedirs(dest, exist_ok=True)
+              if not TOKEN or not REPO or not RUN_ID:
+                  return False
+              env = os.environ.copy()
+              env["GH_TOKEN"] = TOKEN
+              # gh run download <run-id> -n proxy-chunk-000 -D dest
+              # Try downloading known chunk names; ignore failures
+              ok_any = False
+              max_chunk = 0
+              if CHUNK_SIZE > 0 and POOL_TOTAL > INITIAL:
+                  max_chunk = 1 + max(0, (POOL_TOTAL - INITIAL - 1) // CHUNK_SIZE)
+              max_chunk = min(max_chunk, 60)
+              names = [f"proxy-chunk-{i:03d}" for i in range(0, max_chunk + 1)]
+              for name in names:
+                  try:
+                      r = subprocess.run(
+                          ["gh", "run", "download", str(RUN_ID), "-n", name, "-D", dest, "-R", REPO],
+                          env=env, capture_output=True, text=True, timeout=90,
+                      )
+                      if r.returncode == 0:
+                          say(f"[Pool] gh CLI downloaded artifact {name}")
+                          ok_any = True
+                      else:
+                          err = (r.stderr or r.stdout or "").strip()[:120]
+                          if err and "not found" not in err.lower():
+                              say(f"[Pool] gh CLI {name}: {err}")
+                  except FileNotFoundError:
+                      say("[Pool] gh CLI not available on this runner")
+                      return False
+                  except Exception as e:
+                      say(f"[Pool] gh CLI {name} error: {type(e).__name__}: {e}")
+              return ok_any
+
+          # ------------------------------------------------------------------
+          # BACKUP METHOD 2: REST API with heavy 403 backoff
+          # ------------------------------------------------------------------
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *a, **k):
+                  return None
+
+          def gh_json(url, retries=8):
+              last = None
+              for i in range(retries):
+                  try:
+                      req = urllib.request.Request(url, headers=HDR)
+                      with urllib.request.urlopen(req, timeout=45) as r:
+                          return json.loads(r.read())
+                  except urllib.error.HTTPError as e:
+                      last = e
+                      # 403 is common under parallel load - back off hard
+                      if e.code in (403, 404, 429, 500, 502, 503, 504) and i < retries - 1:
+                          wait = min(60, 3 + i * 5 + random.randint(0, 4))
+                          say(f"[Pool] REST {e.code} on list/get - backoff {wait}s (try {i+1}/{retries})")
+                          time.sleep(wait)
+                          continue
+                      raise
+                  except Exception as e:
+                      last = e
+                      if i < retries - 1:
+                          time.sleep(min(30, 2 + i * 3))
+                          continue
+                      raise
+              if last:
+                  raise last
+              return {}
+
+          def list_artifacts_rest(name=None):
+              arts = []
+              page = 1
+              while page <= 5:
+                  url = f"{API}/repos/{REPO}/actions/runs/{RUN_ID}/artifacts?per_page=100&page={page}"
+                  data = gh_json(url)
+                  batch = data.get("artifacts", [])
+                  if not batch:
+                      break
+                  for a in batch:
+                      if a.get("expired"):
+                          continue
+                      if name and a.get("name") != name:
+                          continue
+                      arts.append(a)
+                  if len(batch) < 100:
+                      break
+                  page += 1
+              return arts
+
+          def download_zip_rest(art_id):
+              url = f"{API}/repos/{REPO}/actions/artifacts/{art_id}/zip"
+              opener = urllib.request.build_opener(NoRedirect)
+              last_err = None
+              for attempt in range(1, 8):
+                  try:
+                      req = urllib.request.Request(url, headers=HDR)
+                      with opener.open(req, timeout=60) as r:
+                          return r.read()
+                  except urllib.error.HTTPError as e:
+                      last_err = e
+                      if e.code in (301, 302, 303, 307, 308):
+                          loc = e.headers.get("Location")
+                          with urllib.request.urlopen(urllib.request.Request(loc, headers={"User-Agent": "proxy-pool-client"}), timeout=90) as r2:
+                              return r2.read()
+                      if e.code in (403, 429, 500, 502, 503, 504) and attempt < 7:
+                          wait = min(60, 2 ** attempt + random.randint(0, 5))
+                          say(f"[Pool] REST download HTTP {e.code} - backoff {wait}s (try {attempt}/7)")
+                          time.sleep(wait)
+                          continue
+                      raise
+                  except Exception as e:
+                      last_err = e
+                      time.sleep(min(30, 2 ** attempt))
+              if last_err:
+                  raise last_err
+              raise RuntimeError("download_zip_rest failed")
+
+          def fetch_via_rest():
+              dest = os.path.join(TEMP, "proxy_pool")
+              os.makedirs(dest, exist_ok=True)
+              try:
+                  arts = list_artifacts_rest()
+              except Exception as e:
+                  say(f"[Pool] REST list_artifacts failed: {type(e).__name__}: {e}")
+                  return False
+              ok = False
+              for a in arts:
+                  name = a.get("name") or ""
+                  if not name.startswith("proxy-chunk-"):
+                      continue
+                  try:
+                      blob = download_zip_rest(a["id"])
+                      with zipfile.ZipFile(io.BytesIO(blob)) as z:
+                          for fn in z.namelist():
+                              if fn.endswith(".json"):
+                                  target = os.path.join(dest, os.path.basename(fn))
+                                  with open(target, "wb") as out:
+                                      out.write(z.read(fn))
+                                  say(f"[Pool] REST saved {name} -> {target}")
+                                  ok = True
+                  except Exception as e:
+                      say(f"[Pool] REST download {name} failed: {type(e).__name__}: {e}")
+              return ok
+
+          def chunk_for(seq):
+              if INITIAL <= 0:
+                  return 0
+              if seq <= INITIAL:
+                  return 0
+              return 1 + (seq - INITIAL - 1) // CHUNK_SIZE
+
+          # ------------------------------------------------------------------
+          # IP claim (unique IP)
+          # ------------------------------------------------------------------
           def _ipc_api(method, path, body=None):
-              import os, json, urllib.request, urllib.error
-              base = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
               data = json.dumps(body).encode() if body is not None else None
-              headers = {"Authorization": f"Bearer {os.environ.get('GH_TOKEN', '')}", "Accept": "application/vnd.github+json",
-                         "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "ip-claim-client"}
+              headers = dict(HDR)
               if data is not None:
                   headers["Content-Type"] = "application/json"
-              req = urllib.request.Request(base + path, data=data, method=method, headers=headers)
+              req = urllib.request.Request(API + path, data=data, method=method, headers=headers)
               try:
                   with urllib.request.urlopen(req, timeout=30) as r:
                       return r.status, r.read()
@@ -3530,14 +3816,10 @@ jobs:
               except Exception as e:
                   return 0, str(e).encode()
 
-
           def ip_claim(ip):
-              """Atomically claims an exit IP for THIS workflow run (a git ref can only be created once).
-              Returns 'claimed' (we own it) | 'taken' (another device already used it) | 'error' (claim API unusable)."""
-              import os, re, time
-              repo = os.environ.get("REPO", "")
+              repo = REPO
               sha = os.environ.get("GITHUB_SHA", "")
-              run = f"{os.environ.get('RUN_ID', '0')}-{os.environ.get('RUN_ATTEMPT', '1')}"
+              run = f"{RUN_ID}-{os.environ.get('RUN_ATTEMPT', '1')}"
               tag = re.sub(r"[^0-9A-Za-z._-]", "_", str(ip))
               if not repo or not sha or not tag:
                   return "error"
@@ -3555,66 +3837,7 @@ jobs:
                       return "taken"
               return "error"
 
-
-          def say(m=""):
-              print(m, flush=True)
-
-
-          def geti(k, d=0):
-              try:
-                  return int(os.environ.get(k, str(d)))
-              except Exception:
-                  return d
-
-
-          TASK = geti("TASK_INDEX", 1)
-          TASKS_TOTAL = geti("TASKS_TOTAL")
-          POOL_TOTAL = geti("POOL_TOTAL")
-          INITIAL = max(1, geti("INITIAL_TARGET", 1))
-          CHUNK_SIZE = max(1, geti("CHUNK_SIZE", 10))
-          WAIT_MIN = geti("POOL_WAIT_MINUTES", 12)
-          POOL_ENABLED = os.environ.get("POOL_ENABLED", "false").lower() == "true"
-          TEMP = os.environ.get("RUNNER_TEMP", ".")
-          OUT = os.path.join(TEMP, "pool_proxy.json")
-          GH_ENV = os.environ.get("GITHUB_ENV")
-          TOKEN = os.environ.get("GH_TOKEN", "")
-          REPO = os.environ.get("REPO", "")
-          RUN_ID = os.environ.get("RUN_ID", "")
-          API = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
-          HDR = {
-              "Authorization": f"Bearer {TOKEN}",
-              "Accept": "application/vnd.github+json",
-              "X-GitHub-Api-Version": "2022-11-28",
-              "User-Agent": "proxy-pool-client",
-          }
-
-
-          def set_env(k, v):
-              if GH_ENV:
-                  with open(GH_ENV, "a", encoding="utf-8") as f:
-                      f.write(f"{k}={v}\n")
-
-
-          def finish_none(reason):
-              say(f"[Pool] RESULT: no pool proxy for device #{TASK} ({reason})")
-              # When the proxy pool is enabled, devices must NOT burn API keys on-runner.
-              # Pool jobs own all API generation. Fail this device so the problem is visible.
-              say("[Pool] -> Pool mode is ON: API-key generation on the device is DISABLED.")
-              say("::error title=No pool proxy::Device could not obtain a proxy from the pool. "
-                  "API keys are only used by the Initial Proxy Pool / Proxy Feed jobs, not by device runners.")
-              set_env("POOL_PROXY_SOURCE", "none")
-              sys.exit(1)
-
-
-          MODE = os.environ.get("POOL_MODE", "fetch")
-          GATE_WAIT_MIN = geti("GATE_WAIT_MINUTES", 20)
-          REUSE = os.environ.get("REUSE_PROXIES", "false").lower() == "true"
-          UNIQUE = os.environ.get("UNIQUE_IP", "false").lower() == "true"
-
-
           def probe_proxy(p):
-              """Device-time check THROUGH the proxy. Returns {'ip','cc','tz','city','region'} or None.
-              Pool proxies are generated earlier and their exit IPs drift, so the IP is always re-read here."""
               try:
                   import requests, urllib3
               except ImportError:
@@ -3624,8 +3847,12 @@ jobs:
               auth = f"{p['username']}:{p['password']}@" if p.get("username") else ""
               url = f"http://{auth}{p['host']}:{p['port']}"
               cfg = {"http": url, "https": url}
-              eps = [("http://ip-api.com/json/", "ip-api"), ("https://ipinfo.io/json", "ipinfo"),
-                     ("http://ipwho.is/", "ipwho"), ("https://api.myip.com", "myip")]
+              eps = [
+                  ("http://ip-api.com/json/", "ip-api"),
+                  ("https://ipinfo.io/json", "ipinfo"),
+                  ("http://ipwho.is/", "ipwho"),
+                  ("https://api.myip.com", "myip"),
+              ]
               for attempt in range(2):
                   for ep, nm in eps:
                       try:
@@ -3649,469 +3876,157 @@ jobs:
                   time.sleep(2)
               return None
 
-
-          def find_seq(data, seq):
-              if not data:
-                  return None
-              for p in data.get("proxies", []):
-                  if p.get("seq") == seq:
-                      return p
-              return None
-
-
-          def load_local_chunks():
-              """Load any proxy_chunk_*.json already on disk (from download-artifact or prior get_chunk)."""
-              import glob
-              found = {}
-              search_dirs = [
-                  os.path.join(TEMP, "proxy_pool"),
-                  TEMP,
-                  os.getcwd(),
-                  os.path.join(os.getcwd(), "proxy_pool"),
-              ]
-              for d in search_dirs:
-                  if not d or not os.path.isdir(d):
-                      continue
-                  for fp in glob.glob(os.path.join(d, "**", "proxy_chunk_*.json"), recursive=True):
-                      try:
-                          with open(fp, "r", encoding="utf-8") as fh:
-                              data = json.load(fh)
-                          for p in data.get("proxies", []):
-                              if "seq" in p:
-                                  found[p["seq"]] = p
-                          say(f"[Pool] Loaded local chunk file: {fp} ({len(data.get('proxies', []))} proxies)")
-                      except Exception as e:
-                          say(f"[Pool] skip local {fp}: {type(e).__name__}")
-              return found
-
-          def load_all_available():
-              """Every proxy that exists in the pool right now, sorted by number (needed to wrap around when reusing).
-              Prefers local files from download-artifact to avoid GitHub API 403s."""
-              allp = load_local_chunks()
-              if allp:
-                  say(f"[Pool] Local pool snapshot: {len(allp)} proxies (seqs {min(allp)}-{max(allp)})")
-              try:
-                  for a in list_artifacts():
-                      if not a["name"].startswith("proxy-chunk-"):
-                          continue
-                      try:
-                          c = int(a["name"].rsplit("-", 1)[1])
-                      except Exception:
-                          continue
-                      try:
-                          data = get_chunk(c, time.time())
-                      except Exception:
-                          data = None
-                      for p in (data or {}).get("proxies", []):
-                          allp[p["seq"]] = p
-              except Exception as e:
-                  say(f"[Pool] could not enumerate pool chunks via API: {type(e).__name__}: {e}")
-              return [allp[k] for k in sorted(allp)]
-
-
-          _tried = set()
-
-
           def try_candidate(p, origin, idx, total):
-              """Device-time verification of one pool proxy. Returns the accepted (refreshed) record or None."""
               seq = p.get("seq")
-              if seq in _tried:
-                  return None
-              _tried.add(seq)
-              say(f"[Pool] Candidate {idx}/{total}: proxy #{seq} '{p.get('name')}' ({origin}) - IP recorded at pool time: {p.get('ip')}")
+              say(f"[Pool] Candidate {idx}/{total}: proxy #{seq} '{p.get('name')}' ({origin}) - pool IP: {p.get('ip')}")
               info = probe_proxy(p)
               if not info:
-                  say("[Pool]   -> UNHEALTHY: no exit IP could be read through this proxy on this device. Skipping.")
+                  say("[Pool]   -> UNHEALTHY: cannot read exit IP through proxy. Skipping.")
                   return None
               now_ip = info["ip"]
               if p.get("ip") and now_ip != p.get("ip"):
-                  say(f"[Pool]   exit IP CHANGED since the pool was generated: {p.get('ip')} -> {now_ip}  (re-checked on this device)")
+                  say(f"[Pool]   exit IP CHANGED: {p.get('ip')} -> {now_ip} (counts as new unique IP)")
               else:
-                  say(f"[Pool]   exit IP on this device: {now_ip}")
+                  say(f"[Pool]   exit IP verified: {now_ip}")
 
               claim = "off"
               if UNIQUE:
                   claim = ip_claim(now_ip)
                   if claim == "taken":
-                      say(f"[Pool]   -> IP {now_ip} is ALREADY USED by another device in this run. Skipping this proxy (Unique IP).")
+                      say(f"[Pool]   -> IP {now_ip} already used by another device. Skipping.")
                       return None
                   if claim == "claimed":
-                      say(f"[Pool]   -> IP {now_ip} is UNIQUE and is now recorded for this device.")
+                      say(f"[Pool]   -> IP {now_ip} claimed uniquely for this device.")
                   else:
-                      say("::warning title=Unique IP::Claim API unavailable - continuing WITHOUT uniqueness guarantee for this device.")
+                      say("::warning title=Unique IP::Claim API unavailable - continuing without hard uniqueness.")
 
               rec = dict(p)
               rec["ip_pool_recorded"] = p.get("ip")
               rec["ip"] = now_ip
-              rec["ip_verified_on_device"] = True
+              rec["country_code"] = info.get("cc") or p.get("country_code") or "US"
+              rec["city"] = info.get("city") or p.get("city") or ""
+              rec["region"] = info.get("region") or p.get("region") or ""
               rec["ip_claim"] = claim
-              if info["city"]:
-                  rec["city"] = info["city"]
-              if info["region"]:
-                  rec["region"] = info["region"]
-              if info["cc"] and info["cc"] != (p.get("country_code") or "").upper():
-                  say(f"[Pool]   country changed {p.get('country_code')} -> {info['cc']}: locale / timezone / keyboard re-derived so masking matches the real exit IP.")
-                  rec["country_code"] = info["cc"]
-                  rec["country_name"] = info["cc"]
-                  tz = info["tz"] or rec.get("timezone_iana") or "UTC"
-                  rec["timezone_iana"] = tz
-                  rec["timezone_windows"] = tz_to_windows_tz(tz)
-                  rec["windows_locale"] = country_code_to_locale(info["cc"])
-                  rec["windows_keyboard"] = country_code_to_keyboard(info["cc"])
-              elif info["tz"] and not rec.get("timezone_iana"):
-                  rec["timezone_iana"] = info["tz"]
-                  rec["timezone_windows"] = tz_to_windows_tz(info["tz"])
+              # Ensure server fields for downstream
+              host = p.get("host") or ""
+              port = p.get("port") or 80
+              user = p.get("username") or ""
+              pwd = p.get("password") or ""
+              if user:
+                  rec["server_with_proto"] = f"http://{user}:{pwd}@{host}:{port}"
+              else:
+                  rec["server_with_proto"] = f"http://{host}:{port}"
+              rec["server"] = f"{host}:{port}"
               return rec
 
+          # ------------------------------------------------------------------
+          # MAIN LOOP: local -> gh CLI -> REST, retry until deadline
+          # ------------------------------------------------------------------
+          deadline = time.time() + WAIT_MIN * 60
+          tried_methods = set()
+          attempt = 0
+          _tried_seqs = set()
 
-          def candidates(primary):
-              """Lazy candidate order for this device.
-              Reuse OFF: primary #N -> spare proxies (the extra 10-15%).
-              Reuse ON : primary #N (or, when the pool is used up, the wrap-around position) and then walk the whole
-                         pool in order, wrapping from the last proxy back to proxy #1."""
-              if primary:
-                  yield primary, "primary"
-              if REUSE:
-                  pool = load_all_available()
-                  if not pool:
-                      return
-                  n = len(pool)
-                  if primary:
-                      start = next((i for i, x in enumerate(pool) if x["seq"] == primary["seq"]), (TASK - 1) % n) + 1
-                      note = "reuse"
-                  else:
-                      start = (TASK - 1) % n
-                      note = f"reuse wrap-around (pool has {n} proxies, device #{TASK} -> position {start + 1})"
-                      say(f"[Pool] REUSE enabled: {note}")
-                  for k in range(min(n, 40)):
-                      x = pool[(start + k) % n]
-                      yield x, f"reuse #{x['seq']}"
-              else:
-                  extra = POOL_TOTAL - TASKS_TOTAL
-                  if extra > 0:
-                      seqs = list(range(TASKS_TOTAL + 1, POOL_TOTAL + 1))
-                      random.Random(TASK).shuffle(seqs)
-                      for sp in seqs[: (10 if UNIQUE else 3)]:
-                          try:
-                              cand = find_seq(get_chunk(chunk_for(sp), time.time()), sp)
-                          except Exception:
-                              cand = None
-                          if cand:
-                              yield cand, f"spare #{sp}"
-
-          say("=" * 72)
-          say(f" DEVICE #{TASK}: " + ("GATE - WAIT FOR THE INITIAL 5% PROXY POOL" if MODE == "gate" else "ACQUIRE PROXY FROM POOL"))
-          say("=" * 72)
-          say(f"[Pool] Needs proxy number      : #{TASK}  (pool = tasks {TASKS_TOTAL} + spares {max(0, POOL_TOTAL - TASKS_TOTAL)} = {POOL_TOTAL})")
-
-          if not POOL_ENABLED:
-              say("[Pool] Pool is disabled or was skipped (use_without_proxy / initial_proxy_pool off).")
-              set_env("POOL_PROXY_SOURCE", "none")
-              sys.exit(0)
-
-          if os.path.isfile(OUT):
-              os.remove(OUT)
-
-
-          class NoRedirect(urllib.request.HTTPRedirectHandler):
-              def redirect_request(self, *a, **k):
-                  return None
-
-
-          def gh_json(url):
-              # Retry on all transient GitHub API errors (403/404 can be transient during
-              # runner spin-up when the artifact namespace isn't visible yet).
-              last = None
-              for i in range(5):
-                  try:
-                      with urllib.request.urlopen(urllib.request.Request(url, headers=HDR), timeout=30) as r:
-                          return json.loads(r.read())
-                  except urllib.error.HTTPError as e:
-                      last = e
-                      if e.code in (403, 404, 429, 500, 502, 503, 504) and i < 4:
-                          time.sleep(4 + i * 3)
-                          continue
-                      raise
-                  except Exception as e:
-                      last = e
-                      if i < 4:
-                          time.sleep(4 + i * 3)
-                          continue
-              raise last
-
-
-          def list_artifacts(name=None):
-              url = f"{API}/repos/{REPO}/actions/runs/{RUN_ID}/artifacts?per_page=100"
-              if name:
-                  url += f"&name={name}"
-              return [a for a in gh_json(url).get("artifacts", []) if not a.get("expired")]
-
-
-          def download_zip(art_id):
-              url = f"{API}/repos/{REPO}/actions/artifacts/{art_id}/zip"
-              opener = urllib.request.build_opener(NoRedirect)
-              last_err = None
-              for attempt in range(1, 6):
-                  try:
-                      with opener.open(urllib.request.Request(url, headers=HDR), timeout=30) as r:
-                          return r.read()
-                  except urllib.error.HTTPError as e:
-                      last_err = e
-                      if e.code in (301, 302, 303, 307, 308):
-                          loc = e.headers.get("Location")
-                          with urllib.request.urlopen(urllib.request.Request(loc, headers={"User-Agent": "proxy-pool-client"}), timeout=60) as r2:
-                              return r2.read()
-                      if e.code in (403, 429, 500, 502, 503, 504):
-                          wait = min(30, 2 ** attempt)
-                          say(f"[Pool] artifact download HTTP {e.code} (attempt {attempt}/5) - backoff {wait}s")
-                          time.sleep(wait)
-                          continue
-                      raise
-                  except Exception as e:
-                      last_err = e
-                      time.sleep(min(20, 2 ** attempt))
-              if last_err:
-                  raise last_err
-              raise RuntimeError("download_zip failed")
-
-
-          _job_cache = {"id": None}
-
-
-          def find_pool_job():
-              if _job_cache["id"]:
-                  try:
-                      return gh_json(f"{API}/repos/{REPO}/actions/jobs/{_job_cache['id']}")
-                  except Exception:
-                      _job_cache["id"] = None
-              for page in range(1, 11):
-                  data = gh_json(f"{API}/repos/{REPO}/actions/runs/{RUN_ID}/jobs?per_page=100&page={page}&filter=latest")
-                  jobs = data.get("jobs", [])
-                  for j in jobs:
-                      if (j.get("name") or "").startswith("Proxy Pool"):
-                          _job_cache["id"] = j["id"]
-                          return j
-                  if len(jobs) < 100:
-                      break
-              return None
-
-
-          def chunk_job_state(c):
-              """'finished' when the pool job (or that chunk's upload step) is done, 'running', or 'unknown'."""
-              job = find_pool_job()
-              if not job:
-                  return "unknown"
-              if job.get("status") == "completed":
-                  return "finished"
-              prefix = f"Chunk {c:03d} - Upload"
-              for st in job.get("steps", []):
-                  if (st.get("name") or "").startswith(prefix):
-                      return "finished" if st.get("status") == "completed" else "running"
-              return "running"
-
-
-          def chunk_for(seq):
-              if seq <= INITIAL:
-                  return 0
-              return 1 + (seq - INITIAL - 1) // CHUNK_SIZE
-
-
-          _cache = {}
-
-
-          def get_chunk(c, deadline):
-              if c in _cache:
-                  return _cache[c]
-              name = f"proxy-chunk-{c:03d}"
-              # Prefer local files from actions/download-artifact (avoids GitHub API 403)
-              import glob
-              for d in (os.path.join(TEMP, "proxy_pool"), TEMP, os.getcwd()):
-                  if not d or not os.path.isdir(d):
-                      continue
-                  for fp in glob.glob(os.path.join(d, "**", f"proxy_chunk_{c:03d}.json"), recursive=True):
-                      try:
-                          with open(fp, "r", encoding="utf-8") as fh:
-                              data = json.load(fh)
-                          _cache[c] = data
-                          say(f"[Pool] Chunk {c} loaded from LOCAL file {fp} ({len(data.get('proxies', []))} proxies)")
-                          return data
-                      except Exception as e:
-                          say(f"[Pool] local read failed {fp}: {type(e).__name__}")
-              last_status = 0.0
-              last_job = 0.0
-              finished_seen = False
-              waited_from = time.time()
-              while True:
-                  arts = list_artifacts(name)
-                  if arts:
-                      blob = download_zip(arts[0]["id"])
-                      with zipfile.ZipFile(io.BytesIO(blob)) as z:
-                          fn = [n for n in z.namelist() if n.endswith(".json")][0]
-                          data = json.loads(z.read(fn))
-                      _cache[c] = data
-                      say(f"[Pool] Chunk {c} loaded ({data.get('generated')}/{data.get('requested')} proxies, range #{data.get('start_seq')}-#{data.get('end_seq')})")
-                      return data
-                  if c == 0:
-                      say("[Pool] Chunk 0 artifact missing although the initial pool job already finished.")
-                      return None
-                  if finished_seen:
-                      say(f"[Pool] Chunk {c} generator job finished but produced no artifact.")
-                      return None
-                  now = time.time()
-                  if now - last_job >= 45:
-                      last_job = now
-                      try:
-                          st = chunk_job_state(c)
-                      except Exception as e:
-                          st = "unknown"
-                          say(f"[Pool] (job state check failed: {type(e).__name__})")
-                      if st == "finished":
-                          finished_seen = True
-                          time.sleep(5)
-                          continue
-                  if now >= deadline:
-                      say(f"[Pool] Gave up waiting for chunk {c} after {int(now - waited_from)}s.")
-                      return None
-                  if now - last_status >= 60 or last_status == 0:
-                      last_status = now
-                      say(f"[Pool] Waiting for chunk {c} (proxy batch still generating)... {int(now - waited_from)}s elapsed, limit {WAIT_MIN} min")
-                  time.sleep(15)
-
-
-          def quick_check(p):
-              try:
-                  import requests, urllib3
-              except ImportError:
-                  subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "urllib3", "--quiet"])
-                  import requests, urllib3
-              urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-              auth = f"{p['username']}:{p['password']}@" if p.get("username") else ""
-              url = f"http://{auth}{p['host']}:{p['port']}"
-              cfg = {"http": url, "https": url}
-              for attempt in range(2):
-                  for ep in ("http://ip-api.com/json/", "https://ipinfo.io/json"):
-                      try:
-                          r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
-                          if r.status_code == 200 and ("ip" in r.json() or "query" in r.json()):
-                              return True
-                      except Exception:
-                          pass
-                  time.sleep(2)
-              return False
-
-
-          def find_seq(data, seq):
-              if not data:
-                  return None
-              for p in data.get("proxies", []):
-                  if p.get("seq") == seq:
-                      return p
-              return None
-
-
-          def run_gate():
-              wait_s = GATE_WAIT_MIN * 60
-              t0 = time.time()
-              last_log = 0.0
-              say("[Gate] Runner is up. Holding here until the initial 5% proxy pool (chunk 0) has been uploaded...")
-              while True:
-                  try:
-                      if list_artifacts("proxy-chunk-000"):
-                          say(f"[Gate] Initial pool is READY after {int(time.time() - t0)}s -> device may proceed.")
-                          return
-                  except Exception as e:
-                      say(f"[Gate] artifact check error: {type(e).__name__}")
-                  try:
-                      st = chunk_job_state(0)
-                  except Exception:
-                      st = "unknown"
-                  if st == "finished":
-                      time.sleep(5)
-                      try:
-                          if list_artifacts("proxy-chunk-000"):
-                              say("[Gate] Initial pool is READY -> device may proceed.")
-                              return
-                      except Exception:
-                          pass
-                      say("[Gate] Pool job finished WITHOUT an initial chunk -> continuing; this device will use the API-key fallback.")
-                      return
-                  now = time.time()
-                  if now - t0 >= wait_s:
-                      say(f"::warning title=Gate::Initial pool not ready after {GATE_WAIT_MIN} min -> continuing (API-key fallback).")
-                      return
-                  if now - last_log >= 30:
-                      last_log = now
-                      say(f"[Gate] ...still generating the initial 5% (pool job state: {st}) - waited {int(now - t0)}s of max {GATE_WAIT_MIN * 60}s")
-                  time.sleep(10)
-
-
-          if MODE == "gate":
-              run_gate()
-              sys.exit(0)
-
-
-          try:
-              visible = sorted(a["name"] for a in list_artifacts() if a["name"].startswith("proxy-chunk-"))
-              say(f"[Pool] Chunks visible right now : {len(visible)} -> {', '.join(visible) if visible else 'none'}")
-              say(f"[Pool] Options                  : Reuse Proxies = {REUSE} | Unique IP = {UNIQUE}")
-
-              deadline = time.time() + WAIT_MIN * 60
-              primary = None
-              if TASK <= POOL_TOTAL:
-                  c = chunk_for(TASK)
-                  say(f"[Pool] Proxy #{TASK} lives in chunk {c} (artifact proxy-chunk-{c:03d})")
-                  primary = find_seq(get_chunk(c, deadline), TASK)
-                  if not primary:
-                      say(f"[Pool] Proxy #{TASK} is not present in chunk {c}.")
-              else:
-                  say(f"[Pool] Device #{TASK} is beyond the planned pool size ({POOL_TOTAL}) - the pool is used up.")
-
-              chosen, origin = None, ""
-              tried = 0
-              max_tries = 40 if REUSE else (11 if UNIQUE else 4)
-              for cand, how in candidates(primary):
-                  tried += 1
-                  if tried > max_tries:
-                      break
-                  accepted = try_candidate(cand, how, tried, "?")
-                  if accepted:
-                      chosen, origin = accepted, how
-                      break
-
-              if not chosen:
-                  finish_none(f"no usable pool proxy after {tried} candidate(s)" + (" (Unique IP rejected the rest)" if UNIQUE else ""))
-
-              if len(chosen.get("password", "")) >= 8:
-                  print(f"::add-mask::{chosen['password']}", flush=True)
-              chosen["assigned_origin"] = origin
-              with open(OUT, "w", encoding="utf-8") as f:
-                  json.dump(chosen, f)
-              set_env("POOL_PROXY_SOURCE", "pool")
-              set_env("POOL_PROXY_NAME", chosen["name"])
-              set_env("POOL_PROXY_IP", chosen["ip"])
+          while time.time() < deadline:
+              attempt += 1
               say("")
-              say(f"[Pool] RESULT: device #{TASK} uses POOL proxy #{chosen['seq']} ({origin})")
-              say(f"[Pool]   dashboard name : {chosen['name']}   (app.gologin.com/proxy)")
-              say(f"[Pool]   exit IP        : {chosen['ip']} (verified on this device) | {chosen['country_code']} {chosen.get('city', '')}")
-              say(f"[Pool]   unique-IP claim: {chosen.get('ip_claim')}")
-              say(f"[Pool]   provider       : {chosen['source']}")
-              say("[Pool] API-key generation will NOT be used for this device.")
-              summ = os.environ.get("GITHUB_STEP_SUMMARY")
-              if summ:
-                  with open(summ, "a", encoding="utf-8") as fh:
-                      fh.write(f"### Device #{TASK} proxy\n- Pool proxy **#{chosen['seq']}** `{chosen['name']}` ({origin})\n"
-                               f"- Exit IP (verified on device): **{chosen['ip']}** (pool recorded: {chosen.get('ip_pool_recorded')})\n"
-                               f"- Unique-IP claim: **{chosen.get('ip_claim')}** | Reuse: {REUSE}\n")
-          except SystemExit:
-              raise
-          except Exception as e:
-              say(f"::warning title=Pool fetch::{type(e).__name__}: {e}")
-              finish_none(f"pool lookup error {type(e).__name__}")
-          except SystemExit:
-              raise
-          except Exception as e:
-              say(f"::warning title=Pool fetch::{type(e).__name__}: {e}")
-              finish_none(f"pool lookup error {type(e).__name__}")
+              say(f"[Pool] --- acquisition attempt {attempt} ({int(deadline - time.time())}s left) ---")
+
+              pool_map = load_all_local()
+              say(f"[Pool] Local map size: {len(pool_map)} proxies")
+
+              # If we don't have the primary seq yet, try backups
+              need_seq = TASK if TASK <= POOL_TOTAL else None
+              have_primary = need_seq is not None and need_seq in pool_map
+              if not have_primary and len(pool_map) < max(1, min(INITIAL, POOL_TOTAL)):
+                  if "gh" not in tried_methods or attempt % 3 == 0:
+                      say("[Pool] Backup method: gh CLI download...")
+                      try:
+                          fetch_via_gh_cli()
+                          tried_methods.add("gh")
+                      except Exception as e:
+                          say(f"[Pool] gh CLI method error: {type(e).__name__}: {e}")
+                      pool_map = load_all_local()
+                      say(f"[Pool] Local map after gh: {len(pool_map)}")
+
+                  if need_seq not in pool_map and ("rest" not in tried_methods or attempt % 4 == 0):
+                      # Stagger REST across devices to reduce 403 stampede
+                      stagger = (TASK % 15) + random.randint(0, 5)
+                      say(f"[Pool] Backup method: REST API (stagger {stagger}s)...")
+                      time.sleep(stagger)
+                      try:
+                          fetch_via_rest()
+                          tried_methods.add("rest")
+                      except Exception as e:
+                          say(f"[Pool] REST method error: {type(e).__name__}: {e}")
+                      pool_map = load_all_local()
+                      say(f"[Pool] Local map after REST: {len(pool_map)}")
+
+              if not pool_map:
+                  say("[Pool] No proxies on disk yet - waiting 20s for pool uploads...")
+                  time.sleep(20)
+                  continue
+
+              # Build candidate order
+              candidates = []
+              if need_seq and need_seq in pool_map:
+                  candidates.append((pool_map[need_seq], "primary"))
+              if REUSE:
+                  seqs = sorted(pool_map.keys())
+                  if seqs:
+                      # start after primary
+                      if need_seq and need_seq in pool_map:
+                          start_i = seqs.index(need_seq) + 1
+                      else:
+                          start_i = (TASK - 1) % len(seqs)
+                      for k in range(len(seqs)):
+                          seq = seqs[(start_i + k) % len(seqs)]
+                          if seq == need_seq:
+                              continue
+                          candidates.append((pool_map[seq], f"reuse #{seq}"))
+              else:
+                  # try a few spares beyond tasks
+                  for sp in range(TASKS_TOTAL + 1, min(POOL_TOTAL, TASKS_TOTAL + 15) + 1):
+                      if sp in pool_map:
+                          candidates.append((pool_map[sp], f"spare #{sp}"))
+
+              if not candidates and pool_map:
+                  # any available
+                  for seq in sorted(pool_map.keys())[:20]:
+                      candidates.append((pool_map[seq], f"available #{seq}"))
+
+              say(f"[Pool] Trying up to {min(len(candidates), 40)} candidates...")
+              for i, (cand, how) in enumerate(candidates[:40], 1):
+                  seq = cand.get("seq")
+                  if seq in _tried_seqs and how.startswith("primary") is False:
+                      # allow primary retry if IP probe failed earlier
+                      pass
+                  if seq in _tried_seqs and attempt == 1:
+                      continue
+                  _tried_seqs.add(seq)
+                  accepted = try_candidate(cand, how, i, min(len(candidates), 40))
+                  if accepted:
+                      finish_ok(accepted, how)
+
+              # If primary missing and continuous feed may still be running, wait
+              if need_seq and need_seq not in pool_map:
+                  c = chunk_for(need_seq)
+                  say(f"[Pool] Proxy #{need_seq} not in local map yet (expected chunk {c}). Waiting 25s...")
+                  time.sleep(25)
+                  # force another backup fetch next loop
+                  if c > 0:
+                      tried_methods.discard("gh")
+                      tried_methods.discard("rest")
+                  continue
+
+              # Had candidates but all unhealthy / unique-ip rejected
+              say("[Pool] All current candidates rejected. Refreshing pool and retrying in 20s...")
+              time.sleep(20)
+              tried_methods.discard("gh")
+              tried_methods.discard("rest")
+              _tried_seqs.clear()
+
+          finish_none(f"timeout after {WAIT_MIN} min with no usable pool proxy")
 
       - name: Runner Proxy & Identity Provisioning
         shell: python
