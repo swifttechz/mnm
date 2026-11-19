@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '2'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '2'
+        default: '245'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'geolocation://user-n24XHRlirmFl7unj-type-mobile-session-S3vXhhEVnhZZ-country-US:xPGp3LgbM5OZozsY@geo.floppydata.com:10080:24-US-cgqrdg geolocation://user-n24XHRlirmFl7unj-type-mobile-session-EJ9wj13FbrFg-country-US:xPGp3LgbM5OZozsY@geo.floppydata.com:10080:25-US-cukqxn geolocation://user-n24XHRlirmFl7unj-type-mobile-session-gyy0xpMUK8EN-country-US:xPGp3LgbM5OZozsY@geo.floppydata.com:10080:26-US-ecoeli geolocation://user-n24XHRlirmFl7unj-type-mobile-session-O9yvf3mU3Pvt-country-US:xPGp3LgbM5OZozsY@geo.floppydata.com:10080:27-US-kvinzc geolocation://user-n24XHRlirmFl7unj-type-mobile-session-tFiThafT2Jhh-country-US:xPGp3LgbM5OZozsY@geo.floppydata.com:10080:28-US-vkzsva'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmYwODI2ZjY4NjFjNDdhNjNkODA5OSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZjA4MjZmNjg2MWM0N2E2M2Q4MDVlIn0.YMxaU3GVLSagU56nhiwZOmldDS_K4_7TEXxR7cUifVI'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -166,7 +166,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'USA'
+        default: 'France'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -211,7 +211,7 @@ on:
           - '30%'
           - '40%'
           - '50%'
-        default: '0%'
+        default: '5%'
 
 permissions:
   actions: write
