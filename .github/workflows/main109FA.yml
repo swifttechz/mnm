@@ -1,4 +1,4 @@
-name: Parallel mx10.11FA
+name: Parallel mx10.12FA
 
 on:
   workflow_dispatch:
@@ -74,22 +74,22 @@ on:
         type: string
         default: '0'
       enable_scroll:
-        description: 'Scroll'
+        description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
         type: boolean
         default: false
       enable_surf:
-        description: 'Surf'
+        description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
         type: boolean
         default: false
       reuse_proxies:
-        description: 'Reuse Proxies'
+        description: 'Reuse Proxies (once every pool proxy has been used, wrap back around to #1, #2, ...)'
         required: true
         type: boolean
         default: true
       unique_ip:
-        description: 'Unique IP'
+        description: 'Unique IP (re-check each proxy exit IP on the device; reject it if another device already used that IP)'
         required: true
         type: boolean
         default: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmU4N2NiNjUyNjM1ZGQ4YjIzYWNlMSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZTg3Y2I2NTI2MzVkZDhiMjNhY2M0In0.oZEOku7FJnCUJkTvOCBYQOQC3uOfxELP-qNVISnEQc0'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmQ3NjI1Nzk4OGZjZTE2MjdkMjYyZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZDc2MjQ3OTg4ZmNlMTYyN2QyNWM2In0.vk5CtR7hfgWW7LC7LJpkb7Thp0ULWHZe2uz6WP7N6Os'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -200,7 +200,7 @@ on:
         type: boolean
         default: true
       initial_proxy_pool:
-        description: 'Initial Proxy Pool %'
+        description: 'Initial Proxy Pool % (0% = no pool / direct API gen per device; higher % = generate that % of the planned pool FIRST, devices start only after it is uploaded, then continuous feed)'
         required: true
         type: choice
         options:
@@ -211,7 +211,7 @@ on:
           - '30%'
           - '40%'
           - '50%'
-        default: '5%'
+        default: '10%'
 
 permissions:
   actions: write
@@ -255,7 +255,7 @@ jobs:
         run: |
           import os, re, glob
 
-          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.11FA")
+          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.12FA")
           workflow_dir = ".github/workflows"
           target_file = None
 
@@ -714,7 +714,7 @@ jobs:
           preassigned_proxies = []
           pool_active = (initial_pct > 0) and not without_proxy
           print("========== PROXY POOL PLAN ==========")
-          print(f"[Pool] Pool mode active        : {pool_active} (generate_all={generate_all}, without_proxy={without_proxy})")
+          print(f"[Pool] Pool mode active        : {pool_active} (initial_pct={initial_pct}, without_proxy={without_proxy})")
           print(f"[Pool] Tasks / devices         : {tasks_total} tasks, {num_devices} in parallel")
           print(f"[Pool] Extra buffer            : {extra_pct}% = +{extra_count} proxies")
           print(f"[Pool] Total proxies planned   : {pool_total}")
@@ -823,7 +823,7 @@ jobs:
               f.write(f"chunks_total={chunk_count + 1}\n")
               f.write(f"extra_pct={extra_pct}\n")
               f.write(f"initial_pct={initial_pct}\n")
-              f.write(f"pool_active={\"true\" if pool_active else \"false\"}\n")
+              f.write("pool_active=" + ("true" if pool_active else "false") + "\n")
           print("========== MATRIX STRUCTURE COMPLETE ==========")
           print(f"[Matrix] {len(includes)} tasks queued. Initial proxy pool job generates the first {initial_target} proxies ({initial_pct}%); devices start ONLY after that job finishes.")
 
