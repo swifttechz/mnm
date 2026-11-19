@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '5'
+        default: '10'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '245'
+        default: '240'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmU4YzA4NTJmNGM0YTNjMmM4OThkZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZThjMDg1MmY0YzRhM2MyYzg5ODY3In0.OVR7jIDc32Yidanc6UjVwtfp3JOjWoaj6ZEpU6YO_oo'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmU4ZDA1NjUyNjM1ZGQ4YjJhMWI2ZCIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZThkMDQ2NTI2MzVkZDhiMmExYjNiIn0.N_Syw32Jez-KoIFLg9QC6beRKVCSfZE64tmxjppYWlo'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -193,7 +193,7 @@ on:
         description: 'Use Mobile Proxies'
         required: true
         type: boolean
-        default: false
+        default: true
       sticky_sessions:
         description: 'Enable Sticky Sessions'
         required: true
