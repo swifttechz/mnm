@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '10'
+        default: '2'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '240'
+        default: '2'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -135,12 +135,12 @@ on:
         description: 'Apply Fingerprint Masking'
         required: true
         type: boolean
-        default: true
+        default: false
       scrapeops_api_key:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmViMzdmYzYxZGM2M2I3YzljMjBkYyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZWIzN2VjNjFkYzYzYjdjOWMyMDY2In0.ZpAs00B99_BT8FvWcB0ENlz9yRGM1jhKnECHZ35jbjg'
+        default: 'geolocation://user-n24XHRlirmFl7unj-type-mobile-session-S3vXhhEVnhZZ-country-US:xPGp3LgbM5OZozsY@geo.floppydata.com:10080:24-US-cgqrdg geolocation://user-n24XHRlirmFl7unj-type-mobile-session-EJ9wj13FbrFg-country-US:xPGp3LgbM5OZozsY@geo.floppydata.com:10080:25-US-cukqxn geolocation://user-n24XHRlirmFl7unj-type-mobile-session-gyy0xpMUK8EN-country-US:xPGp3LgbM5OZozsY@geo.floppydata.com:10080:26-US-ecoeli geolocation://user-n24XHRlirmFl7unj-type-mobile-session-O9yvf3mU3Pvt-country-US:xPGp3LgbM5OZozsY@geo.floppydata.com:10080:27-US-kvinzc geolocation://user-n24XHRlirmFl7unj-type-mobile-session-tFiThafT2Jhh-country-US:xPGp3LgbM5OZozsY@geo.floppydata.com:10080:28-US-vkzsva'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -211,7 +211,7 @@ on:
           - '30%'
           - '40%'
           - '50%'
-        default: '5%'
+        default: '0%'
 
 permissions:
   actions: write
