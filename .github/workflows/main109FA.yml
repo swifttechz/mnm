@@ -57,7 +57,7 @@ on:
           - '10 minutes'
           - '11 minutes'
           - '12 minutes'
-        default: '9 minutes'
+        default: '10 minutes'
       num_installs:
         description: 'Installs'
         required: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmYwYTZhODE4NGNjZDkzNmMyYjIxYyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZjBhNmE4MTg0Y2NkOTM2YzJiMThmIn0.yTP7PIQjExW-EG4xTfl3zD2O3AJMbfBSi_u6iPwIxkE'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmYwYmI3Y2Y4N2E4NWNkZTVhZDNmNyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZjBiYjdjZjg3YTg1Y2RlNWFkMzAxIn0.1CU_OFM_5n8EB30diZ3YCrNijaHLpAtb6hx7Szoij_A'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
