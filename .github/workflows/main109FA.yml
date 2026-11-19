@@ -1,4 +1,4 @@
-name: Parallel mx10.12FA
+name: Parallel mx10.13FA
 
 on:
   workflow_dispatch:
@@ -57,7 +57,7 @@ on:
           - '10 minutes'
           - '11 minutes'
           - '12 minutes'
-        default: '10 minutes'
+        default: '9 minutes'
       num_installs:
         description: 'Installs'
         required: true
@@ -74,22 +74,22 @@ on:
         type: string
         default: '0'
       enable_scroll:
-        description: 'Scroll'
+        description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
         type: boolean
-        default: true
+        default: false
       enable_surf:
-        description: 'Surf'
+        description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
         type: boolean
         default: false
       reuse_proxies:
-        description: 'Reuse Proxies'
+        description: 'Reuse Proxies (once every pool proxy has been used, wrap back around to #1, #2, ...)'
         required: true
         type: boolean
         default: true
       unique_ip:
-        description: 'Unique IP'
+        description: 'Unique IP (re-check each proxy exit IP on the device; reject it if another device already used that IP)'
         required: true
         type: boolean
         default: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmYwYmI3Y2Y4N2E4NWNkZTVhZDNmNyIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZjBiYjdjZjg3YTg1Y2RlNWFkMzAxIn0.1CU_OFM_5n8EB30diZ3YCrNijaHLpAtb6hx7Szoij_A'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmQ3NjI1Nzk4OGZjZTE2MjdkMjYyZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZDc2MjQ3OTg4ZmNlMTYyN2QyNWM2In0.vk5CtR7hfgWW7LC7LJpkb7Thp0ULWHZe2uz6WP7N6Os'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -188,19 +188,23 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Canada'
-      mobile_proxies:
-        description: 'Use Mobile Proxies'
+        default: 'Australia'
+      proxy_type:
+        description: 'Proxy Type (Residential / Datacenter / Mobile)'
         required: true
-        type: boolean
-        default: true
+        type: choice
+        options:
+          - 'Residential'
+          - 'Datacenter'
+          - 'Mobile'
+        default: 'Mobile'
       sticky_sessions:
         description: 'Enable Sticky Sessions'
         required: true
         type: boolean
         default: true
       initial_proxy_pool:
-        description: 'Initial Proxy Pool %'
+        description: 'Initial Proxy Pool % (0% = no pool / direct API gen per device; higher % = generate that % of the planned pool FIRST, devices start only after it is uploaded, then continuous feed)'
         required: true
         type: choice
         options:
@@ -211,7 +215,7 @@ on:
           - '30%'
           - '40%'
           - '50%'
-        default: '5%'
+        default: '10%'
 
 permissions:
   actions: write
@@ -244,7 +248,7 @@ jobs:
           IN_NOPROXY: ${{ inputs.use_without_proxy }}
           IN_COUNTRY: ${{ inputs.proxy_country }}
           IN_FALLBACK: ${{ inputs.fallback_country }}
-          IN_MOBILE: ${{ inputs.mobile_proxies }}
+          IN_PROXY_TYPE: ${{ inputs.proxy_type }}
           IN_STICKY: ${{ inputs.sticky_sessions }}
           IN_PROXY_INPUT: ${{ inputs.scrapeops_api_key }}
           IN_INITIAL_POOL: ${{ inputs.initial_proxy_pool }}
@@ -255,7 +259,7 @@ jobs:
         run: |
           import os, re, glob
 
-          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.12FA")
+          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.13FA")
           workflow_dir = ".github/workflows"
           target_file = None
 
@@ -291,7 +295,7 @@ jobs:
               "use_without_proxy": os.getenv("IN_NOPROXY"),
               "proxy_country": os.getenv("IN_COUNTRY"),
               "fallback_country": os.getenv("IN_FALLBACK"),
-              "mobile_proxies": os.getenv("IN_MOBILE"),
+              "proxy_type": os.getenv("IN_PROXY_TYPE"),
               "sticky_sessions": os.getenv("IN_STICKY"),
               "initial_proxy_pool": os.getenv("IN_INITIAL_POOL"),
               "enable_scroll": os.getenv("IN_SCROLL"),
@@ -332,7 +336,7 @@ jobs:
 
           in_inputs_section = False
 
-          bool_keys = ["run_manual_link", "apply_masking", "use_without_proxy", "mobile_proxies", "sticky_sessions", "enable_scroll", "enable_surf", "reuse_proxies", "unique_ip"]
+          bool_keys = ["run_manual_link", "apply_masking", "use_without_proxy", "sticky_sessions", "enable_scroll", "enable_surf", "reuse_proxies", "unique_ip"]
 
           for line in lines:
               if re.match(r"^[ \t]*inputs:\s*$", line):
@@ -424,7 +428,7 @@ jobs:
           WITHOUT_PROXY: ${{ inputs.use_without_proxy }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
         run: |
           import os, json, random, re, time, uuid, sys
@@ -660,7 +664,14 @@ jobs:
           proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
           country_input = os.environ.get("COUNTRY", "USA")
           fallback_country_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
-          mobile = os.environ.get("MOBILE", "false").lower() == "true"
+          _pt = (os.environ.get("PROXY_TYPE") or "Mobile").strip()
+          if _pt.lower() in ("true", "1", "yes"):
+              _pt = "Mobile"
+          elif _pt.lower() in ("false", "0", "no"):
+              _pt = "Residential"
+          proxy_type = _pt if _pt in ("Residential", "Datacenter", "Mobile") else "Mobile"
+          mobile = proxy_type == "Mobile"
+          is_dc = proxy_type == "Datacenter"
           sticky = os.environ.get("STICKY", "false").lower() == "true"
 
           country_map = {
@@ -936,7 +947,14 @@ jobs:
           proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
           country_input = os.environ.get("COUNTRY", "USA")
           fallback_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
-          mobile = os.environ.get("MOBILE", "false").lower() == "true"
+          _pt = (os.environ.get("PROXY_TYPE") or "Mobile").strip()
+          if _pt.lower() in ("true", "1", "yes"):
+              _pt = "Mobile"
+          elif _pt.lower() in ("false", "0", "no"):
+              _pt = "Residential"
+          proxy_type = _pt if _pt in ("Residential", "Datacenter", "Mobile") else "Mobile"
+          mobile = proxy_type == "Mobile"
+          is_dc = proxy_type == "Datacenter"
           sticky = os.environ.get("STICKY", "false").lower() == "true"
 
           country_map = {
@@ -1002,7 +1020,7 @@ jobs:
           say(f"[Pool] This chunk range       : #{START_SEQ} -> #{END_SEQ}  ({COUNT} proxies)")
           say(f"[Pool] Already in pool        : {prior_count} proxies across {prior_chunks} earlier chunk(s)")
           say(f"[Pool] Pool progress (before) : {bar(prior_count, POOL_TOTAL)}  {prior_count}/{POOL_TOTAL}")
-          say(f"[Pool] Country                : {cc_primary} | Fallback: {cc_fallback or 'none'} | Mobile: {mobile} | Sticky: {sticky}")
+          say(f"[Pool] Country                : {cc_primary} | Fallback: {cc_fallback or 'none'} | Type: {proxy_type} | Sticky: {sticky}")
           say(f"[Pool] Naming format          : <number>-<COUNTRY>-<6 random letters>   e.g. {START_SEQ}-{cc_primary}-{rand_letters()}")
           say("")
 
@@ -1117,7 +1135,7 @@ jobs:
               proxies bound to profiles are not counted the same way."""
               key = gologin_keys[(seq // 15 + tries) % len(gologin_keys)]
               hdrs = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-              say(f"      - GoLogin API key ...{key[-6:]} -> PROFILE-based proxy '{name}' (country={cc}, mobile={mobile})")
+              say(f"      - GoLogin API key ...{key[-6:]} -> PROFILE-based proxy '{name}' (country={cc}, type={proxy_type})")
 
               # 1) Create a lightweight browser profile
               profile_id = None
@@ -1147,7 +1165,7 @@ jobs:
                   body = {
                       "countryCode": cc.lower(),
                       "isMobile": bool(mobile),
-                      "isDC": False,
+                      "isDC": bool(is_dc),
                       "customName": name,
                       "profileIdToLink": profile_id,
                   }
@@ -1260,11 +1278,15 @@ jobs:
           def make_scrapeops(seq, cc, name, tries):
               key = scrapeops_keys[(seq // 15 + tries) % len(scrapeops_keys)]
               user = f"scrapeops.country={cc.lower()}"
-              if mobile:
+              if proxy_type == "Mobile":
                   user += ".mobile=true"
+              elif proxy_type == "Datacenter":
+                  user += ".datacenter=true"
+              # Residential = default (no extra flag)
               if sticky:
                   user += f".sticky_session=p{seq}{rand_letters(4)}"
-              return {"username": user, "password": key, "host": "residential-proxy.scrapeops.io", "port": 8181}, ""
+              host = "residential-proxy.scrapeops.io"
+              return {"username": user, "password": key, "host": host, "port": 8181}, ""
 
 
           def make_manual(seq, cc, name, tries):
@@ -1523,7 +1545,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -1641,7 +1663,14 @@ jobs:
           proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
           country_input = os.environ.get("COUNTRY", "USA")
           fallback_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
-          mobile = os.environ.get("MOBILE", "false").lower() == "true"
+          _pt = (os.environ.get("PROXY_TYPE") or "Mobile").strip()
+          if _pt.lower() in ("true", "1", "yes"):
+              _pt = "Mobile"
+          elif _pt.lower() in ("false", "0", "no"):
+              _pt = "Residential"
+          proxy_type = _pt if _pt in ("Residential", "Datacenter", "Mobile") else "Mobile"
+          mobile = proxy_type == "Mobile"
+          is_dc = proxy_type == "Datacenter"
           sticky = os.environ.get("STICKY", "false").lower() == "true"
 
           country_map = {
@@ -1707,7 +1736,7 @@ jobs:
           say(f"[Pool] This chunk range       : #{START_SEQ} -> #{END_SEQ}  ({COUNT} proxies)")
           say(f"[Pool] Already in pool        : {prior_count} proxies across {prior_chunks} earlier chunk(s)")
           say(f"[Pool] Pool progress (before) : {bar(prior_count, POOL_TOTAL)}  {prior_count}/{POOL_TOTAL}")
-          say(f"[Pool] Country                : {cc_primary} | Fallback: {cc_fallback or 'none'} | Mobile: {mobile} | Sticky: {sticky}")
+          say(f"[Pool] Country                : {cc_primary} | Fallback: {cc_fallback or 'none'} | Type: {proxy_type} | Sticky: {sticky}")
           say(f"[Pool] Naming format          : <number>-<COUNTRY>-<6 random letters>   e.g. {START_SEQ}-{cc_primary}-{rand_letters()}")
           say("")
 
@@ -1822,7 +1851,7 @@ jobs:
               proxies bound to profiles are not counted the same way."""
               key = gologin_keys[(seq // 15 + tries) % len(gologin_keys)]
               hdrs = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-              say(f"      - GoLogin API key ...{key[-6:]} -> PROFILE-based proxy '{name}' (country={cc}, mobile={mobile})")
+              say(f"      - GoLogin API key ...{key[-6:]} -> PROFILE-based proxy '{name}' (country={cc}, type={proxy_type})")
 
               # 1) Create a lightweight browser profile
               profile_id = None
@@ -1852,7 +1881,7 @@ jobs:
                   body = {
                       "countryCode": cc.lower(),
                       "isMobile": bool(mobile),
-                      "isDC": False,
+                      "isDC": bool(is_dc),
                       "customName": name,
                       "profileIdToLink": profile_id,
                   }
@@ -1965,11 +1994,15 @@ jobs:
           def make_scrapeops(seq, cc, name, tries):
               key = scrapeops_keys[(seq // 15 + tries) % len(scrapeops_keys)]
               user = f"scrapeops.country={cc.lower()}"
-              if mobile:
+              if proxy_type == "Mobile":
                   user += ".mobile=true"
+              elif proxy_type == "Datacenter":
+                  user += ".datacenter=true"
+              # Residential = default (no extra flag)
               if sticky:
                   user += f".sticky_session=p{seq}{rand_letters(4)}"
-              return {"username": user, "password": key, "host": "residential-proxy.scrapeops.io", "port": 8181}, ""
+              host = "residential-proxy.scrapeops.io"
+              return {"username": user, "password": key, "host": host, "port": 8181}, ""
 
 
           def make_manual(seq, cc, name, tries):
@@ -2230,7 +2263,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2259,7 +2292,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2288,7 +2321,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2317,7 +2350,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2346,7 +2379,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2375,7 +2408,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2404,7 +2437,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2433,7 +2466,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2462,7 +2495,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2491,7 +2524,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2520,7 +2553,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2549,7 +2582,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2578,7 +2611,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2607,7 +2640,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2636,7 +2669,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2665,7 +2698,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2694,7 +2727,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2723,7 +2756,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2752,7 +2785,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2781,7 +2814,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2810,7 +2843,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2839,7 +2872,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2868,7 +2901,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2897,7 +2930,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2926,7 +2959,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2955,7 +2988,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -2984,7 +3017,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -3013,7 +3046,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -3042,7 +3075,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -3071,7 +3104,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -3100,7 +3133,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -3129,7 +3162,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -3158,7 +3191,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -3187,7 +3220,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -3216,7 +3249,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -3245,7 +3278,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -3274,7 +3307,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -3303,7 +3336,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -3332,7 +3365,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -3361,7 +3394,7 @@ jobs:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           PRIOR_DIR: '.'
         run: python3 gen_chunk.py
@@ -3436,6 +3469,15 @@ jobs:
           path: ${{ runner.temp }}/proxy_pool
         continue-on-error: true
 
+      - name: "Download all available proxy-chunk artifacts"
+        if: ${{ needs.prepare_matrix.outputs.pool_active == 'true' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: proxy-chunk-*
+          path: ${{ runner.temp }}/proxy_pool
+          merge-multiple: true
+
       - name: Acquire Proxy From Pool (wait for batch, API key only as last resort)
         shell: python
         env:
@@ -3449,7 +3491,7 @@ jobs:
           INITIAL_TARGET: ${{ needs.prepare_matrix.outputs.initial_target }}
           CHUNK_SIZE: ${{ needs.prepare_matrix.outputs.chunk_size }}
           POOL_MODE: fetch
-          POOL_WAIT_MINUTES: '6'
+          POOL_WAIT_MINUTES: '15'
           INITIAL_ALREADY_READY: 'true'  # devices only start after initial_proxy_pool finished
           RUN_ATTEMPT: ${{ github.run_attempt }}
           REUSE_PROXIES: ${{ inputs.reuse_proxies }}
@@ -3555,9 +3597,13 @@ jobs:
 
           def finish_none(reason):
               say(f"[Pool] RESULT: no pool proxy for device #{TASK} ({reason})")
-              say("[Pool] -> Device will FALL BACK to API-key proxy generation (last resort).")
+              # When the proxy pool is enabled, devices must NOT burn API keys on-runner.
+              # Pool jobs own all API generation. Fail this device so the problem is visible.
+              say("[Pool] -> Pool mode is ON: API-key generation on the device is DISABLED.")
+              say("::error title=No pool proxy::Device could not obtain a proxy from the pool. "
+                  "API keys are only used by the Initial Proxy Pool / Proxy Feed jobs, not by device runners.")
               set_env("POOL_PROXY_SOURCE", "none")
-              sys.exit(0)
+              sys.exit(1)
 
 
           MODE = os.environ.get("POOL_MODE", "fetch")
@@ -3613,9 +3659,37 @@ jobs:
               return None
 
 
+          def load_local_chunks():
+              """Load any proxy_chunk_*.json already on disk (from download-artifact or prior get_chunk)."""
+              import glob
+              found = {}
+              search_dirs = [
+                  os.path.join(TEMP, "proxy_pool"),
+                  TEMP,
+                  os.getcwd(),
+                  os.path.join(os.getcwd(), "proxy_pool"),
+              ]
+              for d in search_dirs:
+                  if not d or not os.path.isdir(d):
+                      continue
+                  for fp in glob.glob(os.path.join(d, "**", "proxy_chunk_*.json"), recursive=True):
+                      try:
+                          with open(fp, "r", encoding="utf-8") as fh:
+                              data = json.load(fh)
+                          for p in data.get("proxies", []):
+                              if "seq" in p:
+                                  found[p["seq"]] = p
+                          say(f"[Pool] Loaded local chunk file: {fp} ({len(data.get('proxies', []))} proxies)")
+                      except Exception as e:
+                          say(f"[Pool] skip local {fp}: {type(e).__name__}")
+              return found
+
           def load_all_available():
-              """Every proxy that exists in the pool right now, sorted by number (needed to wrap around when reusing)."""
-              allp = {}
+              """Every proxy that exists in the pool right now, sorted by number (needed to wrap around when reusing).
+              Prefers local files from download-artifact to avoid GitHub API 403s."""
+              allp = load_local_chunks()
+              if allp:
+                  say(f"[Pool] Local pool snapshot: {len(allp)} proxies (seqs {min(allp)}-{max(allp)})")
               try:
                   for a in list_artifacts():
                       if not a["name"].startswith("proxy-chunk-"):
@@ -3631,7 +3705,7 @@ jobs:
                       for p in (data or {}).get("proxies", []):
                           allp[p["seq"]] = p
               except Exception as e:
-                  say(f"[Pool] could not enumerate pool chunks: {type(e).__name__}")
+                  say(f"[Pool] could not enumerate pool chunks via API: {type(e).__name__}: {e}")
               return [allp[k] for k in sorted(allp)]
 
 
@@ -3849,6 +3923,20 @@ jobs:
               if c in _cache:
                   return _cache[c]
               name = f"proxy-chunk-{c:03d}"
+              # Prefer local files from actions/download-artifact (avoids GitHub API 403)
+              import glob
+              for d in (os.path.join(TEMP, "proxy_pool"), TEMP, os.getcwd()):
+                  if not d or not os.path.isdir(d):
+                      continue
+                  for fp in glob.glob(os.path.join(d, "**", f"proxy_chunk_{c:03d}.json"), recursive=True):
+                      try:
+                          with open(fp, "r", encoding="utf-8") as fh:
+                              data = json.load(fh)
+                          _cache[c] = data
+                          say(f"[Pool] Chunk {c} loaded from LOCAL file {fp} ({len(data.get('proxies', []))} proxies)")
+                          return data
+                      except Exception as e:
+                          say(f"[Pool] local read failed {fp}: {type(e).__name__}")
               last_status = 0.0
               last_job = 0.0
               finished_seen = False
@@ -4030,9 +4118,10 @@ jobs:
         env:
           API_KEY_INPUT: ${{ inputs.scrapeops_api_key }}
           WITHOUT_PROXY: ${{ inputs.use_without_proxy }}
+          POOL_ACTIVE: ${{ needs.prepare_matrix.outputs.pool_active }}
           COUNTRY: ${{ inputs.proxy_country }}
           FALLBACK_COUNTRY: ${{ inputs.fallback_country }}
-          MOBILE: ${{ inputs.mobile_proxies }}
+          PROXY_TYPE: ${{ inputs.proxy_type }}
           STICKY: ${{ inputs.sticky_sessions }}
           TASK_INDEX: ${{ matrix.task_index }}
           ABSOLUTE_IDX: ${{ matrix.absolute_idx }}
@@ -4137,11 +4226,26 @@ jobs:
               use_proxy = True
               print(f"Pre-assigned: {active_proxy['proxy_type_label']} -> IP {active_proxy['ip']} ({active_proxy['country_code']})")
           else:
+              # ---- Pool-mode guard: never burn API keys on the device when a pool is active ----
+              pool_active = os.environ.get("POOL_ACTIVE", "false").lower() == "true"
+              if pool_active:
+                  print("::error title=No pool proxy::POOL is enabled but this device has no pool_proxy.json. "
+                        "API-key generation on device runners is disabled to protect rate limits. "
+                        "Only the Initial Proxy Pool / Proxy Feed jobs may call provider APIs.")
+                  sys.exit(1)
+
               proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
               without_proxy = os.environ.get("WITHOUT_PROXY", "false").lower() == "true"
               country_input = os.environ.get("COUNTRY", "USA")
               fallback_country_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
-              mobile = os.environ.get("MOBILE", "false").lower() == "true"
+              _pt = (os.environ.get("PROXY_TYPE") or "Mobile").strip()
+              if _pt.lower() in ("true", "1", "yes"):
+                  _pt = "Mobile"
+              elif _pt.lower() in ("false", "0", "no"):
+                  _pt = "Residential"
+              proxy_type = _pt if _pt in ("Residential", "Datacenter", "Mobile") else "Mobile"
+              mobile = proxy_type == "Mobile"
+              is_dc = proxy_type == "Datacenter"
               sticky = os.environ.get("STICKY", "false").lower() == "true"
               absolute_idx = int(os.environ.get("ABSOLUTE_IDX", "1")) - 1
               task_index = int(os.environ.get("TASK_INDEX", "1"))
@@ -4436,7 +4540,7 @@ jobs:
                       payload = {
                           "countryCode": current_expected_cc.lower(),
                           "isMobile": mobile,
-                          "isDC": False,
+                          "isDC": is_dc,
                           "customName": f"{task_index}-{current_expected_cc}-{''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=6))}"
                       }
 
@@ -4847,7 +4951,8 @@ jobs:
                       print(f"[ScrapeOps] Testing API Key ending in ...{current_key[-4:]} (Attempt {attempt+1}/{MAX_ATTEMPTS})")
 
                       proxy_user = f"scrapeops.country={api_cc_param}"
-                      if mobile: proxy_user += ".mobile=true"
+                      if proxy_type == "Mobile": proxy_user += ".mobile=true"
+                      elif proxy_type == "Datacenter": proxy_user += ".datacenter=true"
 
                       sess1 = f"t{task_index}p{str(uuid.uuid4())[:4]}"
                       user1 = proxy_user + (f".sticky_session={sess1}" if sticky else "")
