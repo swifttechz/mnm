@@ -74,22 +74,22 @@ on:
         type: string
         default: '0'
       enable_scroll:
-        description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
+        description: 'Scroll'
         required: true
         type: boolean
         default: false
       enable_surf:
-        description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
+        description: 'Surf'
         required: true
         type: boolean
         default: false
       reuse_proxies:
-        description: 'Reuse Proxies (once every pool proxy has been used, wrap back around to #1, #2, ...)'
+        description: 'Reuse Proxies'
         required: true
         type: boolean
         default: true
       unique_ip:
-        description: 'Unique IP (re-check each proxy exit IP on the device; reject it if another device already used that IP)'
+        description: 'Unique IP'
         required: true
         type: boolean
         default: true
@@ -200,7 +200,7 @@ on:
         type: boolean
         default: true
       initial_proxy_pool:
-        description: 'Initial Proxy Pool % (0% = no pool / direct API gen per device; higher % = generate that % of the planned pool FIRST, devices start only after it is uploaded, then continuous feed)'
+        description: 'Initial Proxy Pool %'
         required: true
         type: choice
         options:
