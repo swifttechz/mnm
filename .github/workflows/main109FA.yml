@@ -77,7 +77,7 @@ on:
         description: 'Scroll'
         required: true
         type: boolean
-        default: false
+        default: true
       enable_surf:
         description: 'Surf'
         required: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmU4N2NiNjUyNjM1ZGQ4YjIzYWNlMSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZTg3Y2I2NTI2MzVkZDhiMjNhY2M0In0.oZEOku7FJnCUJkTvOCBYQOQC3uOfxELP-qNVISnEQc0'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmU4YzA4NTJmNGM0YTNjMmM4OThkZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZThjMDg1MmY0YzRhM2MyYzg5ODY3In0.OVR7jIDc32Yidanc6UjVwtfp3JOjWoaj6ZEpU6YO_oo'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -193,7 +193,7 @@ on:
         description: 'Use Mobile Proxies'
         required: true
         type: boolean
-        default: true
+        default: false
       sticky_sessions:
         description: 'Enable Sticky Sessions'
         required: true
