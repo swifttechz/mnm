@@ -57,7 +57,7 @@ on:
         description: "Profile OS"
         required: true
         type: choice
-        default: Windows 11
+        default: Mac ARM (M1)
         options: ['Windows 10','Windows 11','Mac Intel','Mac ARM (M1)','Linux','Android']
       proxy_type:
         description: "GoLogin proxy type"
