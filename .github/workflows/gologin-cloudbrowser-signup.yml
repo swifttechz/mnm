@@ -242,1296 +242,1298 @@ jobs:
         run: |
           mkdir -p automation/out
           cat > automation/signup.py << 'PYEOF'
-"""
-GoLogin Cloud Browser Signup — robust 2026 (v4)
-================================================
-Key improvement: Cloudflare Turnstile is solved exclusively via direct
-GUI mouse coordinates targeting (iframe_x + 24, iframe_y + height/2),
-which is exactly where the checkbox circle lives in every Turnstile widget.
-After every click the script polls for success every 1 s for 12-15 s.
-"Create an account" is ONLY clicked after success is confirmed.
-"""
-import asyncio, datetime, io, json, os, pathlib, random, re, string, sys, time, traceback, urllib.request, urllib.error
-import requests
-from playwright.async_api import async_playwright
-
-try:
-    from PIL import Image
-except Exception:
-    Image = None
-
-IDX = os.environ.get("ACC_INDEX", "1")
-OUT = pathlib.Path(os.environ.get("OUT_DIR", "out")).resolve()
-OUT.mkdir(parents=True, exist_ok=True)
-
-def log(tag, msg):
-    print(f"[{time.strftime('%H:%M:%S')}][dev{IDX}][{tag}] {msg}", flush=True)
-
-def banner(title):
-    print(f"\n{'='*60}\n[dev{IDX}] {title}\n{'='*60}", flush=True)
-
-shot_n = [0]
-async def shot(page, label):
-    try:
-        shot_n[0] += 1
-        await page.screenshot(path=str(OUT / f"{shot_n[0]:02d}-{label}.png"), full_page=True)
-    except Exception:
-        pass
-
-EMAIL    = os.environ.get("ACC_EMAIL", "")
-PASSWORD = os.environ.get("ACC_PASSWORD", "")
-RAW_KEYS = os.environ.get("GL_API_KEYS", "").strip()
-PROFILE_OS      = os.environ.get("PROFILE_OS", "Windows 10")
-PROXY_TYPE_IN   = os.environ.get("PROXY_TYPE", "Residential")
-PROXY_COUNTRY_IN= os.environ.get("PROXY_COUNTRY", "United States")
-
-API_KEYS = [k.strip() for k in RAW_KEYS.split() if k.strip()]
-if not API_KEYS:
-    raise RuntimeError("GL_API_KEYS is empty")
-API_TOKEN = API_KEYS[(int(IDX) - 1) % len(API_KEYS)]
-log("Config", f"API key: ...{API_TOKEN[-6:]}")
-
-GL_BASE      = "https://api.gologin.com"
-CLOUD_WS     = "wss://cloudbrowser.gologin.com/connect"
-HEADERS      = {"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"}
-SIGNUP_URL   = "https://app.gologin.com/sign_up"
-PROFILELIST_URL = "https://app.gologin.com/profileList"
-
-OS_QUICK_MAP = {
-    "Windows 10":  {"os": "win",     "osSpec": ""},
-    "Windows 11":  {"os": "win",     "osSpec": "win11"},
-    "Mac Intel":   {"os": "mac",     "osSpec": ""},
-    "Mac ARM (M1)":{"os": "mac",     "osSpec": "M1"},
-    "Linux":       {"os": "lin",     "osSpec": ""},
-    "Android":     {"os": "android", "osSpec": ""},
-}
-COUNTRY_CODE_MAP = {
-    "United States": "us", "United Kingdom": "gb", "Germany": "de",
-    "France": "fr",  "Canada": "ca",  "Australia": "au",
-    "Japan": "jp",   "Brazil": "br",  "India": "in", "Netherlands": "nl",
-}
-PROXY_TYPE_MAP = {
-    "Residential": {"isMobile": False, "isDC": False},
-    "Datacenter":  {"isMobile": False, "isDC": True},
-    "Mobile":      {"isMobile": True,  "isDC": False},
-}
-
-os_params   = OS_QUICK_MAP.get(PROFILE_OS, OS_QUICK_MAP["Windows 10"])
-proxy_cc    = COUNTRY_CODE_MAP.get(PROXY_COUNTRY_IN, "us")
-proxy_flags = PROXY_TYPE_MAP.get(PROXY_TYPE_IN, PROXY_TYPE_MAP["Residential"])
-
-# ── REST helpers ──────────────────────────────────────────────
-def gl_req(method, path, payload=None, raise_on_error=True):
-    url = f"{GL_BASE}{path}"
-    r = requests.request(method, url, headers=HEADERS, json=payload, timeout=30)
-    if raise_on_error and not r.ok:
-        log("REST", f"{method} {path} -> {r.status_code}: {r.text[:400]}")
-        r.raise_for_status()
-    return r
-
-def rand_name(n=6):
-    return "".join(random.choices(string.ascii_lowercase + string.digits, k=n))
-
-def create_profile():
-    profile_name = f"signup-{IDX}-{rand_name()}"
-    body = {"os": os_params["os"], "name": profile_name}
-    if os_params.get("osSpec"):
-        body["osSpec"] = os_params["osSpec"]
-    log("Profile", f"POST /browser/quick  body={body}")
-    r = gl_req("POST", "/browser/quick", body)
-    data = r.json()
-    profile_id = (data.get("id") or data.get("_id") or data.get("browserProfileId") or "")
-    if not profile_id and isinstance(data, dict):
-        for v in data.values():
-            if isinstance(v, str) and len(v) == 24:
-                profile_id = v; break
-    if not profile_id:
-        raise RuntimeError(f"No profile id in response: {data}")
-    log("Profile", f"Created id={profile_id}")
-    return profile_id
-
-def attach_proxy(profile_id):
-    log("Proxy", f"Attaching {PROXY_TYPE_IN} / {PROXY_COUNTRY_IN} ({proxy_cc})")
-    try:
-        body = {
-            "countryCode": proxy_cc,
-            "isMobile": proxy_flags["isMobile"],
-            "isDC": proxy_flags["isDC"],
-            "customName": f"s{IDX}-{rand_name(4)}",
-            "profileIdToLink": profile_id,
-        }
-        r = requests.post(f"{GL_BASE}/users-proxies/mobile-proxy", headers=HEADERS, json=body, timeout=30)
-        log("Proxy", f"mobile-proxy -> {r.status_code}")
-        if r.status_code in (200, 201):
-            return True
-    except Exception as e:
-        log("Proxy", f"mobile-proxy error: {e}")
-    try:
-        patch = {"proxyEnabled": True, "proxy": {"mode": "gologin", "autoProxyRegion": proxy_cc}}
-        r = gl_req("PATCH", f"/browser/{profile_id}", patch, raise_on_error=False)
-        if r.ok:
-            log("Proxy", "Attached via PATCH")
-            return True
-    except Exception as e:
-        log("Proxy", f"PATCH error: {e}")
-    log("Proxy", "WARNING: continuing without proxy")
-    return False
-
-def stop_cloud_profile(profile_id):
-    try:
-        r = gl_req("DELETE", f"/browser/{profile_id}/web", raise_on_error=False)
-        log("Profile", f"Stop cloud: {r.status_code}")
-    except Exception: pass
-
-def delete_profile(profile_id):
-    try:
-        r = gl_req("DELETE", f"/browser/{profile_id}", raise_on_error=False)
-        log("Profile", f"Delete: {r.status_code}")
-    except Exception: pass
-
-# ── Token candidates ──────────────────────────────────────────
-JWT = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
-candidates = []
-
-def rank_of(source):
-    s = (source or "").lower()
-    if "clipboard" in s or "copied" in s: return 0
-    if "input"     in s: return 1
-    if "page"      in s or "storage" in s: return 3
-    if "network"   in s: return 4
-    return 5
-
-def add_candidate(tok, source):
-    if not tok: return
-    for c in candidates:
-        if c["token"] == tok:
-            if rank_of(source) < rank_of(c["source"]):
-                c["source"] = source
-            return
-    candidates.append({"token": tok, "source": source})
-    log("Token", f"candidate from {source}: ...{tok[-8:]}")
-
-async def scan_page(page, tag):
-    try:
-        data = await page.evaluate("""() => {
-            const out = {inputs:[], storage:[]};
-            try { document.querySelectorAll('input,textarea').forEach(e=>{if(e.value)out.inputs.push(String(e.value));}); } catch(e){}
+          """
+          GoLogin Cloud Browser Signup — robust 2026 (v4)
+          ================================================
+          Key improvement: Cloudflare Turnstile is solved exclusively via direct
+          GUI mouse coordinates targeting (iframe_x + 24, iframe_y + height/2),
+          which is exactly where the checkbox circle lives in every Turnstile widget.
+          After every click the script polls for success every 1 s for 12-15 s.
+          "Create an account" is ONLY clicked after success is confirmed.
+          """
+          import asyncio, datetime, io, json, os, pathlib, random, re, string, sys, time, traceback, urllib.request, urllib.error
+          import requests
+          from playwright.async_api import async_playwright
+          
+          try:
+              from PIL import Image
+          except Exception:
+              Image = None
+          
+          IDX = os.environ.get("ACC_INDEX", "1")
+          OUT = pathlib.Path(os.environ.get("OUT_DIR", "out")).resolve()
+          OUT.mkdir(parents=True, exist_ok=True)
+          
+          def log(tag, msg):
+              print(f"[{time.strftime('%H:%M:%S')}][dev{IDX}][{tag}] {msg}", flush=True)
+          
+          def banner(title):
+              print(f"\n{'='*60}\n[dev{IDX}] {title}\n{'='*60}", flush=True)
+          
+          shot_n = [0]
+          async def shot(page, label):
+              try:
+                  shot_n[0] += 1
+                  await page.screenshot(path=str(OUT / f"{shot_n[0]:02d}-{label}.png"), full_page=True)
+              except Exception:
+                  pass
+          
+          EMAIL    = os.environ.get("ACC_EMAIL", "")
+          PASSWORD = os.environ.get("ACC_PASSWORD", "")
+          RAW_KEYS = os.environ.get("GL_API_KEYS", "").strip()
+          PROFILE_OS      = os.environ.get("PROFILE_OS", "Windows 10")
+          PROXY_TYPE_IN   = os.environ.get("PROXY_TYPE", "Residential")
+          PROXY_COUNTRY_IN= os.environ.get("PROXY_COUNTRY", "United States")
+          
+          API_KEYS = [k.strip() for k in RAW_KEYS.split() if k.strip()]
+          if not API_KEYS:
+              raise RuntimeError("GL_API_KEYS is empty")
+          API_TOKEN = API_KEYS[(int(IDX) - 1) % len(API_KEYS)]
+          log("Config", f"API key: ...{API_TOKEN[-6:]}")
+          
+          GL_BASE      = "https://api.gologin.com"
+          CLOUD_WS     = "wss://cloudbrowser.gologin.com/connect"
+          HEADERS      = {"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"}
+          SIGNUP_URL   = "https://app.gologin.com/sign_up"
+          PROFILELIST_URL = "https://app.gologin.com/profileList"
+          
+          OS_QUICK_MAP = {
+              "Windows 10":  {"os": "win",     "osSpec": ""},
+              "Windows 11":  {"os": "win",     "osSpec": "win11"},
+              "Mac Intel":   {"os": "mac",     "osSpec": ""},
+              "Mac ARM (M1)":{"os": "mac",     "osSpec": "M1"},
+              "Linux":       {"os": "lin",     "osSpec": ""},
+              "Android":     {"os": "android", "osSpec": ""},
+          }
+          COUNTRY_CODE_MAP = {
+              "United States": "us", "United Kingdom": "gb", "Germany": "de",
+              "France": "fr",  "Canada": "ca",  "Australia": "au",
+              "Japan": "jp",   "Brazil": "br",  "India": "in", "Netherlands": "nl",
+          }
+          PROXY_TYPE_MAP = {
+              "Residential": {"isMobile": False, "isDC": False},
+              "Datacenter":  {"isMobile": False, "isDC": True},
+              "Mobile":      {"isMobile": True,  "isDC": False},
+          }
+          
+          os_params   = OS_QUICK_MAP.get(PROFILE_OS, OS_QUICK_MAP["Windows 10"])
+          proxy_cc    = COUNTRY_CODE_MAP.get(PROXY_COUNTRY_IN, "us")
+          proxy_flags = PROXY_TYPE_MAP.get(PROXY_TYPE_IN, PROXY_TYPE_MAP["Residential"])
+          
+          # ── REST helpers ──────────────────────────────────────────────
+          def gl_req(method, path, payload=None, raise_on_error=True):
+              url = f"{GL_BASE}{path}"
+              r = requests.request(method, url, headers=HEADERS, json=payload, timeout=30)
+              if raise_on_error and not r.ok:
+                  log("REST", f"{method} {path} -> {r.status_code}: {r.text[:400]}")
+                  r.raise_for_status()
+              return r
+          
+          def rand_name(n=6):
+              return "".join(random.choices(string.ascii_lowercase + string.digits, k=n))
+          
+          def create_profile():
+              profile_name = f"signup-{IDX}-{rand_name()}"
+              body = {"os": os_params["os"], "name": profile_name}
+              if os_params.get("osSpec"):
+                  body["osSpec"] = os_params["osSpec"]
+              log("Profile", f"POST /browser/quick  body={body}")
+              r = gl_req("POST", "/browser/quick", body)
+              data = r.json()
+              profile_id = (data.get("id") or data.get("_id") or data.get("browserProfileId") or "")
+              if not profile_id and isinstance(data, dict):
+                  for v in data.values():
+                      if isinstance(v, str) and len(v) == 24:
+                          profile_id = v; break
+              if not profile_id:
+                  raise RuntimeError(f"No profile id in response: {data}")
+              log("Profile", f"Created id={profile_id}")
+              return profile_id
+          
+          def attach_proxy(profile_id):
+              log("Proxy", f"Attaching {PROXY_TYPE_IN} / {PROXY_COUNTRY_IN} ({proxy_cc})")
+              try:
+                  body = {
+                      "countryCode": proxy_cc,
+                      "isMobile": proxy_flags["isMobile"],
+                      "isDC": proxy_flags["isDC"],
+                      "customName": f"s{IDX}-{rand_name(4)}",
+                      "profileIdToLink": profile_id,
+                  }
+                  r = requests.post(f"{GL_BASE}/users-proxies/mobile-proxy", headers=HEADERS, json=body, timeout=30)
+                  log("Proxy", f"mobile-proxy -> {r.status_code}")
+                  if r.status_code in (200, 201):
+                      return True
+              except Exception as e:
+                  log("Proxy", f"mobile-proxy error: {e}")
+              try:
+                  patch = {"proxyEnabled": True, "proxy": {"mode": "gologin", "autoProxyRegion": proxy_cc}}
+                  r = gl_req("PATCH", f"/browser/{profile_id}", patch, raise_on_error=False)
+                  if r.ok:
+                      log("Proxy", "Attached via PATCH")
+                      return True
+              except Exception as e:
+                  log("Proxy", f"PATCH error: {e}")
+              log("Proxy", "WARNING: continuing without proxy")
+              return False
+          
+          def stop_cloud_profile(profile_id):
+              try:
+                  r = gl_req("DELETE", f"/browser/{profile_id}/web", raise_on_error=False)
+                  log("Profile", f"Stop cloud: {r.status_code}")
+              except Exception: pass
+          
+          def delete_profile(profile_id):
+              try:
+                  r = gl_req("DELETE", f"/browser/{profile_id}", raise_on_error=False)
+                  log("Profile", f"Delete: {r.status_code}")
+              except Exception: pass
+          
+          # ── Token candidates ──────────────────────────────────────────
+          JWT = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
+          candidates = []
+          
+          def rank_of(source):
+              s = (source or "").lower()
+              if "clipboard" in s or "copied" in s: return 0
+              if "input"     in s: return 1
+              if "page"      in s or "storage" in s: return 3
+              if "network"   in s: return 4
+              return 5
+          
+          def add_candidate(tok, source):
+              if not tok: return
+              for c in candidates:
+                  if c["token"] == tok:
+                      if rank_of(source) < rank_of(c["source"]):
+                          c["source"] = source
+                      return
+              candidates.append({"token": tok, "source": source})
+              log("Token", f"candidate from {source}: ...{tok[-8:]}")
+          
+          async def scan_page(page, tag):
+              try:
+                  data = await page.evaluate("""() => {
+                      const out = {inputs:[], storage:[]};
+                      try { document.querySelectorAll('input,textarea').forEach(e=>{if(e.value)out.inputs.push(String(e.value));}); } catch(e){}
+                      try {
+                          for(const s of [window.localStorage,window.sessionStorage]){
+                              for(let i=0;i<s.length;i++)out.storage.push(String(s.getItem(s.key(i))));
+                          }
+                      } catch(e){}
+                      return out;
+                  }""")
+                  for kind, label in (("inputs","input"),("storage","storage")):
+                      for text in data.get(kind, []):
+                          for m in JWT.findall(text or ""):
+                              add_candidate(m, f"{label}:{tag}")
+              except Exception: pass
+              try:
+                  for m in JWT.findall(await page.content()):
+                      add_candidate(m, f"page:{tag}")
+              except Exception: pass
+          
+          async def read_clipboard(page):
+              try:
+                  txt = await page.evaluate("() => navigator.clipboard.readText()")
+                  for m in JWT.findall(txt or ""):
+                      add_candidate(m, "clipboard")
+              except Exception: pass
+              await scan_page(page, "after-copy")
+          
+          def rest_check(token):
+              try:
+                  req = urllib.request.Request(f"{GL_BASE}/user",
+                      headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      return r.status
+              except urllib.error.HTTPError as e:
+                  return e.code
+              except Exception as e:
+                  return f"error:{e}"
+          
+          # ── Browser init script ───────────────────────────────────────
+          INIT_JS = """
+          (() => {
+            const rec = t => { try{(window.__copied=window.__copied||[]).push(String(t));}catch(e){} };
             try {
-                for(const s of [window.localStorage,window.sessionStorage]){
-                    for(let i=0;i<s.length;i++)out.storage.push(String(s.getItem(s.key(i))));
-                }
+              const cb = navigator.clipboard;
+              if(cb && cb.writeText){
+                const orig=cb.writeText.bind(cb);
+                cb.writeText=t=>{rec(t);return orig(t).catch(()=>Promise.resolve());};
+              }
             } catch(e){}
-            return out;
-        }""")
-        for kind, label in (("inputs","input"),("storage","storage")):
-            for text in data.get(kind, []):
-                for m in JWT.findall(text or ""):
-                    add_candidate(m, f"{label}:{tag}")
-    except Exception: pass
-    try:
-        for m in JWT.findall(await page.content()):
-            add_candidate(m, f"page:{tag}")
-    except Exception: pass
-
-async def read_clipboard(page):
-    try:
-        txt = await page.evaluate("() => navigator.clipboard.readText()")
-        for m in JWT.findall(txt or ""):
-            add_candidate(m, "clipboard")
-    except Exception: pass
-    await scan_page(page, "after-copy")
-
-def rest_check(token):
-    try:
-        req = urllib.request.Request(f"{GL_BASE}/user",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            return r.status
-    except urllib.error.HTTPError as e:
-        return e.code
-    except Exception as e:
-        return f"error:{e}"
-
-# ── Browser init script ───────────────────────────────────────
-INIT_JS = """
-(() => {
-  const rec = t => { try{(window.__copied=window.__copied||[]).push(String(t));}catch(e){} };
-  try {
-    const cb = navigator.clipboard;
-    if(cb && cb.writeText){
-      const orig=cb.writeText.bind(cb);
-      cb.writeText=t=>{rec(t);return orig(t).catch(()=>Promise.resolve());};
-    }
-  } catch(e){}
-  document.addEventListener('copy',()=>{try{rec(String(window.getSelection()));}catch(e){}},true);
-})();
-"""
-
-# ── Generic browser helpers ───────────────────────────────────
-OVERLAY_RE = re.compile(r"^(\u00d7|\u2715|x|close|got it|accept( all)?( cookies)?|maybe later|no,? thanks|not now|dismiss)$", re.I)
-
-async def find_visible(page, locators, timeout_ms=5000):
-    end = time.time() + timeout_ms / 1000.0
-    while True:
-        for loc in locators:
-            try:
-                el = loc.first
-                if await el.is_visible():
-                    return el
-            except Exception: pass
-        if time.time() >= end:
-            return None
-        await asyncio.sleep(0.3)
-
-async def click_first(page, locators, timeout_ms=5000):
-    el = await find_visible(page, locators, timeout_ms)
-    if el is None: return False
-    try:
-        await el.click(timeout=5000)
-        return True
-    except Exception:
-        try:
-            await el.click(timeout=3000, force=True)
-            return True
-        except Exception:
-            return False
-
-async def wait_any(conditions, timeout_ms=90000):
-    end = time.time() + timeout_ms / 1000.0
-    while time.time() < end:
-        for name, fn in conditions:
-            try:
-                if await fn():
-                    return name
-            except Exception: pass
-        await asyncio.sleep(0.6)
-    return None
-
-async def type_human(locator, text):
-    await locator.click()
-    try: await locator.fill("")
-    except Exception: pass
-    await locator.press_sequentially(text, delay=random.randint(50, 120))
-    try:
-        if await locator.input_value() != text:
-            await locator.fill(text)
-    except Exception: pass
-
-async def tick_tos(page):
-    ticked = 0
-    for sel_loc in (page.get_by_role("checkbox"), page.locator('input[type="checkbox"]')):
-        try: n = await sel_loc.count()
-        except Exception: continue
-        for i in range(n):
-            box = sel_loc.nth(i)
-            try:
-                if await box.is_checked(): continue
-                try: await box.check(timeout=3000, force=True)
-                except Exception: await box.click(timeout=3000, force=True)
-                ticked += 1
-            except Exception: pass
-        if ticked: break
-    log("Main", f"ToS checkboxes ticked: {ticked}")
-    return ticked
-
-async def dismiss_overlays(page, tries=6):
-    for _ in range(tries):
-        closed = False
-        for loc in (
-            page.locator('[role="dialog"] [aria-label="Close" i]'),
-            page.locator('[aria-label="Close" i]'),
-            page.get_by_role("button", name=OVERLAY_RE),
-        ):
-            try:
-                el = loc.first
-                if await el.is_visible():
-                    await el.click(timeout=2000)
-                    closed = True
-                    await asyncio.sleep(0.7)
-                    break
-            except Exception: pass
-        if not closed: break
-
-async def is_dashboard(page):
-    try:
-        url = page.url.lower()
-        if any(x in url for x in ("sign_up", "login", "download-installer", "verify")):
-            return False
-        if any(x in url for x in ("profilelist", "dashboard", "personalarea", "browser")):
-            return True
-        return await page.get_by_role("button", name="Run", exact=True).first.is_visible()
-    except Exception:
-        return False
-
-async def dump_page(page, label="dump"):
-    try:
-        url  = page.url
-        text = await page.evaluate("() => document.body ? document.body.innerText.slice(0, 2500) : ''")
-        log("DUMP", f"[{label}] URL={url}")
-        log("DUMP", f"[{label}] TEXT=\n{text[:1500]}")
-        await shot(page, f"fail-{label}")
-    except Exception as e:
-        log("DUMP", f"dump failed: {e}")
-
-# ══════════════════════════════════════════════════════════════
-#  CLOUDFLARE TURNSTILE  —  v4: direct GUI coordinate clicking
-# ══════════════════════════════════════════════════════════════
-# Standard Turnstile widget dimensions: ~300 × 65 px.
-# The checkbox circle is at: (iframe_x + 24, iframe_y + height/2).
-# That matches the screenshot: checkbox at ~x+24, vertically centered.
-
-TS_IFRAME_SELECTORS = [
-    'iframe[src*="challenges.cloudflare.com"]',
-    'iframe[src*="turnstile"]',
-    'iframe[title*="cloudflare" i]',
-    'iframe[title*="challenge" i]',
-    'iframe[title*="widget" i]',
-]
-TS_CONTAINER_SELECTORS = [
-    '.cf-turnstile', '[class*="turnstile" i]', '[id*="turnstile" i]', '[data-sitekey]',
-]
-TS_INPUT_JS = """() => {
-    const e = document.querySelector(
-        "input[name='cf-turnstile-response'],textarea[name='cf-turnstile-response']");
-    return e ? {exists: true, value: e.value || ''} : {exists: false, value: ''};
-}"""
-
-CREATE_RE = re.compile(r"create an account|create account|sign up|get started", re.I)
-
-async def ts_state(page):
-    try:
-        return await page.evaluate(TS_INPUT_JS)
-    except Exception:
-        return {"exists": False, "value": ""}
-
-def ts_frame(page):
-    for f in page.frames:
-        try:
-            if "challenges.cloudflare.com" in (f.url or ""):
-                return f
-        except Exception: pass
-    return None
-
-async def ts_diag(page, tag):
-    """Log all iframes present — helps diagnose why a widget isn't found."""
-    try:
-        frames = [f.url[:90] for f in page.frames if f.url and f.url != "about:blank"]
-        log("Turnstile", f"[{tag}] active frames: {frames}")
-        n = await page.locator("iframe").count()
-        for i in range(min(n, 10)):
-            el  = page.locator("iframe").nth(i)
-            box = await el.bounding_box()
-            src = (await el.get_attribute("src")) or ""
-            ttl = (await el.get_attribute("title")) or ""
-            log("Turnstile", f"[{tag}] iframe#{i} src={src[:70]} title={ttl[:30]} box={box}")
-    except Exception as e:
-        log("Turnstile", f"diag failed: {e}")
-
-async def ts_green_ratio(page, box):
-    """Fraction of green pixels in the widget area — Cloudflare success = green checkmark."""
-    if Image is None or not box:
-        return 0.0
-    try:
-        png = await page.screenshot(clip={
-            "x": max(box["x"], 0), "y": max(box["y"], 0),
-            "width": box["width"], "height": box["height"],
-        })
-        im = Image.open(io.BytesIO(png)).convert("RGB")
-        px = list(im.getdata())
-        if not px: return 0.0
-        g = sum(1 for (r, gg, b) in px if gg > 110 and gg - r > 45 and gg - b > 45)
-        return g / len(px)
-    except Exception:
-        return 0.0
-
-async def ts_solved(page, iframe_box, baseline_green):
-    """
-    Check all 3 independent success signals. Returns descriptive string on success, '' otherwise.
-      Signal 1: cf-turnstile-response hidden input has a token value
-      Signal 2: the Turnstile frame contains a #success element or 'success' text
-      Signal 3: green pixel ratio in the widget area has risen above baseline
-    """
-    # Signal 1 — token
-    st = await ts_state(page)
-    if st["value"]:
-        return f"token(len={len(st['value'])})"
-    # Signal 2 — frame state
-    f = ts_frame(page)
-    if f:
-        try:
-            if await f.locator("#success").first.is_visible():
-                return "frame:#success"
-        except Exception: pass
-        try:
-            txt = await f.evaluate("() => document.body ? document.body.innerText : ''")
-            if txt and re.search(r"\bsuccess\b", txt, re.I):
-                return "frame:text-success"
-        except Exception: pass
-    # Signal 3 — green pixels
-    if iframe_box:
-        ratio = await ts_green_ratio(page, iframe_box)
-        if ratio > max(0.008, baseline_green + 0.006):
-            return f"pixels(green={ratio:.3f} vs baseline={baseline_green:.3f})"
-    return ""
-
-# ── Step 1: wait for the iframe DOM element ───────────────────
-async def wait_for_turnstile_iframe(page, timeout_s=20):
-    """
-    Poll for a visible Turnstile iframe element up to timeout_s seconds.
-    Returns (element, bounding_box) on success, (None, None) if not found
-    or if the token appeared on its own during the wait.
-    """
-    log("Turnstile", f"Waiting up to {timeout_s}s for Turnstile iframe...")
-    end = time.time() + timeout_s
-    while time.time() < end:
-        # Already solved while we waited?
-        st = await ts_state(page)
-        if st["value"]:
-            log("Turnstile", "Token appeared during iframe wait — already solved")
-            return None, None
-
-        for sel in TS_IFRAME_SELECTORS:
-            try:
-                loc = page.locator(sel)
-                n   = await loc.count()
-                for i in range(n):
-                    el = loc.nth(i)
-                    try: await el.scroll_into_view_if_needed(timeout=1000)
-                    except Exception: pass
-                    box = await el.bounding_box()
-                    if box and box["width"] > 50 and box["height"] > 20:
-                        log("Turnstile", (
-                            f"Iframe found via '{sel}': "
-                            f"x={box['x']:.0f} y={box['y']:.0f} "
-                            f"w={box['width']:.0f} h={box['height']:.0f}"
-                        ))
-                        return el, box
-            except Exception:
-                pass
-
-        for sel in TS_CONTAINER_SELECTORS:
-            try:
-                loc = page.locator(sel)
-                n   = await loc.count()
-                for i in range(n):
-                    el = loc.nth(i)
-                    try: await el.scroll_into_view_if_needed(timeout=1000)
-                    except Exception: pass
-                    box = await el.bounding_box()
-                    if box and box["width"] > 50 and box["height"] > 20:
-                        log("Turnstile", (
-                            f"Container found via '{sel}': "
-                            f"x={box['x']:.0f} y={box['y']:.0f} "
-                            f"w={box['width']:.0f} h={box['height']:.0f}"
-                        ))
-                        return el, box
-            except Exception:
-                pass
-
-        await asyncio.sleep(0.5)
-
-    log("Turnstile", f"No Turnstile iframe/container found after {timeout_s}s")
-    return None, None
-
-# ── Step 2: GUI mouse click at exact checkbox coordinates ─────
-async def gui_click_turnstile_checkbox(page, iframe_el, iframe_box, attempt=0):
-    """
-    Click the Cloudflare Turnstile checkbox using precise page-level coordinates.
-
-    Widget layout (Cloudflare standard):
-      ┌─────────────────────────────────────────────────────────────────┐
-      │  [○]  Verify you are human          [Cloudflare logo / badge]  │
-      └─────────────────────────────────────────────────────────────────┘
-      The ○ checkbox circle centre is at approximately:
-        x = iframe_x + 24
-        y = iframe_y + (iframe_height / 2)   ← vertically centred
-
-    We use slight per-attempt jitter so repeated clicks land on
-    slightly different pixels (reduces bot fingerprinting).
-    """
-    # Per-attempt x/y offsets in pixels relative to (iframe_x+24, iframe_y+h/2)
-    jitter_x = [0, +4, -3, +2, -5, +6, -2, +3][attempt % 8]
-    jitter_y = [0, +2, -2, +3, -3, +1, -1, +4][attempt % 8]
-
-    # Refresh bounding box — the page may have scrolled since the iframe was found
-    try:
-        fresh = await iframe_el.bounding_box()
-        if fresh and fresh["width"] > 20 and fresh["height"] > 10:
-            iframe_box = fresh
-    except Exception:
-        pass
-
-    cb_x = iframe_box["x"] + 24 + jitter_x + random.uniform(-1.5, 1.5)
-    cb_y = iframe_box["y"] + (iframe_box["height"] / 2) + jitter_y + random.uniform(-1.5, 1.5)
-
-    log("Turnstile", (
-        f"GUI click attempt {attempt+1}: target=({cb_x:.1f},{cb_y:.1f})  "
-        f"iframe=[x={iframe_box['x']:.0f} y={iframe_box['y']:.0f} "
-        f"w={iframe_box['width']:.0f} h={iframe_box['height']:.0f}]"
-    ))
-
-    try:
-        await page.bring_to_front()
-
-        # ── Phase 1: approach from above-right (natural reading position) ──
-        await page.mouse.move(
-            cb_x + random.uniform(90, 180),
-            cb_y - random.uniform(35, 70),
-            steps=random.randint(9, 13),
-        )
-        await asyncio.sleep(random.uniform(0.20, 0.45))
-
-        # ── Phase 2: intermediate point, slow down ──
-        await page.mouse.move(
-            cb_x + random.uniform(10, 30),
-            cb_y + random.uniform(-8, 8),
-            steps=random.randint(7, 11),
-        )
-        await asyncio.sleep(random.uniform(0.08, 0.20))
-
-        # ── Phase 3: final landing on the checkbox ──
-        await page.mouse.move(cb_x, cb_y, steps=4)
-        await asyncio.sleep(random.uniform(0.06, 0.13))
-
-        # ── Click: mouse.down + mouse.up (more reliable than mouse.click in iframes) ──
-        await page.mouse.down()
-        await asyncio.sleep(random.uniform(0.07, 0.14))
-        await page.mouse.up()
-
-        log("Turnstile", f"  > mouse.down/up dispatched at ({cb_x:.1f},{cb_y:.1f})")
-
-        # ── Secondary click via page.mouse.click (belt-and-suspenders) ──
-        await asyncio.sleep(random.uniform(0.25, 0.45))
-        await page.mouse.click(cb_x, cb_y)
-        log("Turnstile", f"  > mouse.click also dispatched")
-
-        return True
-
-    except Exception as e:
-        log("Turnstile", f"GUI click error on attempt {attempt+1}: {e}")
-        # Last-resort: direct page.mouse.click with no trajectory
-        try:
-            await page.mouse.click(cb_x, cb_y)
-            log("Turnstile", f"  > bare fallback click at ({cb_x:.1f},{cb_y:.1f})")
-            return True
-        except Exception as e2:
-            log("Turnstile", f"  > fallback also failed: {e2}")
-            return False
-
-# ── Step 3: full solving loop ─────────────────────────────────
-async def solve_turnstile(page, tag, wait_after_click_s=13):
-    """
-    Main Turnstile solver — called once per sign-up attempt.
-
-    Flow:
-      1. Diagnostic dump of all iframes
-      2. Fast-path: already solved?
-      3. wait_for_turnstile_iframe() — up to 20 s
-      4. Baseline green-pixel reading
-      5. 3-second idle check (managed-mode auto-solve)
-      6. Loop: gui_click_turnstile_checkbox() → poll every 1 s for 12-15 s
-      7. Up to 6 independent attempts before giving up
-    Returns True if solved (or no widget), False if all attempts failed.
-    """
-    log("Turnstile", f"[{tag}] ══════ Turnstile solver START ══════")
-    await shot(page, f"ts-{tag}-start")
-    await ts_diag(page, tag)
-
-    # Fast-path: token already present
-    st = await ts_state(page)
-    if st["value"]:
-        log("Turnstile", f"[{tag}] Already solved before anything (token present)")
-        return True
-
-    # Find iframe
-    iframe_el, iframe_box = await wait_for_turnstile_iframe(page, timeout_s=20)
-
-    if iframe_el is None and iframe_box is None:
-        # Could mean: auto-solved during wait, OR no widget at all
-        st = await ts_state(page)
-        if st["value"]:
-            log("Turnstile", f"[{tag}] Token appeared during wait — solved")
-            return True
-        log("Turnstile", f"[{tag}] No Turnstile widget found — assuming not required")
-        return True
-
-    await shot(page, f"ts-{tag}-iframe-found")
-    baseline_green = await ts_green_ratio(page, iframe_box)
-    log("Turnstile", f"[{tag}] Baseline green ratio: {baseline_green:.4f}")
-
-    # Give managed-mode 3 s to auto-solve
-    log("Turnstile", f"[{tag}] Idle 3 s — checking for auto-solve...")
-    await asyncio.sleep(random.uniform(2.8, 3.5))
-    s = await ts_solved(page, iframe_box, baseline_green)
-    if s:
-        log("Turnstile", f"[{tag}] Auto-solved: {s}")
-        return True
-
-    # ── Main click loop ───────────────────────────────────────
-    max_attempts = 6
-    for attempt in range(max_attempts):
-        # Check solved before this attempt
-        s = await ts_solved(page, iframe_box, baseline_green)
-        if s:
-            log("Turnstile", f"[{tag}] Solved before attempt {attempt+1}: {s}")
-            await asyncio.sleep(2)
-            return True
-
-        log("Turnstile", f"[{tag}] ─── Click attempt {attempt+1}/{max_attempts} ───")
-
-        # Click
-        clicked = await gui_click_turnstile_checkbox(page, iframe_el, iframe_box, attempt)
-        await shot(page, f"ts-{tag}-click{attempt+1}")
-
-        if not clicked:
-            log("Turnstile", f"[{tag}] Click dispatch failed — sleeping 2 s before retry")
-            await asyncio.sleep(2)
-            continue
-
-        # ── Poll every 1 s for wait_after_click_s seconds ────
-        poll_seconds = wait_after_click_s + random.randint(0, 3)  # 12-16 s
-        log("Turnstile", f"[{tag}] Polling for success for up to {poll_seconds} s...")
-        t0 = time.time()
-        solved_signal = ""
-
-        for tick in range(poll_seconds):
-            await asyncio.sleep(1)
-            # Refresh iframe box every 5 s (page may have scrolled)
-            if tick % 5 == 4:
-                try:
-                    fresh = await iframe_el.bounding_box()
-                    if fresh and fresh["width"] > 20:
-                        iframe_box = fresh
-                except Exception:
-                    pass
-
-            solved_signal = await ts_solved(page, iframe_box, baseline_green)
-            if solved_signal:
-                elapsed = time.time() - t0
-                log("Turnstile", (
-                    f"[{tag}] ✓ SOLVED at tick {tick+1} ({elapsed:.1f}s) "
-                    f"via signal: {solved_signal}"
-                ))
-                break
-
-            if (tick + 1) % 5 == 0:
-                log("Turnstile", f"[{tag}]   ... still waiting ({tick+1}/{poll_seconds}s)")
-
-        if solved_signal:
-            await asyncio.sleep(random.uniform(1.5, 2.5))
-            await shot(page, f"ts-{tag}-solved")
-            log("Turnstile", f"[{tag}] ══════ Turnstile solver SUCCESS ══════")
-            return True
-
-        log("Turnstile", (
-            f"[{tag}] Attempt {attempt+1} not confirmed after {poll_seconds}s — will retry"
-        ))
-        await asyncio.sleep(random.uniform(1.0, 2.0))
-
-    log("Turnstile", f"[{tag}] ✗ WARNING: all {max_attempts} attempts failed to confirm solve")
-    await shot(page, f"ts-{tag}-failed")
-    return False
-
-# ══════════════════════════════════════════════════════════════
-#  DASHBOARD POPUPS
-# ══════════════════════════════════════════════════════════════
-async def dismiss_save_password(page):
-    for loc in (
-        page.get_by_role("button", name=re.compile(r"^no thanks$", re.I)),
-        page.get_by_text(re.compile(r"^no thanks$", re.I)),
-        page.locator('button:has-text("No thanks")'),
-    ):
-        try:
-            el = loc.first
-            if await el.is_visible():
-                await el.click(timeout=2000)
-                log("Popup", 'Clicked "No thanks"')
-                await asyncio.sleep(1.0)
-                return True
-        except Exception: pass
-    try:
-        await page.keyboard.press("Escape")
-        await asyncio.sleep(0.6)
-    except Exception: pass
-    return False
-
-RUN_MODAL_RE  = re.compile(r"how do you want to run profiles", re.I)
-MODAL_RECT_JS = """() => {
-    const re = /how do you want to run profiles/i;
-    let target = null;
-    for (const el of document.querySelectorAll('h1,h2,h3,h4,h5,div,p,span')) {
-        if (el.children.length === 0 && re.test(el.textContent || '')) { target = el; break; }
-    }
-    if (!target) return null;
-    let card = target;
-    while (card.parentElement) {
-        const r = card.getBoundingClientRect();
-        if (r.width >= 420 && r.height >= 320) break;
-        card = card.parentElement;
-    }
-    const r = card.getBoundingClientRect();
-    if (r.width < 100 || r.height < 100) return null;
-    const pts = [];
-    card.querySelectorAll('button,[role="button"],svg,i,a,span,[class*="close" i]').forEach(e => {
-        const b = e.getBoundingClientRect();
-        const txt = (e.textContent || '').trim();
-        if (b.width > 0 && b.width <= 48 && b.height > 0 && b.height <= 48 &&
-            (b.top - r.top) < 70 && txt.length <= 2) {
-            pts.push({x: b.left + b.width / 2, y: b.top + b.height / 2});
-        }
-    });
-    return {x: r.left, y: r.top, w: r.width, h: r.height, pts: pts};
-}"""
-
-async def run_modal_info(page):
-    try:
-        return await page.evaluate(MODAL_RECT_JS)
-    except Exception:
-        return None
-
-async def run_modal_visible(page):
-    try:
-        if await page.get_by_text(RUN_MODAL_RE).first.is_visible():
-            return True
-    except Exception: pass
-    return (await run_modal_info(page)) is not None
-
-async def close_run_modal(page, wait_appear=12, attempts=4):
-    end = time.time() + wait_appear
-    seen = False
-    while time.time() < end:
-        if await run_modal_visible(page):
-            seen = True
-            break
-        await asyncio.sleep(0.5)
-    if not seen:
-        log("Popup", "Run-profiles modal not present")
-        return True
-
-    log("Popup", "Run-profiles modal detected — closing")
-    await shot(page, "run-modal-open")
-    await asyncio.sleep(random.uniform(0.8, 1.4))
-
-    for attempt in range(attempts):
-        info = await run_modal_info(page)
-        if not info:
-            break
-        for loc in (
-            page.locator('[role="dialog"] [aria-label*="close" i]'),
-            page.locator('[aria-label*="close" i]'),
-            page.locator('button[class*="close" i]'),
-        ):
-            try:
-                el = loc.first
-                if await el.is_visible():
-                    await el.click(timeout=2000)
-                    log("Popup", "Clicked X via DOM selector")
-                    await asyncio.sleep(1.3)
-                    break
-            except Exception: pass
-        if not await run_modal_visible(page):
-            break
-
-        info = await run_modal_info(page)
-        if not info:
-            break
-        pts = sorted(info.get("pts", []), key=lambda p: -p["x"])
-        corners = [
-            {"x": info["x"] + info["w"] - 24, "y": info["y"] + 24},
-            {"x": info["x"] + 24,             "y": info["y"] + 24},
-        ]
-        for p in pts[:2] + corners:
-            try:
-                await page.mouse.move(p["x"] - 25, p["y"] + 15, steps=6)
-                await asyncio.sleep(0.3)
-                await page.mouse.move(p["x"], p["y"], steps=6)
-                await asyncio.sleep(0.2)
-                await page.mouse.click(p["x"], p["y"])
-                log("Popup", f"Clicked ({p['x']:.0f},{p['y']:.0f})")
-            except Exception as e:
-                log("Popup", f"mouse click error: {e}")
-            await asyncio.sleep(1.4)
-            if not await run_modal_visible(page):
-                break
-        if not await run_modal_visible(page):
-            break
-        try:
-            await page.keyboard.press("Escape")
-            await asyncio.sleep(1.0)
-        except Exception: pass
-        if not await run_modal_visible(page):
-            break
-
-    gone = not await run_modal_visible(page)
-    log("Popup", f"Run-profiles modal closed: {gone}")
-    await shot(page, "run-modal-after")
-    return gone
-
-async def clear_dashboard_popups(page):
-    await asyncio.sleep(random.uniform(2.0, 3.0))
-    await dismiss_save_password(page)
-    await asyncio.sleep(random.uniform(1.0, 1.8))
-    await close_run_modal(page)
-    await asyncio.sleep(random.uniform(0.8, 1.5))
-    await dismiss_save_password(page)
-    await dismiss_overlays(page, 4)
-    await asyncio.sleep(random.uniform(0.8, 1.2))
-    await shot(page, "dashboard-clean")
-
-# ══════════════════════════════════════════════════════════════
-#  TOKEN VIA SETTINGS  (last-resort fallback)
-# ══════════════════════════════════════════════════════════════
-async def token_via_settings(page):
-    await page.goto("https://app.gologin.com/#/personalArea/TokenApi", wait_until="domcontentloaded", timeout=30000)
-    await asyncio.sleep(3)
-    await close_run_modal(page, wait_appear=3)
-    await dismiss_overlays(page, 3)
-    new_btn = await find_visible(page, [
-        page.get_by_role("button", name=re.compile(r"new token", re.I)),
-        page.get_by_role("button", name=re.compile(r"(create|generate).{0,12}token", re.I)),
-    ], 8000)
-    if not new_btn:
-        await click_first(page, [
-            page.get_by_text(re.compile(r"API\s*(&|and)\s*MCP", re.I)),
-            page.get_by_role("link", name=re.compile(r"^api", re.I)),
-        ], 4000)
-        await asyncio.sleep(2)
-        new_btn = await find_visible(page, [page.get_by_role("button", name=re.compile(r"new token", re.I))], 8000)
-    await scan_page(page, "settings-existing")
-    await shot(page, "api-page")
-    if not new_btn:
-        log("Token", "No New token button")
-        return
-    await new_btn.click()
-    await asyncio.sleep(1.5)
-    try:
-        name_input = page.locator('[role="dialog"] input[type="text"],[class*="modal" i] input[type="text"]').first
-        if await name_input.is_visible():
-            await name_input.fill(f"actions-{IDX}")
-    except Exception: pass
-    await click_first(page, [page.get_by_role("button", name=re.compile(r"^(create|generate|save|confirm|ok|done|continue)\b", re.I))], 3000)
-    await asyncio.sleep(2.5)
-    await scan_page(page, "settings-new")
-    await click_first(page, [
-        page.get_by_role("button", name=re.compile(r"copy", re.I)),
-        page.get_by_text(re.compile(r"^copy( token)?$", re.I)),
-    ], 2000)
-    await read_clipboard(page)
-    await shot(page, "settings-after-new-token")
-
-# ══════════════════════════════════════════════════════════════
-#  API CONTROL: wait then copy token
-# ══════════════════════════════════════════════════════════════
-async def wait_and_copy_api_token(page, initial_wait=20, extra_wait=40):
-    log("Main", f"Waiting {initial_wait}s for API control to load")
-    waited = 0
-    while waited < initial_wait:
-        await asyncio.sleep(5)
-        waited += 5
-        await scan_page(page, f"api-wait-{waited}s")
-        if waited in (10, 20):
-            await shot(page, f"api-control-wait-{waited}s")
-
-    copy_locators = [
-        page.get_by_role("button", name=re.compile(r"copy token", re.I)),
-        page.get_by_text(re.compile(r"copy token", re.I)),
-        page.get_by_role("button", name=re.compile(r"^copy$", re.I)),
-    ]
-    end = time.time() + extra_wait
-    copy_el = None
-    while time.time() < end:
-        copy_el = await find_visible(page, copy_locators, 4000)
-        if copy_el:
-            break
-        await scan_page(page, "api-wait-extra")
-        await asyncio.sleep(2)
-
-    await shot(page, "api-control-page")
-    if not copy_el:
-        log("Main", "Copy token not found after waiting")
-        await scan_page(page, "api-control-final-scan")
-        return False
-
-    await asyncio.sleep(random.uniform(0.8, 1.4))
-    try:
-        await copy_el.click(timeout=5000)
-    except Exception:
-        try: await copy_el.click(timeout=3000, force=True)
-        except Exception as e: log("Main", f"copy click failed: {e}")
-    log("Main", "Clicked Copy token")
-    await asyncio.sleep(1.5)
-    await read_clipboard(page)
-    await shot(page, "after-copy-token")
-    await asyncio.sleep(1.5)
-    await read_clipboard(page)
-    return True
-
-# ══════════════════════════════════════════════════════════════
-#  MAIN BROWSER FLOW
-# ══════════════════════════════════════════════════════════════
-async def run_flow(profile_id, result):
-    ws_url = f"{CLOUD_WS}?token={API_TOKEN}&profile={profile_id}"
-    log("Cloud", f"Connecting profile={profile_id}")
-
-    import aiohttp
-    async with aiohttp.ClientSession() as session:
-        check_url = ws_url.replace("wss://", "https://").replace("ws://", "http://")
-        async with session.get(check_url) as resp:
-            log("Cloud", f"Connection check: HTTP {resp.status}")
-            if resp.status >= 400:
-                raise RuntimeError(f"Cloud browser refused: {resp.reason}")
-
-    async with async_playwright() as pw:
-        browser = await pw.chromium.connect_over_cdp(ws_url, timeout=60000)
-        log("Cloud", "Playwright connected")
-        context = browser.contexts[0] if browser.contexts else await browser.new_context()
-        try:
-            await context.grant_permissions(["clipboard-read", "clipboard-write"])
-        except Exception: pass
-
-        async def on_response(r):
-            try:
-                if "gologin.com" not in r.url or "token" not in r.url.lower(): return
-                ct = r.headers.get("content-type", "")
-                if "json" not in ct and "text" not in ct: return
-                for m in JWT.findall(await r.text()):
-                    add_candidate(m, f"network:{r.url.split('?')[0][-40:]}")
-            except Exception: pass
-
-        context.on("response", on_response)
-        await context.add_init_script(INIT_JS)
-
-        pages = context.pages
-        page  = pages[0] if pages else await context.new_page()
-        page.set_default_timeout(30000)
-        try: await page.evaluate(INIT_JS)
-        except Exception: pass
-
-        # ── Phase 2: Sign-up form ─────────────────────────────
-        banner("Phase 2 — Fill sign-up form")
-        log("Main", f"Current URL: {page.url}")
-        if "sign_up" not in page.url:
-            await page.goto(SIGNUP_URL, wait_until="domcontentloaded", timeout=60000)
-
-        email_field = await find_visible(page, [
-            page.get_by_placeholder(re.compile(r"your email", re.I)),
-            page.locator('input[type="email"]'),
-            page.locator('input[name="email"]'),
-            page.locator('input[placeholder*="email" i]'),
-        ], 30000)
-
-        if not email_field:
-            await dump_page(page, "no-email-field")
-            raise RuntimeError("Sign-up email field not found")
-
-        await asyncio.sleep(random.uniform(1.5, 2.5))
-        await shot(page, "signup-page")
-        log("Main", f"Entering email: {EMAIL}")
-        await type_human(email_field, EMAIL)
-        await asyncio.sleep(random.uniform(1.5, 2.8))
-        await shot(page, "email-entered")
-
-        await tick_tos(page)
-        await asyncio.sleep(random.uniform(0.8, 1.5))
-        await shot(page, "tos-ticked")
-
-        await click_first(page, [
-            page.get_by_role("button", name=re.compile(r"try 7 days for free", re.I)),
-            page.get_by_role("button", name=re.compile(r"try.*free", re.I)),
-            page.get_by_role("button", name=re.compile(r"continue", re.I)),
-            page.locator('button:has-text("Try 7 days")'),
-        ], 12000)
-        await asyncio.sleep(random.uniform(2.0, 3.5))
-
-        # ── Phase 3: Password → Turnstile → Create account ───
-        banner("Phase 3 — Password + Turnstile + Create account")
-
-        async def password_visible():
-            return (
-                await page.locator('input[type="password"]').first.is_visible()
-                or await page.get_by_placeholder(re.compile(r"your password|password", re.I)).first.is_visible()
-            )
-
-        stage1 = await wait_any([
-            ["password", password_visible],
-            ["error", lambda: page.get_by_text(re.compile(
-                r"already (registered|exists|in use|taken)|invalid email|too many|something went wrong|try again", re.I
-            )).first.is_visible()],
-        ], 50000)
-
-        await shot(page, "after-email-submit")
-        if stage1 != "password":
-            await dump_page(page, f"stage1-{stage1}")
-            raise RuntimeError(f"Password step not reached (stage={stage1})")
-
-        await asyncio.sleep(random.uniform(1.0, 2.0))
-
-        # Fill password fields
-        pass_field = page.get_by_placeholder(re.compile(r"your password|password", re.I)).first
-        confirm_field = page.get_by_placeholder(re.compile(r"confirm password", re.I)).first
-        try:
-            if not (await pass_field.is_visible() and await confirm_field.is_visible()):
-                raise ValueError
-        except Exception:
-            pw_inputs = page.locator('input[type="password"]')
-            pass_field    = pw_inputs.nth(0)
-            confirm_field = pw_inputs.nth(1) if await pw_inputs.count() > 1 else None
-
-        await type_human(pass_field, PASSWORD)
-        await asyncio.sleep(random.uniform(0.6, 1.1))
-        if confirm_field is not None:
-            await type_human(confirm_field, PASSWORD)
-        await asyncio.sleep(random.uniform(0.8, 1.4))
-
-        await tick_tos(page)
-        await asyncio.sleep(random.uniform(0.8, 1.4))
-        await shot(page, "password-filled")
-
-        # ── Solve Turnstile FIRST, then click Create ─────────
-        # (This is the core v4 improvement: Create is ONLY clicked
-        #  after the solver confirms success.)
-        log("Main", "Handing off to Turnstile solver...")
-        ts_ok = await solve_turnstile(page, "signup", wait_after_click_s=13)
-        log("Main", f"Turnstile solver returned: {ts_ok}")
-
-        if not ts_ok:
-            log("Main", "Turnstile not confirmed — will attempt Create anyway and retry if needed")
-
-        # Short human pause after solving before clicking Create
-        await asyncio.sleep(random.uniform(2.0, 3.0))
-        await shot(page, "before-create-account")
-
-        async def left_password_step():
-            try:
-                if not await page.locator('input[type="password"]').first.is_visible():
-                    return True
-            except Exception:
-                return True
-            return False
-
-        created = False
-        for create_attempt in range(1, 4):
-            # If not on password page any more, we already advanced
-            if await left_password_step():
-                log("Main", f"Already left password page before create attempt {create_attempt}")
-                created = True
-                break
-
-            # If Turnstile not confirmed on a retry, re-solve it
-            if create_attempt > 1:
-                log("Main", f"Re-solving Turnstile before create attempt {create_attempt}")
-                await solve_turnstile(page, f"retry{create_attempt}", wait_after_click_s=13)
-                await asyncio.sleep(random.uniform(1.5, 2.5))
-
-            clicked = await click_first(page, [
-                page.get_by_role("button", name=CREATE_RE),
-                page.locator('button:has-text("Create")'),
-                page.locator('button[type="submit"]'),
-            ], 8000)
-            log("Main", f"Create account click attempt {create_attempt}: clicked={clicked}")
-            await asyncio.sleep(random.uniform(2.0, 3.0))
-            await shot(page, f"after-create-click-{create_attempt}")
-
-            moved = await wait_any([
-                ["left",    left_password_step],
-                ["survey",  lambda: page.get_by_text(re.compile(r"have you ever used|antidetect|what do you use", re.I)).first.is_visible()],
-                ["verify",  lambda: page.get_by_text(re.compile(r"check your (email|inbox)|verify your email|confirmation link|we sent", re.I)).first.is_visible()],
-                ["dash",    lambda: is_dashboard(page)],
-            ], 25000)
-            log("Main", f"After create click {create_attempt}: moved={moved}")
-
-            if moved:
-                created = True
-                break
-            log("Main", f"Still on password page after attempt {create_attempt}")
-
-        if not created:
-            await dump_page(page, "create-never-advanced")
-            raise RuntimeError("Create account did not advance after all attempts")
-
-        async def text_visible(pat):
-            return await page.get_by_text(re.compile(pat, re.I)).first.is_visible()
-
-        stage2 = await wait_any([
-            ["survey",      lambda: text_visible(r"have you ever used|antidetect|what do you use")],
-            ["allset",      lambda: text_visible(r"all set|you.?re all set|welcome")],
-            ["verify",      lambda: text_visible(r"check your (email|inbox)|verify your email|confirmation link|we sent")],
-            ["dashboard",   lambda: is_dashboard(page)],
-            ["installer",   lambda: "download-installer" in page.url.lower()],
-            ["profilelist", lambda: "profilelist" in page.url.lower() or "browser" in page.url.lower()],
-            ["error",       lambda: text_visible(r"already (registered|exists|in use|taken)|password is too|something went wrong|try again|invalid")],
-        ], 100000)
-
-        await shot(page, "after-create-account")
-        log("Main", f"Post-create stage = {stage2}")
-
-        if stage2 in ("error", None):
-            await dump_page(page, f"stage2-{stage2}")
-            raise RuntimeError(f"Account creation failed (stage={stage2})")
-
-        result["signup"] = True
-        log("Main", f"ACCOUNT CREATED (or pending verify): {EMAIL} (stage={stage2})")
-
-        if stage2 == "verify":
-            log("Main", "Email verification required — token extraction may be limited")
-
-        # ── Phase 4: Onboarding & popups ─────────────────────
-        banner("Phase 4 — Onboarding & popups")
-        await asyncio.sleep(random.uniform(2.0, 3.0))
-
-        for _ in range(4):
-            skip = await find_visible(page, [
-                page.get_by_text(re.compile(r"skip recommended setup|^skip$", re.I)),
-                page.get_by_role("link",   name=re.compile(r"skip", re.I)),
-                page.get_by_role("button", name=re.compile(r"skip", re.I)),
-            ], 2500)
-            if skip:
-                try:
-                    await skip.click()
-                    log("Main", "Clicked Skip")
-                except Exception: pass
-                await asyncio.sleep(1.5)
-                break
-            if "download-installer" in page.url:
-                break
-            await asyncio.sleep(0.5)
-
-        if "profilelist" not in page.url.lower():
-            log("Main", f"Navigating to profile list (was {page.url})")
-            await page.goto(PROFILELIST_URL, wait_until="domcontentloaded", timeout=45000)
-            await asyncio.sleep(random.uniform(3.0, 4.5))
-
-        await shot(page, "dashboard-raw")
-        await clear_dashboard_popups(page)
-
-        if not await is_dashboard(page):
-            await page.goto(PROFILELIST_URL, wait_until="domcontentloaded", timeout=30000)
-            await asyncio.sleep(3)
-            await clear_dashboard_popups(page)
-
-        await shot(page, "dashboard")
-        log("Main", "Reached dashboard area")
-
-        # ── Phase 5: Extract API token ────────────────────────
-        banner("Phase 5 — Extract API token")
-        await asyncio.sleep(random.uniform(1.5, 2.5))
-        run_btn = await find_visible(page, [page.get_by_role("button", name="Run", exact=True)], 20000)
-
-        if not run_btn:
-            log("Main", "No Run button — going to Settings API page")
-            await token_via_settings(page)
-        else:
-            if await run_modal_visible(page):
-                await close_run_modal(page, wait_appear=1)
-            await run_btn.click()
-            log("Main", "Clicked Run")
-            await asyncio.sleep(random.uniform(1.5, 2.5))
-            await shot(page, "run-menu")
-            api_clicked = await click_first(page, [
-                page.get_by_text(re.compile(r"api control", re.I)),
-                page.get_by_role("menuitem", name=re.compile(r"api control", re.I)),
-            ], 10000)
-            if not api_clicked:
-                log("Main", "API control not found — Settings")
-                await token_via_settings(page)
-            else:
-                log("Main", 'Clicked "API control"')
-                await wait_and_copy_api_token(page, initial_wait=20, extra_wait=40)
-
-        if not [c for c in candidates if rank_of(c["source"]) <= 2]:
-            if not candidates:
-                log("Main", "Nothing captured at all — last-resort Settings page")
-                await token_via_settings(page)
-            else:
-                log("Main", "Only low-confidence candidates captured — will REST-verify them")
-
-        await browser.close()
-
-    if not candidates:
-        raise RuntimeError("Signup succeeded but no API token extracted")
-
-    ordered = sorted(candidates, key=lambda c: rank_of(c["source"]))
-    pick = None
-    for c in ordered[:5]:
-        st = rest_check(c["token"])
-        log("Main", f"REST /user for {c['source']}: {st}")
-        if st == 200:
-            pick = c
-            result["restStatus"] = st
-            break
-        if result["restStatus"] is None:
-            result["restStatus"] = st
-
-    if pick is None:
-        pick = ordered[0]
-        log("Main", "WARNING: no candidate passed REST check — keeping best")
-
-    result["token"]       = pick["token"]
-    result["tokenSource"] = pick["source"]
-    (OUT / "token.txt").write_text(pick["token"] + "\n", encoding="utf-8")
-
-async def main():
-    profile_id = None
-    result = {
-        "index": int(IDX), "email": EMAIL, "signup": False,
-        "token": None, "tokenSource": None, "restStatus": None,
-        "profileId": None, "profileOS": PROFILE_OS,
-        "proxyType": PROXY_TYPE_IN, "proxyCountry": PROXY_COUNTRY_IN,
-        "error": None, "finishedAt": None,
-    }
-    try:
-        if not EMAIL or not PASSWORD:
-            raise RuntimeError("ACC_EMAIL / ACC_PASSWORD empty")
-        banner("Phase 1 — Create GoLogin profile + proxy")
-        profile_id = create_profile()
-        result["profileId"] = profile_id
-        attach_proxy(profile_id)
-        await asyncio.sleep(3)
-        await run_flow(profile_id, result)
-    except Exception as e:
-        result["error"] = str(e)
-        print(f"::error::Device {IDX} ({EMAIL}): {e}", flush=True)
-        traceback.print_exc()
-    finally:
-        if profile_id:
-            stop_cloud_profile(profile_id)
-            delete_profile(profile_id)
-        result["finishedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        (OUT / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
-        print("\n" + "="*60)
-        print("GOLOGIN SIGNUP RESULT")
-        print("="*60)
-        print(f"device    : {IDX}")
-        print(f"email     : {EMAIL}")
-        print(f"os        : {PROFILE_OS}")
-        print(f"proxy     : {PROXY_TYPE_IN} / {PROXY_COUNTRY_IN}")
-        print(f"signup    : {'OK' if result['signup'] else 'FAILED'}")
-        print(f"REST /user: {result.get('restStatus') or '-'}")
-        print(f"source    : {result.get('tokenSource') or '-'}")
-        print("\nAPI KEY:")
-        print(result.get("token") or "(not captured)")
-        print("="*60 + "\n")
-        if result.get("token"):
-            print(f"::notice title=GoLogin API key (device {IDX} - {EMAIL})::{result['token']}", flush=True)
-        summ = os.environ.get("GITHUB_STEP_SUMMARY")
-        if summ:
-            md = "\n".join([
-                f"### Device {IDX}: {EMAIL}",
-                f"- OS: **{PROFILE_OS}** | Proxy: **{PROXY_TYPE_IN} / {PROXY_COUNTRY_IN}**",
-                f"- Signup: **{'OK ✓' if result['signup'] else 'FAILED ✗'}**",
-                f"- API key: `{result.get('token') or 'not captured'}`",
-                f"- Source: {result.get('tokenSource') or '-'}  |  REST: {result.get('restStatus') or '-'}",
-                (f"- Error: {result['error']}" if result.get("error") else ""),
-                "",
-            ])
-            with open(summ, "a", encoding="utf-8") as fh:
-                fh.write(md + "\n")
-        if result.get("error"):
-            sys.exit(1)
-
-if __name__ == "__main__":
-    asyncio.run(main())
-PYEOF
+            document.addEventListener('copy',()=>{try{rec(String(window.getSelection()));}catch(e){}},true);
+          })();
+          """
+          
+          # ── Generic browser helpers ───────────────────────────────────
+          OVERLAY_RE = re.compile(r"^(\u00d7|\u2715|x|close|got it|accept( all)?( cookies)?|maybe later|no,? thanks|not now|dismiss)$", re.I)
+          
+          async def find_visible(page, locators, timeout_ms=5000):
+              end = time.time() + timeout_ms / 1000.0
+              while True:
+                  for loc in locators:
+                      try:
+                          el = loc.first
+                          if await el.is_visible():
+                              return el
+                      except Exception: pass
+                  if time.time() >= end:
+                      return None
+                  await asyncio.sleep(0.3)
+          
+          async def click_first(page, locators, timeout_ms=5000):
+              el = await find_visible(page, locators, timeout_ms)
+              if el is None: return False
+              try:
+                  await el.click(timeout=5000)
+                  return True
+              except Exception:
+                  try:
+                      await el.click(timeout=3000, force=True)
+                      return True
+                  except Exception:
+                      return False
+          
+          async def wait_any(conditions, timeout_ms=90000):
+              end = time.time() + timeout_ms / 1000.0
+              while time.time() < end:
+                  for name, fn in conditions:
+                      try:
+                          if await fn():
+                              return name
+                      except Exception: pass
+                  await asyncio.sleep(0.6)
+              return None
+          
+          async def type_human(locator, text):
+              await locator.click()
+              try: await locator.fill("")
+              except Exception: pass
+              await locator.press_sequentially(text, delay=random.randint(50, 120))
+              try:
+                  if await locator.input_value() != text:
+                      await locator.fill(text)
+              except Exception: pass
+          
+          async def tick_tos(page):
+              ticked = 0
+              for sel_loc in (page.get_by_role("checkbox"), page.locator('input[type="checkbox"]')):
+                  try: n = await sel_loc.count()
+                  except Exception: continue
+                  for i in range(n):
+                      box = sel_loc.nth(i)
+                      try:
+                          if await box.is_checked(): continue
+                          try: await box.check(timeout=3000, force=True)
+                          except Exception: await box.click(timeout=3000, force=True)
+                          ticked += 1
+                      except Exception: pass
+                  if ticked: break
+              log("Main", f"ToS checkboxes ticked: {ticked}")
+              return ticked
+          
+          async def dismiss_overlays(page, tries=6):
+              for _ in range(tries):
+                  closed = False
+                  for loc in (
+                      page.locator('[role="dialog"] [aria-label="Close" i]'),
+                      page.locator('[aria-label="Close" i]'),
+                      page.get_by_role("button", name=OVERLAY_RE),
+                  ):
+                      try:
+                          el = loc.first
+                          if await el.is_visible():
+                              await el.click(timeout=2000)
+                              closed = True
+                              await asyncio.sleep(0.7)
+                              break
+                      except Exception: pass
+                  if not closed: break
+          
+          async def is_dashboard(page):
+              try:
+                  url = page.url.lower()
+                  if any(x in url for x in ("sign_up", "login", "download-installer", "verify")):
+                      return False
+                  if any(x in url for x in ("profilelist", "dashboard", "personalarea", "browser")):
+                      return True
+                  return await page.get_by_role("button", name="Run", exact=True).first.is_visible()
+              except Exception:
+                  return False
+          
+          async def dump_page(page, label="dump"):
+              try:
+                  url  = page.url
+                  text = await page.evaluate("() => document.body ? document.body.innerText.slice(0, 2500) : ''")
+                  log("DUMP", f"[{label}] URL={url}")
+                  log("DUMP", f"[{label}] TEXT=\n{text[:1500]}")
+                  await shot(page, f"fail-{label}")
+              except Exception as e:
+                  log("DUMP", f"dump failed: {e}")
+          
+          # ══════════════════════════════════════════════════════════════
+          #  CLOUDFLARE TURNSTILE  —  v4: direct GUI coordinate clicking
+          # ══════════════════════════════════════════════════════════════
+          # Standard Turnstile widget dimensions: ~300 × 65 px.
+          # The checkbox circle is at: (iframe_x + 24, iframe_y + height/2).
+          # That matches the screenshot: checkbox at ~x+24, vertically centered.
+          
+          TS_IFRAME_SELECTORS = [
+              'iframe[src*="challenges.cloudflare.com"]',
+              'iframe[src*="turnstile"]',
+              'iframe[title*="cloudflare" i]',
+              'iframe[title*="challenge" i]',
+              'iframe[title*="widget" i]',
+          ]
+          TS_CONTAINER_SELECTORS = [
+              '.cf-turnstile', '[class*="turnstile" i]', '[id*="turnstile" i]', '[data-sitekey]',
+          ]
+          TS_INPUT_JS = """() => {
+              const e = document.querySelector(
+                  "input[name='cf-turnstile-response'],textarea[name='cf-turnstile-response']");
+              return e ? {exists: true, value: e.value || ''} : {exists: false, value: ''};
+          }"""
+          
+          CREATE_RE = re.compile(r"create an account|create account|sign up|get started", re.I)
+          
+          async def ts_state(page):
+              try:
+                  return await page.evaluate(TS_INPUT_JS)
+              except Exception:
+                  return {"exists": False, "value": ""}
+          
+          def ts_frame(page):
+              for f in page.frames:
+                  try:
+                      if "challenges.cloudflare.com" in (f.url or ""):
+                          return f
+                  except Exception: pass
+              return None
+          
+          async def ts_diag(page, tag):
+              """Log all iframes present — helps diagnose why a widget isn't found."""
+              try:
+                  frames = [f.url[:90] for f in page.frames if f.url and f.url != "about:blank"]
+                  log("Turnstile", f"[{tag}] active frames: {frames}")
+                  n = await page.locator("iframe").count()
+                  for i in range(min(n, 10)):
+                      el  = page.locator("iframe").nth(i)
+                      box = await el.bounding_box()
+                      src = (await el.get_attribute("src")) or ""
+                      ttl = (await el.get_attribute("title")) or ""
+                      log("Turnstile", f"[{tag}] iframe#{i} src={src[:70]} title={ttl[:30]} box={box}")
+              except Exception as e:
+                  log("Turnstile", f"diag failed: {e}")
+          
+          async def ts_green_ratio(page, box):
+              """Fraction of green pixels in the widget area — Cloudflare success = green checkmark."""
+              if Image is None or not box:
+                  return 0.0
+              try:
+                  png = await page.screenshot(clip={
+                      "x": max(box["x"], 0), "y": max(box["y"], 0),
+                      "width": box["width"], "height": box["height"],
+                  })
+                  im = Image.open(io.BytesIO(png)).convert("RGB")
+                  px = list(im.getdata())
+                  if not px: return 0.0
+                  g = sum(1 for (r, gg, b) in px if gg > 110 and gg - r > 45 and gg - b > 45)
+                  return g / len(px)
+              except Exception:
+                  return 0.0
+          
+          async def ts_solved(page, iframe_box, baseline_green):
+              """
+              Check all 3 independent success signals. Returns descriptive string on success, '' otherwise.
+                Signal 1: cf-turnstile-response hidden input has a token value
+                Signal 2: the Turnstile frame contains a #success element or 'success' text
+                Signal 3: green pixel ratio in the widget area has risen above baseline
+              """
+              # Signal 1 — token
+              st = await ts_state(page)
+              if st["value"]:
+                  return f"token(len={len(st['value'])})"
+              # Signal 2 — frame state
+              f = ts_frame(page)
+              if f:
+                  try:
+                      if await f.locator("#success").first.is_visible():
+                          return "frame:#success"
+                  except Exception: pass
+                  try:
+                      txt = await f.evaluate("() => document.body ? document.body.innerText : ''")
+                      if txt and re.search(r"\bsuccess\b", txt, re.I):
+                          return "frame:text-success"
+                  except Exception: pass
+              # Signal 3 — green pixels
+              if iframe_box:
+                  ratio = await ts_green_ratio(page, iframe_box)
+                  if ratio > max(0.008, baseline_green + 0.006):
+                      return f"pixels(green={ratio:.3f} vs baseline={baseline_green:.3f})"
+              return ""
+          
+          # ── Step 1: wait for the iframe DOM element ───────────────────
+          async def wait_for_turnstile_iframe(page, timeout_s=20):
+              """
+              Poll for a visible Turnstile iframe element up to timeout_s seconds.
+              Returns (element, bounding_box) on success, (None, None) if not found
+              or if the token appeared on its own during the wait.
+              """
+              log("Turnstile", f"Waiting up to {timeout_s}s for Turnstile iframe...")
+              end = time.time() + timeout_s
+              while time.time() < end:
+                  # Already solved while we waited?
+                  st = await ts_state(page)
+                  if st["value"]:
+                      log("Turnstile", "Token appeared during iframe wait — already solved")
+                      return None, None
+          
+                  for sel in TS_IFRAME_SELECTORS:
+                      try:
+                          loc = page.locator(sel)
+                          n   = await loc.count()
+                          for i in range(n):
+                              el = loc.nth(i)
+                              try: await el.scroll_into_view_if_needed(timeout=1000)
+                              except Exception: pass
+                              box = await el.bounding_box()
+                              if box and box["width"] > 50 and box["height"] > 20:
+                                  log("Turnstile", (
+                                      f"Iframe found via '{sel}': "
+                                      f"x={box['x']:.0f} y={box['y']:.0f} "
+                                      f"w={box['width']:.0f} h={box['height']:.0f}"
+                                  ))
+                                  return el, box
+                      except Exception:
+                          pass
+          
+                  for sel in TS_CONTAINER_SELECTORS:
+                      try:
+                          loc = page.locator(sel)
+                          n   = await loc.count()
+                          for i in range(n):
+                              el = loc.nth(i)
+                              try: await el.scroll_into_view_if_needed(timeout=1000)
+                              except Exception: pass
+                              box = await el.bounding_box()
+                              if box and box["width"] > 50 and box["height"] > 20:
+                                  log("Turnstile", (
+                                      f"Container found via '{sel}': "
+                                      f"x={box['x']:.0f} y={box['y']:.0f} "
+                                      f"w={box['width']:.0f} h={box['height']:.0f}"
+                                  ))
+                                  return el, box
+                      except Exception:
+                          pass
+          
+                  await asyncio.sleep(0.5)
+          
+              log("Turnstile", f"No Turnstile iframe/container found after {timeout_s}s")
+              return None, None
+          
+          # ── Step 2: GUI mouse click at exact checkbox coordinates ─────
+          async def gui_click_turnstile_checkbox(page, iframe_el, iframe_box, attempt=0):
+              """
+              Click the Cloudflare Turnstile checkbox using precise page-level coordinates.
+          
+              Widget layout (Cloudflare standard):
+                ┌─────────────────────────────────────────────────────────────────┐
+                │  [○]  Verify you are human          [Cloudflare logo / badge]  │
+                └─────────────────────────────────────────────────────────────────┘
+                The ○ checkbox circle centre is at approximately:
+                  x = iframe_x + 24
+                  y = iframe_y + (iframe_height / 2)   ← vertically centred
+          
+              We use slight per-attempt jitter so repeated clicks land on
+              slightly different pixels (reduces bot fingerprinting).
+              """
+              # Per-attempt x/y offsets in pixels relative to (iframe_x+24, iframe_y+h/2)
+              jitter_x = [0, +4, -3, +2, -5, +6, -2, +3][attempt % 8]
+              jitter_y = [0, +2, -2, +3, -3, +1, -1, +4][attempt % 8]
+          
+              # Refresh bounding box — the page may have scrolled since the iframe was found
+              try:
+                  fresh = await iframe_el.bounding_box()
+                  if fresh and fresh["width"] > 20 and fresh["height"] > 10:
+                      iframe_box = fresh
+              except Exception:
+                  pass
+          
+              cb_x = iframe_box["x"] + 24 + jitter_x + random.uniform(-1.5, 1.5)
+              cb_y = iframe_box["y"] + (iframe_box["height"] / 2) + jitter_y + random.uniform(-1.5, 1.5)
+          
+              log("Turnstile", (
+                  f"GUI click attempt {attempt+1}: target=({cb_x:.1f},{cb_y:.1f})  "
+                  f"iframe=[x={iframe_box['x']:.0f} y={iframe_box['y']:.0f} "
+                  f"w={iframe_box['width']:.0f} h={iframe_box['height']:.0f}]"
+              ))
+          
+              try:
+                  await page.bring_to_front()
+          
+                  # ── Phase 1: approach from above-right (natural reading position) ──
+                  await page.mouse.move(
+                      cb_x + random.uniform(90, 180),
+                      cb_y - random.uniform(35, 70),
+                      steps=random.randint(9, 13),
+                  )
+                  await asyncio.sleep(random.uniform(0.20, 0.45))
+          
+                  # ── Phase 2: intermediate point, slow down ──
+                  await page.mouse.move(
+                      cb_x + random.uniform(10, 30),
+                      cb_y + random.uniform(-8, 8),
+                      steps=random.randint(7, 11),
+                  )
+                  await asyncio.sleep(random.uniform(0.08, 0.20))
+          
+                  # ── Phase 3: final landing on the checkbox ──
+                  await page.mouse.move(cb_x, cb_y, steps=4)
+                  await asyncio.sleep(random.uniform(0.06, 0.13))
+          
+                  # ── Click: mouse.down + mouse.up (more reliable than mouse.click in iframes) ──
+                  await page.mouse.down()
+                  await asyncio.sleep(random.uniform(0.07, 0.14))
+                  await page.mouse.up()
+          
+                  log("Turnstile", f"  > mouse.down/up dispatched at ({cb_x:.1f},{cb_y:.1f})")
+          
+                  # ── Secondary click via page.mouse.click (belt-and-suspenders) ──
+                  await asyncio.sleep(random.uniform(0.25, 0.45))
+                  await page.mouse.click(cb_x, cb_y)
+                  log("Turnstile", f"  > mouse.click also dispatched")
+          
+                  return True
+          
+              except Exception as e:
+                  log("Turnstile", f"GUI click error on attempt {attempt+1}: {e}")
+                  # Last-resort: direct page.mouse.click with no trajectory
+                  try:
+                      await page.mouse.click(cb_x, cb_y)
+                      log("Turnstile", f"  > bare fallback click at ({cb_x:.1f},{cb_y:.1f})")
+                      return True
+                  except Exception as e2:
+                      log("Turnstile", f"  > fallback also failed: {e2}")
+                      return False
+          
+          # ── Step 3: full solving loop ─────────────────────────────────
+          async def solve_turnstile(page, tag, wait_after_click_s=13):
+              """
+              Main Turnstile solver — called once per sign-up attempt.
+          
+              Flow:
+                1. Diagnostic dump of all iframes
+                2. Fast-path: already solved?
+                3. wait_for_turnstile_iframe() — up to 20 s
+                4. Baseline green-pixel reading
+                5. 3-second idle check (managed-mode auto-solve)
+                6. Loop: gui_click_turnstile_checkbox() → poll every 1 s for 12-15 s
+                7. Up to 6 independent attempts before giving up
+              Returns True if solved (or no widget), False if all attempts failed.
+              """
+              log("Turnstile", f"[{tag}] ══════ Turnstile solver START ══════")
+              await shot(page, f"ts-{tag}-start")
+              await ts_diag(page, tag)
+          
+              # Fast-path: token already present
+              st = await ts_state(page)
+              if st["value"]:
+                  log("Turnstile", f"[{tag}] Already solved before anything (token present)")
+                  return True
+          
+              # Find iframe
+              iframe_el, iframe_box = await wait_for_turnstile_iframe(page, timeout_s=20)
+          
+              if iframe_el is None and iframe_box is None:
+                  # Could mean: auto-solved during wait, OR no widget at all
+                  st = await ts_state(page)
+                  if st["value"]:
+                      log("Turnstile", f"[{tag}] Token appeared during wait — solved")
+                      return True
+                  log("Turnstile", f"[{tag}] No Turnstile widget found — assuming not required")
+                  return True
+          
+              await shot(page, f"ts-{tag}-iframe-found")
+              baseline_green = await ts_green_ratio(page, iframe_box)
+              log("Turnstile", f"[{tag}] Baseline green ratio: {baseline_green:.4f}")
+          
+              # Give managed-mode 3 s to auto-solve
+              log("Turnstile", f"[{tag}] Idle 3 s — checking for auto-solve...")
+              await asyncio.sleep(random.uniform(2.8, 3.5))
+              s = await ts_solved(page, iframe_box, baseline_green)
+              if s:
+                  log("Turnstile", f"[{tag}] Auto-solved: {s}")
+                  return True
+          
+              # ── Main click loop ───────────────────────────────────────
+              max_attempts = 6
+              for attempt in range(max_attempts):
+                  # Check solved before this attempt
+                  s = await ts_solved(page, iframe_box, baseline_green)
+                  if s:
+                      log("Turnstile", f"[{tag}] Solved before attempt {attempt+1}: {s}")
+                      await asyncio.sleep(2)
+                      return True
+          
+                  log("Turnstile", f"[{tag}] ─── Click attempt {attempt+1}/{max_attempts} ───")
+          
+                  # Click
+                  clicked = await gui_click_turnstile_checkbox(page, iframe_el, iframe_box, attempt)
+                  await shot(page, f"ts-{tag}-click{attempt+1}")
+          
+                  if not clicked:
+                      log("Turnstile", f"[{tag}] Click dispatch failed — sleeping 2 s before retry")
+                      await asyncio.sleep(2)
+                      continue
+          
+                  # ── Poll every 1 s for wait_after_click_s seconds ────
+                  poll_seconds = wait_after_click_s + random.randint(0, 3)  # 12-16 s
+                  log("Turnstile", f"[{tag}] Polling for success for up to {poll_seconds} s...")
+                  t0 = time.time()
+                  solved_signal = ""
+          
+                  for tick in range(poll_seconds):
+                      await asyncio.sleep(1)
+                      # Refresh iframe box every 5 s (page may have scrolled)
+                      if tick % 5 == 4:
+                          try:
+                              fresh = await iframe_el.bounding_box()
+                              if fresh and fresh["width"] > 20:
+                                  iframe_box = fresh
+                          except Exception:
+                              pass
+          
+                      solved_signal = await ts_solved(page, iframe_box, baseline_green)
+                      if solved_signal:
+                          elapsed = time.time() - t0
+                          log("Turnstile", (
+                              f"[{tag}] ✓ SOLVED at tick {tick+1} ({elapsed:.1f}s) "
+                              f"via signal: {solved_signal}"
+                          ))
+                          break
+          
+                      if (tick + 1) % 5 == 0:
+                          log("Turnstile", f"[{tag}]   ... still waiting ({tick+1}/{poll_seconds}s)")
+          
+                  if solved_signal:
+                      await asyncio.sleep(random.uniform(1.5, 2.5))
+                      await shot(page, f"ts-{tag}-solved")
+                      log("Turnstile", f"[{tag}] ══════ Turnstile solver SUCCESS ══════")
+                      return True
+          
+                  log("Turnstile", (
+                      f"[{tag}] Attempt {attempt+1} not confirmed after {poll_seconds}s — will retry"
+                  ))
+                  await asyncio.sleep(random.uniform(1.0, 2.0))
+          
+              log("Turnstile", f"[{tag}] ✗ WARNING: all {max_attempts} attempts failed to confirm solve")
+              await shot(page, f"ts-{tag}-failed")
+              return False
+          
+          # ══════════════════════════════════════════════════════════════
+          #  DASHBOARD POPUPS
+          # ══════════════════════════════════════════════════════════════
+          async def dismiss_save_password(page):
+              for loc in (
+                  page.get_by_role("button", name=re.compile(r"^no thanks$", re.I)),
+                  page.get_by_text(re.compile(r"^no thanks$", re.I)),
+                  page.locator('button:has-text("No thanks")'),
+              ):
+                  try:
+                      el = loc.first
+                      if await el.is_visible():
+                          await el.click(timeout=2000)
+                          log("Popup", 'Clicked "No thanks"')
+                          await asyncio.sleep(1.0)
+                          return True
+                  except Exception: pass
+              try:
+                  await page.keyboard.press("Escape")
+                  await asyncio.sleep(0.6)
+              except Exception: pass
+              return False
+          
+          RUN_MODAL_RE  = re.compile(r"how do you want to run profiles", re.I)
+          MODAL_RECT_JS = """() => {
+              const re = /how do you want to run profiles/i;
+              let target = null;
+              for (const el of document.querySelectorAll('h1,h2,h3,h4,h5,div,p,span')) {
+                  if (el.children.length === 0 && re.test(el.textContent || '')) { target = el; break; }
+              }
+              if (!target) return null;
+              let card = target;
+              while (card.parentElement) {
+                  const r = card.getBoundingClientRect();
+                  if (r.width >= 420 && r.height >= 320) break;
+                  card = card.parentElement;
+              }
+              const r = card.getBoundingClientRect();
+              if (r.width < 100 || r.height < 100) return null;
+              const pts = [];
+              card.querySelectorAll('button,[role="button"],svg,i,a,span,[class*="close" i]').forEach(e => {
+                  const b = e.getBoundingClientRect();
+                  const txt = (e.textContent || '').trim();
+                  if (b.width > 0 && b.width <= 48 && b.height > 0 && b.height <= 48 &&
+                      (b.top - r.top) < 70 && txt.length <= 2) {
+                      pts.push({x: b.left + b.width / 2, y: b.top + b.height / 2});
+                  }
+              });
+              return {x: r.left, y: r.top, w: r.width, h: r.height, pts: pts};
+          }"""
+          
+          async def run_modal_info(page):
+              try:
+                  return await page.evaluate(MODAL_RECT_JS)
+              except Exception:
+                  return None
+          
+          async def run_modal_visible(page):
+              try:
+                  if await page.get_by_text(RUN_MODAL_RE).first.is_visible():
+                      return True
+              except Exception: pass
+              return (await run_modal_info(page)) is not None
+          
+          async def close_run_modal(page, wait_appear=12, attempts=4):
+              end = time.time() + wait_appear
+              seen = False
+              while time.time() < end:
+                  if await run_modal_visible(page):
+                      seen = True
+                      break
+                  await asyncio.sleep(0.5)
+              if not seen:
+                  log("Popup", "Run-profiles modal not present")
+                  return True
+          
+              log("Popup", "Run-profiles modal detected — closing")
+              await shot(page, "run-modal-open")
+              await asyncio.sleep(random.uniform(0.8, 1.4))
+          
+              for attempt in range(attempts):
+                  info = await run_modal_info(page)
+                  if not info:
+                      break
+                  for loc in (
+                      page.locator('[role="dialog"] [aria-label*="close" i]'),
+                      page.locator('[aria-label*="close" i]'),
+                      page.locator('button[class*="close" i]'),
+                  ):
+                      try:
+                          el = loc.first
+                          if await el.is_visible():
+                              await el.click(timeout=2000)
+                              log("Popup", "Clicked X via DOM selector")
+                              await asyncio.sleep(1.3)
+                              break
+                      except Exception: pass
+                  if not await run_modal_visible(page):
+                      break
+          
+                  info = await run_modal_info(page)
+                  if not info:
+                      break
+                  pts = sorted(info.get("pts", []), key=lambda p: -p["x"])
+                  corners = [
+                      {"x": info["x"] + info["w"] - 24, "y": info["y"] + 24},
+                      {"x": info["x"] + 24,             "y": info["y"] + 24},
+                  ]
+                  for p in pts[:2] + corners:
+                      try:
+                          await page.mouse.move(p["x"] - 25, p["y"] + 15, steps=6)
+                          await asyncio.sleep(0.3)
+                          await page.mouse.move(p["x"], p["y"], steps=6)
+                          await asyncio.sleep(0.2)
+                          await page.mouse.click(p["x"], p["y"])
+                          log("Popup", f"Clicked ({p['x']:.0f},{p['y']:.0f})")
+                      except Exception as e:
+                          log("Popup", f"mouse click error: {e}")
+                      await asyncio.sleep(1.4)
+                      if not await run_modal_visible(page):
+                          break
+                  if not await run_modal_visible(page):
+                      break
+                  try:
+                      await page.keyboard.press("Escape")
+                      await asyncio.sleep(1.0)
+                  except Exception: pass
+                  if not await run_modal_visible(page):
+                      break
+          
+              gone = not await run_modal_visible(page)
+              log("Popup", f"Run-profiles modal closed: {gone}")
+              await shot(page, "run-modal-after")
+              return gone
+          
+          async def clear_dashboard_popups(page):
+              await asyncio.sleep(random.uniform(2.0, 3.0))
+              await dismiss_save_password(page)
+              await asyncio.sleep(random.uniform(1.0, 1.8))
+              await close_run_modal(page)
+              await asyncio.sleep(random.uniform(0.8, 1.5))
+              await dismiss_save_password(page)
+              await dismiss_overlays(page, 4)
+              await asyncio.sleep(random.uniform(0.8, 1.2))
+              await shot(page, "dashboard-clean")
+          
+          # ══════════════════════════════════════════════════════════════
+          #  TOKEN VIA SETTINGS  (last-resort fallback)
+          # ══════════════════════════════════════════════════════════════
+          async def token_via_settings(page):
+              await page.goto("https://app.gologin.com/#/personalArea/TokenApi", wait_until="domcontentloaded", timeout=30000)
+              await asyncio.sleep(3)
+              await close_run_modal(page, wait_appear=3)
+              await dismiss_overlays(page, 3)
+              new_btn = await find_visible(page, [
+                  page.get_by_role("button", name=re.compile(r"new token", re.I)),
+                  page.get_by_role("button", name=re.compile(r"(create|generate).{0,12}token", re.I)),
+              ], 8000)
+              if not new_btn:
+                  await click_first(page, [
+                      page.get_by_text(re.compile(r"API\s*(&|and)\s*MCP", re.I)),
+                      page.get_by_role("link", name=re.compile(r"^api", re.I)),
+                  ], 4000)
+                  await asyncio.sleep(2)
+                  new_btn = await find_visible(page, [page.get_by_role("button", name=re.compile(r"new token", re.I))], 8000)
+              await scan_page(page, "settings-existing")
+              await shot(page, "api-page")
+              if not new_btn:
+                  log("Token", "No New token button")
+                  return
+              await new_btn.click()
+              await asyncio.sleep(1.5)
+              try:
+                  name_input = page.locator('[role="dialog"] input[type="text"],[class*="modal" i] input[type="text"]').first
+                  if await name_input.is_visible():
+                      await name_input.fill(f"actions-{IDX}")
+              except Exception: pass
+              await click_first(page, [page.get_by_role("button", name=re.compile(r"^(create|generate|save|confirm|ok|done|continue)\b", re.I))], 3000)
+              await asyncio.sleep(2.5)
+              await scan_page(page, "settings-new")
+              await click_first(page, [
+                  page.get_by_role("button", name=re.compile(r"copy", re.I)),
+                  page.get_by_text(re.compile(r"^copy( token)?$", re.I)),
+              ], 2000)
+              await read_clipboard(page)
+              await shot(page, "settings-after-new-token")
+          
+          # ══════════════════════════════════════════════════════════════
+          #  API CONTROL: wait then copy token
+          # ══════════════════════════════════════════════════════════════
+          async def wait_and_copy_api_token(page, initial_wait=20, extra_wait=40):
+              log("Main", f"Waiting {initial_wait}s for API control to load")
+              waited = 0
+              while waited < initial_wait:
+                  await asyncio.sleep(5)
+                  waited += 5
+                  await scan_page(page, f"api-wait-{waited}s")
+                  if waited in (10, 20):
+                      await shot(page, f"api-control-wait-{waited}s")
+          
+              copy_locators = [
+                  page.get_by_role("button", name=re.compile(r"copy token", re.I)),
+                  page.get_by_text(re.compile(r"copy token", re.I)),
+                  page.get_by_role("button", name=re.compile(r"^copy$", re.I)),
+              ]
+              end = time.time() + extra_wait
+              copy_el = None
+              while time.time() < end:
+                  copy_el = await find_visible(page, copy_locators, 4000)
+                  if copy_el:
+                      break
+                  await scan_page(page, "api-wait-extra")
+                  await asyncio.sleep(2)
+          
+              await shot(page, "api-control-page")
+              if not copy_el:
+                  log("Main", "Copy token not found after waiting")
+                  await scan_page(page, "api-control-final-scan")
+                  return False
+          
+              await asyncio.sleep(random.uniform(0.8, 1.4))
+              try:
+                  await copy_el.click(timeout=5000)
+              except Exception:
+                  try: await copy_el.click(timeout=3000, force=True)
+                  except Exception as e: log("Main", f"copy click failed: {e}")
+              log("Main", "Clicked Copy token")
+              await asyncio.sleep(1.5)
+              await read_clipboard(page)
+              await shot(page, "after-copy-token")
+              await asyncio.sleep(1.5)
+              await read_clipboard(page)
+              return True
+          
+          # ══════════════════════════════════════════════════════════════
+          #  MAIN BROWSER FLOW
+          # ══════════════════════════════════════════════════════════════
+          async def run_flow(profile_id, result):
+              ws_url = f"{CLOUD_WS}?token={API_TOKEN}&profile={profile_id}"
+              log("Cloud", f"Connecting profile={profile_id}")
+          
+              import aiohttp
+              async with aiohttp.ClientSession() as session:
+                  check_url = ws_url.replace("wss://", "https://").replace("ws://", "http://")
+                  async with session.get(check_url) as resp:
+                      log("Cloud", f"Connection check: HTTP {resp.status}")
+                      if resp.status >= 400:
+                          raise RuntimeError(f"Cloud browser refused: {resp.reason}")
+          
+              async with async_playwright() as pw:
+                  browser = await pw.chromium.connect_over_cdp(ws_url, timeout=60000)
+                  log("Cloud", "Playwright connected")
+                  context = browser.contexts[0] if browser.contexts else await browser.new_context()
+                  try:
+                      await context.grant_permissions(["clipboard-read", "clipboard-write"])
+                  except Exception: pass
+          
+                  async def on_response(r):
+                      try:
+                          if "gologin.com" not in r.url or "token" not in r.url.lower(): return
+                          ct = r.headers.get("content-type", "")
+                          if "json" not in ct and "text" not in ct: return
+                          for m in JWT.findall(await r.text()):
+                              add_candidate(m, f"network:{r.url.split('?')[0][-40:]}")
+                      except Exception: pass
+          
+                  context.on("response", on_response)
+                  await context.add_init_script(INIT_JS)
+          
+                  pages = context.pages
+                  page  = pages[0] if pages else await context.new_page()
+                  page.set_default_timeout(30000)
+                  try: await page.evaluate(INIT_JS)
+                  except Exception: pass
+          
+                  # ── Phase 2: Sign-up form ─────────────────────────────
+                  banner("Phase 2 — Fill sign-up form")
+                  log("Main", f"Current URL: {page.url}")
+                  if "sign_up" not in page.url:
+                      await page.goto(SIGNUP_URL, wait_until="domcontentloaded", timeout=60000)
+          
+                  email_field = await find_visible(page, [
+                      page.get_by_placeholder(re.compile(r"your email", re.I)),
+                      page.locator('input[type="email"]'),
+                      page.locator('input[name="email"]'),
+                      page.locator('input[placeholder*="email" i]'),
+                  ], 30000)
+          
+                  if not email_field:
+                      await dump_page(page, "no-email-field")
+                      raise RuntimeError("Sign-up email field not found")
+          
+                  await asyncio.sleep(random.uniform(1.5, 2.5))
+                  await shot(page, "signup-page")
+                  log("Main", f"Entering email: {EMAIL}")
+                  await type_human(email_field, EMAIL)
+                  await asyncio.sleep(random.uniform(1.5, 2.8))
+                  await shot(page, "email-entered")
+          
+                  await tick_tos(page)
+                  await asyncio.sleep(random.uniform(0.8, 1.5))
+                  await shot(page, "tos-ticked")
+          
+                  await click_first(page, [
+                      page.get_by_role("button", name=re.compile(r"try 7 days for free", re.I)),
+                      page.get_by_role("button", name=re.compile(r"try.*free", re.I)),
+                      page.get_by_role("button", name=re.compile(r"continue", re.I)),
+                      page.locator('button:has-text("Try 7 days")'),
+                  ], 12000)
+                  await asyncio.sleep(random.uniform(2.0, 3.5))
+          
+                  # ── Phase 3: Password → Turnstile → Create account ───
+                  banner("Phase 3 — Password + Turnstile + Create account")
+          
+                  async def password_visible():
+                      return (
+                          await page.locator('input[type="password"]').first.is_visible()
+                          or await page.get_by_placeholder(re.compile(r"your password|password", re.I)).first.is_visible()
+                      )
+          
+                  stage1 = await wait_any([
+                      ["password", password_visible],
+                      ["error", lambda: page.get_by_text(re.compile(
+                          r"already (registered|exists|in use|taken)|invalid email|too many|something went wrong|try again", re.I
+                      )).first.is_visible()],
+                  ], 50000)
+          
+                  await shot(page, "after-email-submit")
+                  if stage1 != "password":
+                      await dump_page(page, f"stage1-{stage1}")
+                      raise RuntimeError(f"Password step not reached (stage={stage1})")
+          
+                  await asyncio.sleep(random.uniform(1.0, 2.0))
+          
+                  # Fill password fields
+                  pass_field = page.get_by_placeholder(re.compile(r"your password|password", re.I)).first
+                  confirm_field = page.get_by_placeholder(re.compile(r"confirm password", re.I)).first
+                  try:
+                      if not (await pass_field.is_visible() and await confirm_field.is_visible()):
+                          raise ValueError
+                  except Exception:
+                      pw_inputs = page.locator('input[type="password"]')
+                      pass_field    = pw_inputs.nth(0)
+                      confirm_field = pw_inputs.nth(1) if await pw_inputs.count() > 1 else None
+          
+                  await type_human(pass_field, PASSWORD)
+                  await asyncio.sleep(random.uniform(0.6, 1.1))
+                  if confirm_field is not None:
+                      await type_human(confirm_field, PASSWORD)
+                  await asyncio.sleep(random.uniform(0.8, 1.4))
+          
+                  await tick_tos(page)
+                  await asyncio.sleep(random.uniform(0.8, 1.4))
+                  await shot(page, "password-filled")
+          
+                  # ── Solve Turnstile FIRST, then click Create ─────────
+                  # (This is the core v4 improvement: Create is ONLY clicked
+                  #  after the solver confirms success.)
+                  log("Main", "Handing off to Turnstile solver...")
+                  ts_ok = await solve_turnstile(page, "signup", wait_after_click_s=13)
+                  log("Main", f"Turnstile solver returned: {ts_ok}")
+          
+                  if not ts_ok:
+                      log("Main", "Turnstile not confirmed — will attempt Create anyway and retry if needed")
+          
+                  # Short human pause after solving before clicking Create
+                  await asyncio.sleep(random.uniform(2.0, 3.0))
+                  await shot(page, "before-create-account")
+          
+                  async def left_password_step():
+                      try:
+                          if not await page.locator('input[type="password"]').first.is_visible():
+                              return True
+                      except Exception:
+                          return True
+                      return False
+          
+                  created = False
+                  for create_attempt in range(1, 4):
+                      # If not on password page any more, we already advanced
+                      if await left_password_step():
+                          log("Main", f"Already left password page before create attempt {create_attempt}")
+                          created = True
+                          break
+          
+                      # If Turnstile not confirmed on a retry, re-solve it
+                      if create_attempt > 1:
+                          log("Main", f"Re-solving Turnstile before create attempt {create_attempt}")
+                          await solve_turnstile(page, f"retry{create_attempt}", wait_after_click_s=13)
+                          await asyncio.sleep(random.uniform(1.5, 2.5))
+          
+                      clicked = await click_first(page, [
+                          page.get_by_role("button", name=CREATE_RE),
+                          page.locator('button:has-text("Create")'),
+                          page.locator('button[type="submit"]'),
+                      ], 8000)
+                      log("Main", f"Create account click attempt {create_attempt}: clicked={clicked}")
+                      await asyncio.sleep(random.uniform(2.0, 3.0))
+                      await shot(page, f"after-create-click-{create_attempt}")
+          
+                      moved = await wait_any([
+                          ["left",    left_password_step],
+                          ["survey",  lambda: page.get_by_text(re.compile(r"have you ever used|antidetect|what do you use", re.I)).first.is_visible()],
+                          ["verify",  lambda: page.get_by_text(re.compile(r"check your (email|inbox)|verify your email|confirmation link|we sent", re.I)).first.is_visible()],
+                          ["dash",    lambda: is_dashboard(page)],
+                      ], 25000)
+                      log("Main", f"After create click {create_attempt}: moved={moved}")
+          
+                      if moved:
+                          created = True
+                          break
+                      log("Main", f"Still on password page after attempt {create_attempt}")
+          
+                  if not created:
+                      await dump_page(page, "create-never-advanced")
+                      raise RuntimeError("Create account did not advance after all attempts")
+          
+                  async def text_visible(pat):
+                      return await page.get_by_text(re.compile(pat, re.I)).first.is_visible()
+          
+                  stage2 = await wait_any([
+                      ["survey",      lambda: text_visible(r"have you ever used|antidetect|what do you use")],
+                      ["allset",      lambda: text_visible(r"all set|you.?re all set|welcome")],
+                      ["verify",      lambda: text_visible(r"check your (email|inbox)|verify your email|confirmation link|we sent")],
+                      ["dashboard",   lambda: is_dashboard(page)],
+                      ["installer",   lambda: "download-installer" in page.url.lower()],
+                      ["profilelist", lambda: "profilelist" in page.url.lower() or "browser" in page.url.lower()],
+                      ["error",       lambda: text_visible(r"already (registered|exists|in use|taken)|password is too|something went wrong|try again|invalid")],
+                  ], 100000)
+          
+                  await shot(page, "after-create-account")
+                  log("Main", f"Post-create stage = {stage2}")
+          
+                  if stage2 in ("error", None):
+                      await dump_page(page, f"stage2-{stage2}")
+                      raise RuntimeError(f"Account creation failed (stage={stage2})")
+          
+                  result["signup"] = True
+                  log("Main", f"ACCOUNT CREATED (or pending verify): {EMAIL} (stage={stage2})")
+          
+                  if stage2 == "verify":
+                      log("Main", "Email verification required — token extraction may be limited")
+          
+                  # ── Phase 4: Onboarding & popups ─────────────────────
+                  banner("Phase 4 — Onboarding & popups")
+                  await asyncio.sleep(random.uniform(2.0, 3.0))
+          
+                  for _ in range(4):
+                      skip = await find_visible(page, [
+                          page.get_by_text(re.compile(r"skip recommended setup|^skip$", re.I)),
+                          page.get_by_role("link",   name=re.compile(r"skip", re.I)),
+                          page.get_by_role("button", name=re.compile(r"skip", re.I)),
+                      ], 2500)
+                      if skip:
+                          try:
+                              await skip.click()
+                              log("Main", "Clicked Skip")
+                          except Exception: pass
+                          await asyncio.sleep(1.5)
+                          break
+                      if "download-installer" in page.url:
+                          break
+                      await asyncio.sleep(0.5)
+          
+                  if "profilelist" not in page.url.lower():
+                      log("Main", f"Navigating to profile list (was {page.url})")
+                      await page.goto(PROFILELIST_URL, wait_until="domcontentloaded", timeout=45000)
+                      await asyncio.sleep(random.uniform(3.0, 4.5))
+          
+                  await shot(page, "dashboard-raw")
+                  await clear_dashboard_popups(page)
+          
+                  if not await is_dashboard(page):
+                      await page.goto(PROFILELIST_URL, wait_until="domcontentloaded", timeout=30000)
+                      await asyncio.sleep(3)
+                      await clear_dashboard_popups(page)
+          
+                  await shot(page, "dashboard")
+                  log("Main", "Reached dashboard area")
+          
+                  # ── Phase 5: Extract API token ────────────────────────
+                  banner("Phase 5 — Extract API token")
+                  await asyncio.sleep(random.uniform(1.5, 2.5))
+                  run_btn = await find_visible(page, [page.get_by_role("button", name="Run", exact=True)], 20000)
+          
+                  if not run_btn:
+                      log("Main", "No Run button — going to Settings API page")
+                      await token_via_settings(page)
+                  else:
+                      if await run_modal_visible(page):
+                          await close_run_modal(page, wait_appear=1)
+                      await run_btn.click()
+                      log("Main", "Clicked Run")
+                      await asyncio.sleep(random.uniform(1.5, 2.5))
+                      await shot(page, "run-menu")
+                      api_clicked = await click_first(page, [
+                          page.get_by_text(re.compile(r"api control", re.I)),
+                          page.get_by_role("menuitem", name=re.compile(r"api control", re.I)),
+                      ], 10000)
+                      if not api_clicked:
+                          log("Main", "API control not found — Settings")
+                          await token_via_settings(page)
+                      else:
+                          log("Main", 'Clicked "API control"')
+                          await wait_and_copy_api_token(page, initial_wait=20, extra_wait=40)
+          
+                  if not [c for c in candidates if rank_of(c["source"]) <= 2]:
+                      if not candidates:
+                          log("Main", "Nothing captured at all — last-resort Settings page")
+                          await token_via_settings(page)
+                      else:
+                          log("Main", "Only low-confidence candidates captured — will REST-verify them")
+          
+                  await browser.close()
+          
+              if not candidates:
+                  raise RuntimeError("Signup succeeded but no API token extracted")
+          
+              ordered = sorted(candidates, key=lambda c: rank_of(c["source"]))
+              pick = None
+              for c in ordered[:5]:
+                  st = rest_check(c["token"])
+                  log("Main", f"REST /user for {c['source']}: {st}")
+                  if st == 200:
+                      pick = c
+                      result["restStatus"] = st
+                      break
+                  if result["restStatus"] is None:
+                      result["restStatus"] = st
+          
+              if pick is None:
+                  pick = ordered[0]
+                  log("Main", "WARNING: no candidate passed REST check — keeping best")
+          
+              result["token"]       = pick["token"]
+              result["tokenSource"] = pick["source"]
+              (OUT / "token.txt").write_text(pick["token"] + "\n", encoding="utf-8")
+          
+          async def main():
+              profile_id = None
+              result = {
+                  "index": int(IDX), "email": EMAIL, "signup": False,
+                  "token": None, "tokenSource": None, "restStatus": None,
+                  "profileId": None, "profileOS": PROFILE_OS,
+                  "proxyType": PROXY_TYPE_IN, "proxyCountry": PROXY_COUNTRY_IN,
+                  "error": None, "finishedAt": None,
+              }
+              try:
+                  if not EMAIL or not PASSWORD:
+                      raise RuntimeError("ACC_EMAIL / ACC_PASSWORD empty")
+                  banner("Phase 1 — Create GoLogin profile + proxy")
+                  profile_id = create_profile()
+                  result["profileId"] = profile_id
+                  attach_proxy(profile_id)
+                  await asyncio.sleep(3)
+                  await run_flow(profile_id, result)
+              except Exception as e:
+                  result["error"] = str(e)
+                  print(f"::error::Device {IDX} ({EMAIL}): {e}", flush=True)
+                  traceback.print_exc()
+              finally:
+                  if profile_id:
+                      stop_cloud_profile(profile_id)
+                      delete_profile(profile_id)
+                  result["finishedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                  (OUT / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+                  print("\n" + "="*60)
+                  print("GOLOGIN SIGNUP RESULT")
+                  print("="*60)
+                  print(f"device    : {IDX}")
+                  print(f"email     : {EMAIL}")
+                  print(f"os        : {PROFILE_OS}")
+                  print(f"proxy     : {PROXY_TYPE_IN} / {PROXY_COUNTRY_IN}")
+                  print(f"signup    : {'OK' if result['signup'] else 'FAILED'}")
+                  print(f"REST /user: {result.get('restStatus') or '-'}")
+                  print(f"source    : {result.get('tokenSource') or '-'}")
+                  print("\nAPI KEY:")
+                  print(result.get("token") or "(not captured)")
+                  print("="*60 + "\n")
+                  if result.get("token"):
+                      print(f"::notice title=GoLogin API key (device {IDX} - {EMAIL})::{result['token']}", flush=True)
+                  summ = os.environ.get("GITHUB_STEP_SUMMARY")
+                  if summ:
+                      md = "\n".join([
+                          f"### Device {IDX}: {EMAIL}",
+                          f"- OS: **{PROFILE_OS}** | Proxy: **{PROXY_TYPE_IN} / {PROXY_COUNTRY_IN}**",
+                          f"- Signup: **{'OK ✓' if result['signup'] else 'FAILED ✗'}**",
+                          f"- API key: `{result.get('token') or 'not captured'}`",
+                          f"- Source: {result.get('tokenSource') or '-'}  |  REST: {result.get('restStatus') or '-'}",
+                          (f"- Error: {result['error']}" if result.get("error") else ""),
+                          "",
+                      ])
+                      with open(summ, "a", encoding="utf-8") as fh:
+                          fh.write(md + "\n")
+                  if result.get("error"):
+                      sys.exit(1)
+          
+          if __name__ == "__main__":
+              asyncio.run(main())
+          PYEOF
+          # Strip YAML indent so .py has correct Python indentation
+          sed -i 's/^          //' automation/signup.py
           echo "[Script] Written OK"
 
       - name: "[3/5] Runner info"
