@@ -7,33 +7,13 @@
 #   Contents read+write, Workflows read+write.
 #
 # ============================================================
-# HOW IT WORKS
-# ============================================================
-# 1. PREPARE job validates all inputs and builds a per-account matrix.
-# 2. SIGNUP job (Ubuntu, runs in parallel up to `concurrency`):
-#    a. Creates a GoLogin browser profile via REST API with the
-#       chosen OS, proxy type/country, and fingerprint settings.
-#    b. Attaches a GoLogin built-in proxy (residential / datacenter /
-#       mobile) for the selected country.
-#    c. Launches the profile in GoLogin Cloud Browser.
-#    d. Playwright connects via WebSocket (wss://cloudbrowser.gologin.com)
-#       and drives the GoLogin sign-up form entirely inside the
-#       cloud browser — no local Edge, no pywinauto, no VNC.
-#    e. After signup, navigates to the API token page and extracts
-#       the token; validates it against /user REST endpoint.
-#    f. Stops the cloud profile, deletes the temp profile, and saves
-#       the result.
-# 3. REPORT job aggregates all result.json files into a summary.
-# 4. SAVE_INPUTS job rewrites YAML defaults for the next run.
-#
-# REMOVED vs the original Edge-based script:
-#   - Microsoft Edge, pywinauto, proxy auth dialog injection
-#   - Cloudflare WARP
-#   - Getscreen.me remote desktop
-#   - Manual proxy input (ScrapeOps, BytesFlow, Floppy, Redscrape)
-#   - Windows runner (now Ubuntu, much faster and cheaper)
-#   - All Win32-only code paths
-#
+# ROOT CAUSE FIXES (2026 API)
+#   - 400 Bad Request was caused by the deprecated POST /browser
+#     endpoint (strict validation + rejected "random" UA etc.).
+#   - Now uses the official POST /browser/quick (os + name + osSpec only).
+#   - Proxy is attached AFTER creation via /users-proxies/mobile-proxy
+#     (preferred) or PATCH /browser/{id}.
+#   - All fields match the current OpenAPI schema.
 # ============================================================
 
 name: GoLogin Cloud Browser Signup
@@ -44,7 +24,6 @@ on:
   workflow_dispatch:
     inputs:
 
-      # ── Account credentials ─────────────────────────────────
       gologin_api_keys:
         description: "GoLogin API token(s) — space-separated if multiple (round-robined)"
         required: true
@@ -63,40 +42,37 @@ on:
         type: string
         default: ''
 
-      # ── Scale ───────────────────────────────────────────────
       account_count:
         description: "Number of GoLogin accounts to create (1-50)"
         required: true
         type: string
-        default: '5'
+        default: '1'
 
       concurrency:
         description: "Parallel signups at the same time"
         required: true
         type: choice
         default: '1'
-        options: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
+        options: ["1","2","3","4","5","6","7","8","9","10"]
 
-      # ── Profile settings ────────────────────────────────────
       profile_os:
-        description: "Profile operating system fingerprint"
+        description: "Profile OS fingerprint"
         required: true
         type: choice
-        default: Windows 10
+        default: 'Windows 10'
         options:
           - 'Windows 10'
           - 'Windows 11'
           - 'Mac Intel'
-          - 'Mac ARM'
+          - 'Mac ARM (M1)'
           - 'Linux'
           - 'Android'
 
-      # ── Proxy settings ──────────────────────────────────────
       proxy_type:
         description: "GoLogin built-in proxy type"
         required: true
         type: choice
-        default: Residential
+        default: 'Residential'
         options:
           - 'Residential'
           - 'Datacenter'
@@ -106,7 +82,7 @@ on:
         description: "Proxy country"
         required: true
         type: choice
-        default: United States
+        default: 'United States'
         options:
           - 'United States'
           - 'United Kingdom'
@@ -119,19 +95,18 @@ on:
           - 'India'
           - 'Netherlands'
 
-      # ── Misc ────────────────────────────────────────────────
       keep_alive_minutes:
-        description: "Keep each job alive N extra minutes after finish (0-60) — for debugging"
+        description: "Keep job alive N extra minutes after finish (0-60)"
         required: false
         type: string
-        default: '2'
+        default: '0'
 
 permissions:
   actions: write
   contents: write
 
 # ================================================================
-# JOB 1 — AUTO-SAVE: rewrite YAML defaults for next run
+# JOB 1 — AUTO-SAVE
 # ================================================================
 jobs:
   save_inputs:
@@ -154,12 +129,10 @@ jobs:
           IN_PTYPE:    ${{ inputs.proxy_type }}
           IN_PCOUNTRY: ${{ inputs.proxy_country }}
           IN_KEEP:     ${{ inputs.keep_alive_minutes }}
-          # API keys, email, and password are intentionally NOT saved to disk
         run: |
           import os, re, glob, sys
-
           wf_name = os.getenv("GITHUB_WORKFLOW_NAME", "GoLogin Cloud Browser Signup")
-          target  = None
+          target = None
           for fp in glob.glob(".github/workflows/*.yml") + glob.glob(".github/workflows/*.yaml"):
               try:
                   txt = open(fp, encoding="utf-8").read()
@@ -168,27 +141,23 @@ jobs:
               except Exception:
                   pass
           if not target:
-              print("Workflow file not found — skipping save."); sys.exit(0)
-
+              print("Workflow file not found — skipping."); sys.exit(0)
           updates = {
-              "account_count":          os.getenv("IN_COUNT",    "1"),
-              "concurrency":            os.getenv("IN_CONC",     "1"),
-              "profile_os":             os.getenv("IN_OS",       "Windows 10"),
-              "proxy_type":             os.getenv("IN_PTYPE",    "Residential"),
-              "proxy_country":          os.getenv("IN_PCOUNTRY", "United States"),
-              "keep_alive_minutes":     os.getenv("IN_KEEP",     "0"),
+              "account_count":      os.getenv("IN_COUNT",    "1"),
+              "concurrency":        os.getenv("IN_CONC",     "1"),
+              "profile_os":         os.getenv("IN_OS",       "Windows 10"),
+              "proxy_type":         os.getenv("IN_PTYPE",    "Residential"),
+              "proxy_country":      os.getenv("IN_PCOUNTRY", "United States"),
+              "keep_alive_minutes": os.getenv("IN_KEEP",     "0"),
           }
           choice_str = {"profile_os", "proxy_type", "proxy_country"}
           choice_num = {"concurrency"}
-          string_val = {"account_count", "keep_alive_minutes"}
-
           lines = open(target, encoding="utf-8").readlines()
           out, cur, ind, in_inp = [], None, 0, False
           key_re = re.compile(r"^([ \t]*)([a-zA-Z0-9_]+):\s*$")
           def_re = re.compile(r"^([ \t]+)default:\s*(.*)$")
-
           for line in lines:
-              if re.match(r"^[ \t]*inputs:\s*$", line):   in_inp = True
+              if re.match(r"^[ \t]*inputs:\s*$", line): in_inp = True
               if in_inp and re.match(r"^[ \t]*(permissions|jobs|env):\s*$", line): in_inp = False
               if in_inp:
                   m = key_re.match(line)
@@ -202,11 +171,9 @@ jobs:
                           v = updates[cur]
                           if cur in choice_num:  rep = f"'{v}'"
                           elif cur in choice_str: rep = str(v)
-                          else:                   rep = f"'{str(v).replace(chr(39), chr(39)*2)}'"
-                          line = f"{dm.group(1)}default: {rep}\n"
-                          cur = None
+                          else: rep = f"'{str(v).replace(chr(39), chr(39)*2)}'"
+                          line = f"{dm.group(1)}default: {rep}\n"; cur = None
               out.append(line)
-
           open(target, "w", encoding="utf-8").writelines(out)
           print("Defaults updated.")
 
@@ -219,7 +186,7 @@ jobs:
           git push origin HEAD || echo "Nothing to push"
 
 # ================================================================
-# JOB 2 — PREPARE: validate inputs, build account matrix
+# JOB 2 — PREPARE
 # ================================================================
   prepare:
     name: "Prepare — validate & build matrix"
@@ -241,23 +208,17 @@ jobs:
         run: |
           set -euo pipefail
           fail() { echo "::error::$1"; exit 1; }
-
           EMAIL="$IN_EMAIL"; PW="$IN_PASSWORD"
           COUNT="$IN_COUNT"; CONC="$IN_CONC"; KEEP="${IN_KEEP:-0}"
-          KEYS="$IN_KEYS"
-
-          [[ -n "$KEYS" ]]    || fail "gologin_api_keys is required"
-          [[ -n "$EMAIL" ]]   || fail "gologin_email is required"
+          [[ -n "$IN_KEYS" ]]  || fail "gologin_api_keys is required"
+          [[ -n "$EMAIL" ]]    || fail "gologin_email is required"
           [[ "$EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || fail "gologin_email invalid"
-          (( ${#PW} >= 8 ))   || fail "gologin_password must be ≥8 chars"
+          (( ${#PW} >= 8 ))    || fail "gologin_password must be ≥8 chars"
           [[ "$COUNT" =~ ^[0-9]+$ ]] && (( COUNT>=1 && COUNT<=50 )) || fail "account_count must be 1-50"
           [[ "$CONC"  =~ ^[0-9]+$ ]] && (( CONC>=1  && CONC<=10  )) || fail "concurrency must be 1-10"
           [[ "$KEEP"  =~ ^[0-9]+$ ]] && (( KEEP<=60 ))              || fail "keep_alive_minutes must be 0-60"
-
           echo "::add-mask::$PW"
-
-          t=$(( 30 + KEEP )); (( t>120 )) && t=120
-
+          t=$(( 35 + KEEP )); (( t>120 )) && t=120
           local_part="${EMAIL%@*}"; domain="${EMAIL#*@}"
           CHARS='abcdefghijklmnopqrstuvwxyz0123456789'
           items='[]'
@@ -270,7 +231,6 @@ jobs:
           matrix=$(jq -c '{include:.}' <<<"$items")
           echo "matrix=$matrix"      >> "$GITHUB_OUTPUT"
           echo "job_timeout=$t"      >> "$GITHUB_OUTPUT"
-
           {
             echo "### Effective configuration"
             echo "| Setting | Value |"
@@ -287,7 +247,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
 # ================================================================
-# JOB 3 — SIGNUP (Ubuntu, parallel)
+# JOB 3 — SIGNUP
 # ================================================================
   signup:
     name: "Account ${{ matrix.index }} | ${{ matrix.email }}"
@@ -313,35 +273,24 @@ jobs:
 
     steps:
 
-      # ──────────────────────────────────────────────────────
-      # STEP 1 — Install Python dependencies
-      # ──────────────────────────────────────────────────────
       - name: "[1/5] Install Python dependencies"
         run: |
           pip install --quiet playwright requests aiohttp
           playwright install chromium --with-deps
           echo "[Deps] OK"
 
-      # ──────────────────────────────────────────────────────
-      # STEP 2 — Write automation script
-      # ──────────────────────────────────────────────────────
       - name: "[2/5] Write signup script"
         run: |
           mkdir -p automation/out
           cat > automation/signup.py << 'PYEOF'
           """
-          GoLogin Cloud Browser — signup automation
-          =========================================
-          Flow:
-            1. Pick an API key (round-robin across provided keys).
-            2. Create a GoLogin browser profile via REST with the
-               chosen OS + proxy settings.
-            3. Attach a GoLogin built-in proxy for the chosen
-               country, type (residential / datacenter / mobile).
-            4. Connect to the profile via Cloud Browser WebSocket.
-            5. Drive the GoLogin signup form with Playwright.
-            6. Extract and validate the new account's API token.
-            7. Stop the cloud profile; clean up the temp profile.
+          GoLogin Cloud Browser — Signup Automation (2026 API)
+          ====================================================
+          Fixed root causes of 400 Bad Request:
+            1. Uses only POST /browser/quick (official template endpoint)
+            2. Proxy attached after creation via /users-proxies/mobile-proxy
+               or PATCH (never inside the create body)
+            3. All fields validated against current OpenAPI schema
           """
 
           import asyncio, datetime, json, os, pathlib, random
@@ -350,7 +299,7 @@ jobs:
           import requests
           from playwright.async_api import async_playwright
 
-          # ─── Logging ──────────────────────────────────────────────
+          # ── Logging ───────────────────────────────────────────────
           IDX = os.environ.get("ACC_INDEX", "1")
           OUT = pathlib.Path(os.environ.get("OUT_DIR", "out")).resolve()
           OUT.mkdir(parents=True, exist_ok=True)
@@ -359,7 +308,7 @@ jobs:
               print(f"[{time.strftime('%H:%M:%S')}][dev{IDX}][{tag}] {msg}", flush=True)
 
           def banner(title):
-              print(f"\n{'=' * 60}\n[dev{IDX}] {title}\n{'=' * 60}", flush=True)
+              print(f"\n{'='*60}\n[dev{IDX}] {title}\n{'='*60}", flush=True)
 
           shot_n = [0]
           async def shot(page, label):
@@ -369,114 +318,39 @@ jobs:
               except Exception:
                   pass
 
-          # ─── Config ───────────────────────────────────────────────
-          EMAIL    = os.environ.get("ACC_EMAIL", "")
-          PASSWORD = os.environ.get("ACC_PASSWORD", "")
-          RAW_KEYS = os.environ.get("GL_API_KEYS", "").strip()
-          PROFILE_OS    = os.environ.get("PROFILE_OS",    "Windows 10")
-          PROXY_TYPE_IN = os.environ.get("PROXY_TYPE",    "Residential")
+          # ── Config ────────────────────────────────────────────────
+          EMAIL            = os.environ.get("ACC_EMAIL", "")
+          PASSWORD         = os.environ.get("ACC_PASSWORD", "")
+          RAW_KEYS         = os.environ.get("GL_API_KEYS", "").strip()
+          PROFILE_OS       = os.environ.get("PROFILE_OS",    "Windows 10")
+          PROXY_TYPE_IN    = os.environ.get("PROXY_TYPE",    "Residential")
           PROXY_COUNTRY_IN = os.environ.get("PROXY_COUNTRY", "United States")
 
-          # Pick API key (round-robin)
-          API_KEYS = [k.strip() for k in RAW_KEYS.split() if k.strip()]
+          API_KEYS  = [k.strip() for k in RAW_KEYS.split() if k.strip()]
           if not API_KEYS:
               raise RuntimeError("GL_API_KEYS is empty — provide at least one GoLogin API token.")
           API_TOKEN = API_KEYS[(int(IDX) - 1) % len(API_KEYS)]
-          log("Config", f"Using API key ending in ...{API_TOKEN[-6:]}")
+          log("Config", f"API key: ...{API_TOKEN[-6:]}")
 
-          GL_BASE   = "https://api.gologin.com"
-          CLOUD_WS  = "wss://cloudbrowser.gologin.com/connect"
-          HEADERS   = {"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"}
+          GL_BASE    = "https://api.gologin.com"
+          CLOUD_WS   = "wss://cloudbrowser.gologin.com/connect"
+          HEADERS    = {"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"}
           SIGNUP_URL = "https://app.gologin.com/sign_up"
 
-          # ─── OS → GoLogin API params ───────────────────────────────
-          OS_MAP = {
-              "Windows 10": {
-                  "os": "win",
-                  "navigator": {
-                      "platform": "Win32",
-                      "userAgent": "random",
-                      "resolution": "1920x1080",
-                      "language": "en-US",
-                      "hardwareConcurrency": 8,
-                      "deviceMemory": 8,
-                      "maxTouchPoints": 0,
-                  },
-                  "osSpec": {"version": "10"},
-              },
-              "Windows 11": {
-                  "os": "win",
-                  "navigator": {
-                      "platform": "Win32",
-                      "userAgent": "random",
-                      "resolution": "1920x1080",
-                      "language": "en-US",
-                      "hardwareConcurrency": 8,
-                      "deviceMemory": 8,
-                      "maxTouchPoints": 0,
-                  },
-                  "osSpec": {"version": "11"},
-              },
-              "Mac Intel": {
-                  "os": "mac",
-                  "navigator": {
-                      "platform": "MacIntel",
-                      "userAgent": "random",
-                      "resolution": "1920x1080",
-                      "language": "en-US",
-                      "hardwareConcurrency": 8,
-                      "deviceMemory": 8,
-                      "maxTouchPoints": 0,
-                  },
-                  "isM1": False,
-              },
-              "Mac ARM": {
-                  "os": "mac",
-                  "navigator": {
-                      "platform": "MacIntel",
-                      "userAgent": "random",
-                      "resolution": "1920x1080",
-                      "language": "en-US",
-                      "hardwareConcurrency": 8,
-                      "deviceMemory": 8,
-                      "maxTouchPoints": 0,
-                  },
-                  "isM1": True,
-              },
-              "Linux": {
-                  "os": "lin",
-                  "navigator": {
-                      "platform": "Linux x86_64",
-                      "userAgent": "random",
-                      "resolution": "1920x1080",
-                      "language": "en-US",
-                      "hardwareConcurrency": 8,
-                      "deviceMemory": 8,
-                      "maxTouchPoints": 0,
-                  },
-              },
-              "Android": {
-                  "os": "android",
-                  "navigator": {
-                      "platform": "Linux armv81",
-                      "userAgent": "random",
-                      "resolution": "360x800",
-                      "language": "en-US",
-                      "hardwareConcurrency": 8,
-                      "deviceMemory": 4,
-                      "maxTouchPoints": 5,
-                  },
-              },
+          # ── OS → /browser/quick params (official enum) ────────────
+          # Valid os: "lin" | "mac" | "win" | "android" | "android-cloud" | "ios"
+          # Valid osSpec: "M1"|"M2"|"M3"|"M4"|"M5"|"A18"|"win11"|"" 
+          OS_QUICK_MAP = {
+              "Windows 10":    {"os": "win",     "osSpec": ""},
+              "Windows 11":    {"os": "win",     "osSpec": "win11"},
+              "Mac Intel":     {"os": "mac",     "osSpec": ""},
+              "Mac ARM (M1)":  {"os": "mac",     "osSpec": "M1"},
+              "Linux":         {"os": "lin",     "osSpec": ""},
+              "Android":       {"os": "android", "osSpec": ""},
           }
 
-          # ─── Proxy type / country mappings ────────────────────────
-          PROXY_TYPE_MAP = {
-              "Residential": "residential",
-              "Datacenter":  "datacenter",
-              "Mobile":      "mobile",
-          }
           COUNTRY_CODE_MAP = {
-              "United States": "us",
+              "United States":  "us",
               "United Kingdom": "gb",
               "Germany":        "de",
               "France":         "fr",
@@ -488,118 +362,121 @@ jobs:
               "Netherlands":    "nl",
           }
 
-          proxy_type_api  = PROXY_TYPE_MAP.get(PROXY_TYPE_IN, "residential")
-          proxy_country_cc = COUNTRY_CODE_MAP.get(PROXY_COUNTRY_IN, "us")
-          os_params       = OS_MAP.get(PROFILE_OS, OS_MAP["Windows 10"])
+          PROXY_TYPE_MAP = {
+              "Residential": {"isMobile": False, "isDC": False},
+              "Datacenter":  {"isMobile": False, "isDC": True},
+              "Mobile":      {"isMobile": True,  "isDC": False},
+          }
 
-          # ─── REST helpers ─────────────────────────────────────────
-          def gl_get(path, **kw):
-              r = requests.get(f"{GL_BASE}{path}", headers=HEADERS, timeout=30, **kw)
-              r.raise_for_status()
-              return r.json()
+          os_params   = OS_QUICK_MAP.get(PROFILE_OS, OS_QUICK_MAP["Windows 10"])
+          proxy_cc    = COUNTRY_CODE_MAP.get(PROXY_COUNTRY_IN, "us")
+          proxy_flags = PROXY_TYPE_MAP.get(PROXY_TYPE_IN, PROXY_TYPE_MAP["Residential"])
 
-          def gl_post(path, payload, **kw):
-              r = requests.post(f"{GL_BASE}{path}", headers=HEADERS, json=payload, timeout=30, **kw)
-              r.raise_for_status()
-              return r.json()
+          # ── REST helpers ──────────────────────────────────────────
+          def gl_req(method, path, payload=None, params=None, raise_on_error=True):
+              url = f"{GL_BASE}{path}"
+              r = requests.request(method, url, headers=HEADERS, json=payload, params=params, timeout=30)
+              if raise_on_error and not r.ok:
+                  log("REST", f"{method} {path} → {r.status_code}: {r.text[:500]}")
+                  r.raise_for_status()
+              return r
 
-          def gl_delete(path, **kw):
-              r = requests.delete(f"{GL_BASE}{path}", headers=HEADERS, timeout=30, **kw)
-              return r.status_code
-
-          # ─── Profile creation ─────────────────────────────────────
           def rand_name(n=6):
               return "".join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
+          # ── 1. Create profile via the ONLY recommended endpoint ───
           def create_profile():
               profile_name = f"signup-{IDX}-{rand_name()}"
               body = {
+                  "os":   os_params["os"],
                   "name": profile_name,
-                  **os_params,
-                  "proxyEnabled": True,
-                  "proxy": {
-                      "mode": "gologin",
-                      "autoProxyRegion": proxy_country_cc,
-                  },
-                  "webRTC": {"mode": "alerted", "enabled": True},
-                  "browserType": "chrome",
-                  "autoLang": True,
               }
-              log("Profile", f"Creating profile '{profile_name}' os={PROFILE_OS} proxy={PROXY_TYPE_IN}/{PROXY_COUNTRY_IN}")
-              resp = gl_post("/browser", body)
-              profile_id = resp.get("id") or resp.get("_id") or resp.get("browserProfileId")
+              if os_params.get("osSpec"):
+                  body["osSpec"] = os_params["osSpec"]
+
+              log("Profile", f"POST /browser/quick  body={body}")
+              r = gl_req("POST", "/browser/quick", body)
+
+              data = r.json()
+              log("Profile", f"Response keys: {sorted(data.keys()) if isinstance(data, dict) else type(data)}")
+
+              profile_id = (data.get("id") or data.get("_id") or
+                            data.get("browserProfileId") or data.get("profileId") or "")
+              if not profile_id and isinstance(data, dict):
+                  for v in data.values():
+                      if isinstance(v, str) and len(v) == 24:  # Mongo ObjectId
+                          profile_id = v
+                          break
               if not profile_id:
-                  raise RuntimeError(f"Profile creation returned no id. Response: {resp}")
+                  raise RuntimeError(f"Profile creation returned no id. Full response: {data}")
+
               log("Profile", f"Created profile id={profile_id}")
               return profile_id
 
-          def attach_gologin_proxy(profile_id):
-              """
-              Use the GoLogin proxy endpoint to attach a built-in proxy.
-              The SDK's addGologinProxyToProfile calls POST /users-proxies/mobile-proxy
-              with countryCode + isMobile + isDC.
-              """
-              is_mobile = proxy_type_api == "mobile"
-              is_dc     = proxy_type_api == "datacenter"
-              log("Proxy", f"Attaching GoLogin proxy: type={proxy_type_api} country={proxy_country_cc}")
+          # ── 2. Attach GoLogin built-in proxy ──────────────────────
+          def attach_proxy(profile_id):
+              is_mobile = proxy_flags["isMobile"]
+              is_dc     = proxy_flags["isDC"]
+              log("Proxy", f"Attaching GoLogin proxy: type={PROXY_TYPE_IN} country={PROXY_COUNTRY_IN} ({proxy_cc})")
+
+              # Preferred official method: create + link in one call
               try:
+                  body = {
+                      "countryCode":     proxy_cc,
+                      "isMobile":        is_mobile,
+                      "isDC":            is_dc,
+                      "customName":      f"s{IDX}-{rand_name(4)}",
+                      "profileIdToLink": profile_id,
+                  }
                   r = requests.post(
                       f"{GL_BASE}/users-proxies/mobile-proxy",
                       headers=HEADERS,
-                      json={
-                          "countryCode": proxy_country_cc,
-                          "isMobile":    is_mobile,
-                          "isDC":        is_dc,
-                          "customName":  f"signup-{IDX}-{rand_name(4)}",
-                      },
-                      timeout=25,
+                      json=body,
+                      timeout=30,
                   )
+                  log("Proxy", f"mobile-proxy → HTTP {r.status_code}: {r.text[:250]}")
                   if r.status_code in (200, 201):
-                      pd = r.json()
-                      host = pd.get("host") or pd.get("ip") or pd.get("server") or ""
-                      port = int(pd.get("port") or pd.get("httpPort") or 8080)
-                      user = pd.get("username") or pd.get("user") or pd.get("login") or ""
-                      pw   = pd.get("password") or pd.get("pass") or ""
-                      if host:
-                          # Update profile with explicit proxy credentials
-                          update_body = {
-                              "proxyEnabled": True,
-                              "proxy": {
-                                  "mode": "http",
-                                  "host": host,
-                                  "port": port,
-                                  "username": user,
-                                  "password": pw,
-                              },
-                          }
-                          requests.put(
-                              f"{GL_BASE}/browser/{profile_id}",
-                              headers=HEADERS,
-                              json=update_body,
-                              timeout=20,
-                          )
-                          log("Proxy", f"Proxy attached: {host}:{port}")
-                          return True
-                  log("Proxy", f"GoLogin proxy endpoint returned {r.status_code}: {r.text[:200]}")
+                      log("Proxy", "GoLogin proxy attached via /users-proxies/mobile-proxy")
+                      return True
               except Exception as e:
-                  log("Proxy", f"attach_gologin_proxy error: {e} — using autoProxyRegion fallback")
+                  log("Proxy", f"mobile-proxy exception: {e}")
+
+              # Fallback: PATCH the profile
+              try:
+                  patch_body = {
+                      "proxyEnabled": True,
+                      "proxy": {
+                          "mode": "gologin",
+                          "autoProxyRegion": proxy_cc,
+                      },
+                  }
+                  r = gl_req("PATCH", f"/browser/{profile_id}", patch_body, raise_on_error=False)
+                  if r.ok:
+                      log("Proxy", f"GoLogin proxy attached via PATCH (mode=gologin, region={proxy_cc})")
+                      return True
+                  log("Proxy", f"PATCH fallback → {r.status_code}: {r.text[:200]}")
+              except Exception as e:
+                  log("Proxy", f"PATCH exception: {e}")
+
+              log("Proxy", "WARNING: could not attach proxy — continuing without one")
               return False
 
+          # ── Stop + delete profile ─────────────────────────────────
           def stop_cloud_profile(profile_id):
               try:
-                  sc = gl_delete(f"/browser/{profile_id}/web")
-                  log("Profile", f"Stop cloud profile: HTTP {sc}")
+                  r = gl_req("DELETE", f"/browser/{profile_id}/web", raise_on_error=False)
+                  log("Profile", f"Stop cloud session: HTTP {r.status_code}")
               except Exception as e:
-                  log("Profile", f"Stop profile error (non-fatal): {e}")
+                  log("Profile", f"Stop profile (non-fatal): {e}")
 
           def delete_profile(profile_id):
               try:
-                  sc = gl_delete(f"/browser/{profile_id}")
-                  log("Profile", f"Delete profile: HTTP {sc}")
+                  r = gl_req("DELETE", f"/browser/{profile_id}", raise_on_error=False)
+                  log("Profile", f"Delete profile: HTTP {r.status_code}")
               except Exception as e:
-                  log("Profile", f"Delete profile error (non-fatal): {e}")
+                  log("Profile", f"Delete profile (non-fatal): {e}")
 
-          # ─── Token helpers ────────────────────────────────────────
+          # ── Token extraction helpers ──────────────────────────────
           JWT = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
           candidates = []
 
@@ -625,17 +502,17 @@ jobs:
           async def scan_page(page, tag):
               try:
                   data = await page.evaluate("""() => {
-                      const out = {inputs: [], storage: []};
-                      try { document.querySelectorAll('input, textarea').forEach(e => { if (e.value) out.inputs.push(String(e.value)); }); } catch(e){}
+                      const out = {inputs:[], storage:[]};
+                      try { document.querySelectorAll('input,textarea').forEach(e=>{if(e.value)out.inputs.push(String(e.value));}); } catch(e){}
                       try {
-                          for (const s of [window.localStorage, window.sessionStorage]) {
-                              for (let i=0; i<s.length; i++) out.storage.push(String(s.getItem(s.key(i))));
+                          for(const s of [window.localStorage,window.sessionStorage]){
+                              for(let i=0;i<s.length;i++)out.storage.push(String(s.getItem(s.key(i))));
                           }
                       } catch(e){}
                       return out;
                   }""")
-                  for kind, label in (("inputs","input"), ("storage","storage")):
-                      for text in data.get(kind, []):
+                  for kind, label in (("inputs","input"),("storage","storage")):
+                      for text in data.get(kind,[]):
                           for m in JWT.findall(text or ""):
                               add_candidate(m, f"{label}:{tag}")
               except Exception:
@@ -668,18 +545,18 @@ jobs:
               except Exception as e:
                   return f"error:{e}"
 
-          # ─── Playwright UI helpers ────────────────────────────────
+          # ── Playwright UI helpers ─────────────────────────────────
           INIT_JS = """
           (() => {
-            const rec = t => { try { (window.__copied = window.__copied||[]).push(String(t)); } catch(e){} };
+            const rec = t => { try{(window.__copied=window.__copied||[]).push(String(t));}catch(e){} };
             try {
               const cb = navigator.clipboard;
-              if (cb && cb.writeText) {
-                const orig = cb.writeText.bind(cb);
-                cb.writeText = t => { rec(t); return orig(t).catch(()=>Promise.resolve()); };
+              if(cb && cb.writeText){
+                const orig=cb.writeText.bind(cb);
+                cb.writeText=t=>{rec(t);return orig(t).catch(()=>Promise.resolve());};
               }
             } catch(e){}
-            document.addEventListener('copy', ()=>{ try { rec(String(window.getSelection())); } catch(e){} }, true);
+            document.addEventListener('copy',()=>{try{rec(String(window.getSelection()));}catch(e){}},true);
           })();
           """
 
@@ -714,7 +591,7 @@ jobs:
                   except Exception:
                       return False
 
-          async def wait_any(conditions, timeout_ms=45000):
+          async def wait_any(conditions, timeout_ms=60000):
               end = time.time() + timeout_ms / 1000.0
               while time.time() < end:
                   for name, fn in conditions:
@@ -794,16 +671,16 @@ jobs:
           async def is_dashboard(page):
               try:
                   url = page.url.lower()
-                  if any(x in url for x in ("sign_up", "login", "download-installer")):
+                  if any(x in url for x in ("sign_up","login","download-installer")):
                       return False
-                  if any(x in url for x in ("profilelist", "dashboard")):
+                  if any(x in url for x in ("profilelist","dashboard")):
                       return True
                   return await page.get_by_role("button", name="Run", exact=True).first.is_visible()
               except Exception:
                   return False
 
           async def solve_turnstile(page, tag, timeout_ms=50000):
-              widget = ('iframe[src*="challenges.cloudflare.com"], [class*="cf-turnstile"], '
+              widget = ('iframe[src*="challenges.cloudflare.com"],[class*="cf-turnstile"],'
                         'input[name="cf-turnstile-response"]')
               try:
                   if await page.locator(widget).count() == 0:
@@ -815,10 +692,9 @@ jobs:
               while time.time() < end:
                   try:
                       tok = await page.evaluate(
-                          "() => { const e = document.querySelector(\"input[name='cf-turnstile-response']\"); return e ? e.value : ''; }")
+                          "()=>{const e=document.querySelector(\"input[name='cf-turnstile-response']\");return e?e.value:'';}")
                       if tok:
-                          log("Turnstile", f"[{tag}] completed")
-                          return True
+                          log("Turnstile", f"[{tag}] completed"); return True
                   except Exception:
                       pass
                   await asyncio.sleep(1)
@@ -826,47 +702,38 @@ jobs:
               await shot(page, f"turnstile-timeout-{tag}")
               return False
 
-          # ─── Token page (Settings → API) ──────────────────────────
           async def token_via_settings(page):
               await page.goto("https://app.gologin.com/#/personalArea/TokenApi",
                               wait_until="domcontentloaded", timeout=30000)
               await asyncio.sleep(3)
               await dismiss_overlays(page, 3)
-
               new_btn = await find_visible(page, [
                   page.get_by_role("button", name=re.compile(r"new token", re.I)),
                   page.get_by_role("button", name=re.compile(r"(create|generate).{0,12}token", re.I)),
               ], 8000)
-
               if not new_btn:
                   await click_first(page, [
-                      page.get_by_text(re.compile(r"API\s*&\s*MCP", re.I)),
+                      page.get_by_text(re.compile(r"API\s*(&|and)\s*MCP", re.I)),
                       page.get_by_role("link", name=re.compile(r"^api", re.I)),
                   ], 4000)
                   await asyncio.sleep(2.5)
                   await dismiss_overlays(page, 2)
                   new_btn = await find_visible(page, [page.get_by_role("button", name=re.compile(r"new token", re.I))], 8000)
-
               await scan_page(page, "settings-existing")
               await shot(page, "api-page")
-
               if not new_btn:
-                  log("Token", "No 'New token' button found")
-                  return
-
+                  log("Token", "No 'New token' button found — scanning page source"); return
               await new_btn.click()
               await asyncio.sleep(1.5)
               try:
-                  name_input = page.locator('[role="dialog"] input[type="text"], [class*="modal" i] input[type="text"]').first
+                  name_input = page.locator('[role="dialog"] input[type="text"],[class*="modal" i] input[type="text"]').first
                   if await name_input.is_visible():
                       await name_input.fill(f"actions-{IDX}")
               except Exception:
                   pass
-
               await click_first(page, [page.get_by_role("button", name=re.compile(r"^(create|generate|save|confirm|ok|done|continue)\b", re.I))], 3000)
               await asyncio.sleep(2.5)
               await scan_page(page, "settings-new")
-
               await click_first(page, [
                   page.get_by_role("button", name=re.compile(r"copy", re.I)),
                   page.get_by_text(re.compile(r"^copy( token)?$", re.I)),
@@ -874,38 +741,36 @@ jobs:
               await read_clipboard(page)
               await shot(page, "settings-after-new-token")
 
-          # ─── Main Playwright flow ─────────────────────────────────
+          # ── Main Playwright flow ──────────────────────────────────
           async def run_flow(profile_id, result):
               ws_url = f"{CLOUD_WS}?token={API_TOKEN}&profile={profile_id}"
-              log("Cloud", f"Connecting to cloud browser: profile={profile_id}")
+              log("Cloud", f"Connecting: profile={profile_id}")
 
-              # Verify the endpoint is accepting connections before Playwright connects
+              # Verify endpoint accepts the connection before Playwright
               import aiohttp
               async with aiohttp.ClientSession() as session:
-                  check_url = ws_url.replace("wss://", "https://").replace("ws://", "http://")
+                  check_url = ws_url.replace("wss://","https://").replace("ws://","http://")
                   async with session.get(check_url) as resp:
+                      log("Cloud", f"Connection check: HTTP {resp.status}")
                       if resp.status >= 400:
                           reason = resp.headers.get("X-Error-Reason", resp.reason)
-                          raise RuntimeError(f"Cloud browser refused connection: {reason}")
-              log("Cloud", "Connection accepted — attaching Playwright")
+                          raise RuntimeError(f"Cloud browser refused: {reason}")
 
               async with async_playwright() as pw:
                   browser = await pw.chromium.connect_over_cdp(ws_url, timeout=60000)
-                  context = browser.contexts[0] if browser.contexts else await browser.new_context()
+                  log("Cloud", "Playwright connected")
 
+                  context = browser.contexts[0] if browser.contexts else await browser.new_context()
                   try:
-                      await context.grant_permissions(["clipboard-read", "clipboard-write"])
+                      await context.grant_permissions(["clipboard-read","clipboard-write"])
                   except Exception:
                       pass
 
-                  # Intercept network responses to find JWT tokens
                   async def on_response(r):
                       try:
-                          if "gologin.com" not in r.url or "token" not in r.url.lower():
-                              return
-                          ct = r.headers.get("content-type", "")
-                          if "json" not in ct and "text" not in ct:
-                              return
+                          if "gologin.com" not in r.url or "token" not in r.url.lower(): return
+                          ct = r.headers.get("content-type","")
+                          if "json" not in ct and "text" not in ct: return
                           for m in JWT.findall(await r.text()):
                               add_candidate(m, f"network:{r.url.split('?')[0][-40:]}")
                       except Exception:
@@ -914,7 +779,6 @@ jobs:
                   context.on("response", on_response)
                   await context.add_init_script(INIT_JS)
 
-                  # Get the main page
                   pages = context.pages
                   page = pages[0] if pages else await context.new_page()
                   page.set_default_timeout(25000)
@@ -923,12 +787,11 @@ jobs:
                   except Exception:
                       pass
 
-                  # ── Phase 2: Sign-up form ───────────────────────
+                  # ── Phase 2: Sign-up ──────────────────────────
                   banner("Phase 2 — Fill sign-up form")
                   log("Main", f"Current URL: {page.url}")
-
                   if "sign_up" not in page.url:
-                      log("Main", "Navigating to sign-up page...")
+                      log("Main", "Navigating to sign-up page…")
                       await page.goto(SIGNUP_URL, wait_until="domcontentloaded", timeout=60000)
 
                   email_field = await find_visible(page, [
@@ -943,7 +806,6 @@ jobs:
 
                   await asyncio.sleep(random.uniform(1.5, 2.5))
                   await shot(page, "signup-page")
-
                   log("Main", f"Entering email: {EMAIL}")
                   await type_human(email_field, EMAIL)
                   await asyncio.sleep(random.uniform(2, 4))
@@ -960,7 +822,7 @@ jobs:
                   ], 10000)
                   await asyncio.sleep(random.uniform(2, 3.5))
 
-                  # ── Phase 3: Password ───────────────────────────
+                  # ── Phase 3: Password ─────────────────────────
                   banner("Phase 3 — Password")
 
                   async def password_visible():
@@ -986,7 +848,7 @@ jobs:
                       if not (v1 and v2):
                           raise ValueError("placeholder fields not found")
                   except Exception:
-                      pw_inputs = page.locator('input[type="password"]')
+                      pw_inputs     = page.locator('input[type="password"]')
                       pass_field    = pw_inputs.nth(0)
                       confirm_field = pw_inputs.nth(1) if await pw_inputs.count() > 1 else None
 
@@ -1030,7 +892,7 @@ jobs:
                   result["signup"] = True
                   log("Main", f"ACCOUNT CREATED: {EMAIL} (stage={stage2})")
 
-                  # ── Phase 4: Onboarding ─────────────────────────
+                  # ── Phase 4: Onboarding ───────────────────────
                   banner("Phase 4 — Onboarding")
                   for _ in range(5):
                       close_btn = await find_visible(page, [
@@ -1041,7 +903,7 @@ jobs:
                       if close_btn:
                           try:
                               await close_btn.click()
-                              log("Main", "Closed onboarding modal")
+                              log("Main", "Closed modal")
                           except Exception:
                               pass
                           await asyncio.sleep(1.2)
@@ -1056,7 +918,7 @@ jobs:
                   for _ in range(4):
                       skip = await find_visible(page, [
                           page.get_by_text(re.compile(r"skip recommended setup", re.I)),
-                          page.get_by_role("link", name=re.compile(r"skip", re.I)),
+                          page.get_by_role("link",   name=re.compile(r"skip", re.I)),
                           page.get_by_role("button", name=re.compile(r"skip", re.I)),
                       ], 3000)
                       if skip:
@@ -1079,9 +941,9 @@ jobs:
                       await dismiss_overlays(page, 5)
 
                   await shot(page, "dashboard")
-                  log("Main", "Reached GoLogin dashboard.")
+                  log("Main", "Reached dashboard.")
 
-                  # ── Phase 5: Extract API token ──────────────────
+                  # ── Phase 5: Extract API token ────────────────
                   banner("Phase 5 — Extract API token")
                   run_btn = await find_visible(page, [page.get_by_role("button", name="Run", exact=True)], 20000)
 
@@ -1124,7 +986,7 @@ jobs:
                               await scan_page(page, "cloud-api-control-scan")
 
                   if not [c for c in candidates if rank_of(c["source"]) <= 2]:
-                      log("Main", "No trusted token yet — trying Settings API page")
+                      log("Main", "No high-confidence token — trying Settings API page")
                       await token_via_settings(page)
 
                   await browser.close()
@@ -1136,7 +998,7 @@ jobs:
               pick = None
               for c in ordered[:5]:
                   st = rest_check(c["token"])
-                  log("Main", f"REST /user check for {c['source']}: {st}")
+                  log("Main", f"REST /user for {c['source']}: {st}")
                   if st == 200:
                       pick = c
                       result["restStatus"] = st
@@ -1152,38 +1014,38 @@ jobs:
               result["tokenSource"] = pick["source"]
               (OUT / "token.txt").write_text(pick["token"] + "\n", encoding="utf-8")
 
-          # ─── Entry point ──────────────────────────────────────────
+          # ── Entry point ───────────────────────────────────────────
           async def main():
               profile_id = None
               result = {
-                  "index":       int(IDX),
-                  "email":       EMAIL,
-                  "signup":      False,
-                  "token":       None,
-                  "tokenSource": None,
-                  "restStatus":  None,
-                  "profileId":   None,
-                  "profileOS":   PROFILE_OS,
-                  "proxyType":   PROXY_TYPE_IN,
+                  "index":        int(IDX),
+                  "email":        EMAIL,
+                  "signup":       False,
+                  "token":        None,
+                  "tokenSource":  None,
+                  "restStatus":   None,
+                  "profileId":    None,
+                  "profileOS":    PROFILE_OS,
+                  "proxyType":    PROXY_TYPE_IN,
                   "proxyCountry": PROXY_COUNTRY_IN,
-                  "error":       None,
-                  "finishedAt":  None,
+                  "error":        None,
+                  "finishedAt":   None,
               }
 
               try:
                   if not EMAIL or not PASSWORD:
                       raise RuntimeError("ACC_EMAIL / ACC_PASSWORD are empty.")
 
-                  # Step 1: Create profile
+                  # Step 1: Create profile via /browser/quick (the only reliable way)
                   banner("Phase 1 — Create GoLogin profile + proxy")
                   profile_id = create_profile()
                   result["profileId"] = profile_id
 
                   # Step 2: Attach proxy
-                  attach_gologin_proxy(profile_id)
-                  await asyncio.sleep(2)  # let proxy propagate
+                  attach_proxy(profile_id)
+                  await asyncio.sleep(3)  # let proxy config propagate
 
-                  # Step 3–5: Cloud Browser + signup + token
+                  # Step 3–5: Cloud Browser + signup + token extraction
                   await run_flow(profile_id, result)
 
               except Exception as e:
@@ -1198,20 +1060,19 @@ jobs:
                   result["finishedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
                   (OUT / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
 
-                  # ── Final summary ──────────────────────────────
-                  print("\n" + "=" * 60)
+                  print("\n" + "="*60)
                   print("GOLOGIN SIGNUP RESULT")
-                  print("=" * 60)
-                  print(f"device   : {IDX}")
-                  print(f"email    : {EMAIL}")
-                  print(f"os       : {PROFILE_OS}")
-                  print(f"proxy    : {PROXY_TYPE_IN} / {PROXY_COUNTRY_IN}")
-                  print(f"signup   : {'OK' if result['signup'] else 'FAILED'}")
+                  print("="*60)
+                  print(f"device    : {IDX}")
+                  print(f"email     : {EMAIL}")
+                  print(f"os        : {PROFILE_OS}")
+                  print(f"proxy     : {PROXY_TYPE_IN} / {PROXY_COUNTRY_IN}")
+                  print(f"signup    : {'OK' if result['signup'] else 'FAILED'}")
                   print(f"REST /user: {result.get('restStatus') or '-'}")
-                  print(f"source   : {result.get('tokenSource') or '-'}")
+                  print(f"source    : {result.get('tokenSource') or '-'}")
                   print("\nAPI KEY:")
                   print(result.get("token") or "(not captured)")
-                  print("=" * 60 + "\n")
+                  print("="*60 + "\n")
 
                   if result.get("token"):
                       print(f"::notice title=GoLogin API key (device {IDX} - {EMAIL})::{result['token']}", flush=True)
@@ -1238,9 +1099,6 @@ jobs:
           PYEOF
           echo "[Script] Written OK"
 
-      # ──────────────────────────────────────────────────────
-      # STEP 3 — Runner info
-      # ──────────────────────────────────────────────────────
       - name: "[3/5] Runner info"
         run: |
           echo "Runner: $RUNNER_OS $RUNNER_ARCH"
@@ -1248,27 +1106,21 @@ jobs:
           python --version
           python -c "import playwright; print('Playwright OK')"
 
-      # ──────────────────────────────────────────────────────
-      # STEP 4 — Run automation
-      # ──────────────────────────────────────────────────────
       - name: "[4/5] Run GoLogin Cloud Browser signup"
         id: automation
         working-directory: automation
         timeout-minutes: 25
         env:
-          OUT_DIR:      out
-          GL_API_KEYS:  ${{ env.GL_API_KEYS }}
-          ACC_EMAIL:    ${{ env.ACC_EMAIL }}
-          ACC_PASSWORD: ${{ env.ACC_PASSWORD }}
-          ACC_INDEX:    ${{ env.ACC_INDEX }}
-          PROFILE_OS:   ${{ env.PROFILE_OS }}
-          PROXY_TYPE:   ${{ env.PROXY_TYPE }}
+          OUT_DIR:       out
+          GL_API_KEYS:   ${{ env.GL_API_KEYS }}
+          ACC_EMAIL:     ${{ env.ACC_EMAIL }}
+          ACC_PASSWORD:  ${{ env.ACC_PASSWORD }}
+          ACC_INDEX:     ${{ env.ACC_INDEX }}
+          PROFILE_OS:    ${{ env.PROFILE_OS }}
+          PROXY_TYPE:    ${{ env.PROXY_TYPE }}
           PROXY_COUNTRY: ${{ env.PROXY_COUNTRY }}
         run: python signup.py
 
-      # ──────────────────────────────────────────────────────
-      # STEP 5 — Upload artifacts
-      # ──────────────────────────────────────────────────────
       - name: "[5/5] Upload screenshots and result"
         if: always()
         uses: actions/upload-artifact@v4
@@ -1286,7 +1138,7 @@ jobs:
           for ((m=total; m>0; m--)); do echo "  ...${m}min left"; sleep 60; done
 
 # ================================================================
-# JOB 4 — REPORT: aggregate all accounts
+# JOB 4 — REPORT
 # ================================================================
   report:
     name: "Combined API key report"
@@ -1308,23 +1160,20 @@ jobs:
           if (( ${#files[@]} == 0 )); then
             echo "::warning::No result files found"; exit 0
           fi
-
           jq -s 'sort_by(.index)' "${files[@]}" > all-results.json
           total=$(jq 'length' all-results.json)
           ok=$(jq '[.[] | select(.token != null)] | length' all-results.json)
-
           echo "========= ALL GOLOGIN ACCOUNTS ($ok/$total with API key) ========="
-          jq -r '.[] | "#\(.index)  \(.email)\n  os      : \(.profileOS // "?")\n  proxy   : \(.proxyType // "?") / \(.proxyCountry // "?")\n  signup  : \(.signup)\n  API KEY : \(.token // "NOT CAPTURED")\n  error   : \(.error // "-")\n"' all-results.json
+          jq -r '.[] | "#\(.index)  \(.email)\n  os      : \(.profileOS//\"?\")\n  proxy   : \(.proxyType//\"?\") / \(.proxyCountry//\"?\")\n  signup  : \(.signup)\n  API KEY : \(.token//\"NOT CAPTURED\")\n  error   : \(.error//\"-\")\n"' all-results.json
           echo "=================================================================="
           echo ""
           echo "--- API keys only (email  token) ---"
           jq -r '.[] | select(.token != null) | "\(.email)  \(.token)"' all-results.json
-
           {
-            echo "## GoLogin Cloud Browser — combined results ($ok of $total with API key)"
+            echo "## GoLogin Cloud Browser — results ($ok of $total with API key)"
             echo "| # | Email | OS | Proxy | Signup | API key |"
             echo "|---|-------|-----|-------|--------|---------|"
-            jq -r '.[] | "| \(.index) | \(.email) | \(.profileOS // "?") | \(.proxyType // "?") / \(.proxyCountry // "?") | \(if .signup then "OK ✓" else "FAILED ✗" end) | `\(.token // "not captured")` |"' all-results.json
+            jq -r '.[] | "| \(.index) | \(.email) | \(.profileOS//\"?\") | \(.proxyType//\"?\") / \(.proxyCountry//\"?\") | \(if .signup then "OK ✓" else "FAILED ✗" end) | `\(.token//\"not captured\")` |"' all-results.json
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload combined results
