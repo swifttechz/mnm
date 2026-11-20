@@ -706,19 +706,27 @@ jobs:
 
           # ---- strategies ------------------------------------------------
           async def ts_act_mouse(page, info, k):
+              """Aggressive coordinate click on the left-side checkbox of the Turnstile widget."""
               box = info["box"]
-              dx = [24, 30, 20, 27][k % 4] + random.uniform(-2, 2)
+              # Checkbox is typically 15-35 px from the left edge of the ~300x65 widget
+              offsets = [22, 28, 18, 32, 25, 15, 35, 20, 30, 17]
+              dx = offsets[k % len(offsets)] + random.uniform(-2.5, 2.5)
               x = box["x"] + dx
-              y = box["y"] + box["height"] / 2 + random.uniform(-3, 3)
-              log("Turnstile", f"mouse click at ({x:.0f},{y:.0f}) src={info['source']}")
+              y = box["y"] + box["height"] / 2 + random.uniform(-4, 4)
+              log("Turnstile", f"mouse click at ({x:.1f},{y:.1f})  box={box['width']:.0f}x{box['height']:.0f}  src={info['source']}")
               try:
                   await page.bring_to_front()
-                  await page.mouse.move(x - random.uniform(60, 140), y - random.uniform(25, 70), steps=10)
-                  await asyncio.sleep(random.uniform(0.3, 0.7))
-                  await page.mouse.move(x, y, steps=14)
-                  await asyncio.sleep(random.uniform(0.25, 0.6))
+                  # natural curved movement toward the checkbox
+                  await page.mouse.move(
+                      x - random.uniform(80, 160),
+                      y + random.uniform(-45, 45),
+                      steps=12
+                  )
+                  await asyncio.sleep(random.uniform(0.28, 0.55))
+                  await page.mouse.move(x, y, steps=16)
+                  await asyncio.sleep(random.uniform(0.2, 0.45))
                   await page.mouse.down()
-                  await asyncio.sleep(random.uniform(0.07, 0.16))
+                  await asyncio.sleep(random.uniform(0.08, 0.18))
                   await page.mouse.up()
                   return True
               except Exception as e:
@@ -846,8 +854,14 @@ jobs:
                   await asyncio.sleep(2)
                   return True
 
-              strategies = ["mouse", "framebody", "kb-space", "layout", "kb-enter",
-                            "mouse", "kb-space-tab", "framebody", "kb-enter"]
+              # Prioritise real mouse coordinate clicks heavily (what the user asked for)
+              strategies = [
+                  "mouse", "mouse", "mouse",          # three different offsets first
+                  "framebody", "kb-space",
+                  "mouse", "layout",
+                  "kb-enter", "kb-space-tab",
+                  "mouse", "framebody",
+              ]
               for k, strat in enumerate(strategies):
                   s = await ts_solved(page, info, baseline)
                   if s:
@@ -875,7 +889,9 @@ jobs:
                       await asyncio.sleep(1.0)
                       continue
 
-                  # wait for the spinner -> green check (>= min_wait seconds before giving up)
+                  # ★ Mandatory wait after every successful click action
+                  # User requirement: wait 10-15 seconds after clicking the checkbox
+                  force_wait = max(min_wait, 12)
                   t0 = time.time()
                   while time.time() - t0 < wait_per_try:
                       await asyncio.sleep(1.0)
@@ -885,9 +901,18 @@ jobs:
                           await asyncio.sleep(random.uniform(1.5, 2.5))
                           await shot(page, f"turnstile-{tag}-solved")
                           return True
-                      if time.time() - t0 >= min_wait and (time.time() - t0) % 5 < 1.0:
-                          log("Turnstile", f"[{tag}] still waiting ({time.time()-t0:.0f}s)...")
+                      elapsed = time.time() - t0
+                      if elapsed >= force_wait and int(elapsed) % 4 == 0:
+                          log("Turnstile", f"[{tag}] still waiting ({elapsed:.0f}s)...")
                   log("Turnstile", f"[{tag}] strategy {strat} did not confirm success — next")
+
+              # Final long wait even if no signal
+              log("Turnstile", f"[{tag}] final 12s grace wait before giving up")
+              await asyncio.sleep(12)
+              s = await ts_solved(page, info, baseline)
+              if s:
+                  log("Turnstile", f"[{tag}] SOLVED during final grace: {s}")
+                  return True
 
               log("Turnstile", f"[{tag}] WARNING: no strategy confirmed success")
               await shot(page, f"turnstile-timeout-{tag}")
