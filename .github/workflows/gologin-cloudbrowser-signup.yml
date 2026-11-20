@@ -52,7 +52,7 @@ on:
         description: "GoLogin proxy type"
         required: true
         type: choice
-        default: Mobile
+        default: Residential
         options: ['Residential','Datacenter','Mobile']
       proxy_country:
         description: "Proxy country"
