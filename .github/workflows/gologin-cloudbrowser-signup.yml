@@ -71,7 +71,7 @@ on:
         description: "Extra minutes to keep job alive (0-60)"
         required: false
         type: string
-        default: '1'
+        default: '0'
 
 permissions:
   actions: write
