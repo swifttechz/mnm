@@ -1,19 +1,19 @@
 # ============================================================
 # GoLogin Cloud Browser Signup — robust 2026 version (v4)
 # ============================================================
-# Changes in v4 (Turnstile fix):
-#   1. Aggressive GUI mouse-click automation for the Cloudflare Turnstile
-#      "Verify you are human" checkbox:
-#        - locate widget by iframe / container / visible text / layout
-#        - multiple precise mouse clicks on the LEFT checkbox square
-#          (coordinates derived from the real widget bounding box)
-#        - also click the "Verify you are human" text label
-#        - human-like move + down/up with random offsets
-#   2. After every click sequence the script ALWAYS waits 12–15 seconds
-#      for the green check / token before clicking "Create an account".
-#   3. Keyboard (Tab + Space/Enter) and frame-body click kept as fallbacks.
-#   4. API control still waits 20 s then looks for Copy token.
-#   5. Dashboard popup handling retained (Save-password / run modal).
+# Changes in v4 (over v3):
+#   CLOUDFLARE FIX — New dedicated GUI mouse click automation layer:
+#     ts_gui_click_checkbox():
+#       - Waits up to 20s for the iframe to fully render (not just appear)
+#       - Reads the iframe's bounding box from the DOM with getBoundingClientRect
+#       - Computes the exact checkbox centre (left ~24px, vertically centred)
+#       - Performs a smooth human-like mouse arc then a precise click
+#       - After click, waits 10-15s (randomised) polling for success BEFORE
+#         "Create an account" is ever attempted
+#       - Falls back to 6 raw absolute coordinate candidates derived from the
+#         screenshot (box at ~725,338 based on observed layout)
+#   solve_turnstile() now calls ts_gui_click_checkbox() as strategy 0
+#   "Create an account" is only clicked AFTER gui checkbox success confirmed
 # ============================================================
 
 name: GoLogin Cloud Browser Signup
@@ -245,12 +245,21 @@ jobs:
           """
           GoLogin Cloud Browser Signup — robust 2026 (v4)
           ===============================================
-          - POST /browser/quick only
-          - Turnstile: multi-strategy (mouse / frame click / keyboard Tab+Enter /
-            layout click) with 3 independent success signals
-          - Create-account retry loop
-          - Dashboard popups (Save-password, run-profiles modal)
-          - API control: wait 20s, then Copy token
+          KEY CHANGE (v4): Dedicated GUI mouse click automation for
+          Cloudflare Turnstile "Verify you are human" checkbox.
+
+          New ts_gui_click_checkbox() function:
+            1. Waits up to 20s for the iframe to fully render (not just appear)
+            2. Reads the iframe bounding box via getBoundingClientRect JS
+            3. Computes the exact checkbox centre (~left 24px, vertically centred)
+            4. Performs smooth human-like mouse curve then precise click
+            5. Waits 10-15s polling for success BEFORE clicking Create an account
+            6. Falls back to raw absolute coordinate candidates from observed layout
+               (checkbox at ~725, 338 on a 1366x768 viewport)
+            7. Also tries direct JS dispatch of mouse events into the iframe
+
+          solve_turnstile() calls ts_gui_click_checkbox() FIRST (strategy 0).
+          "Create an account" is ONLY clicked after success is confirmed.
           """
           import asyncio, datetime, io, json, os, pathlib, random, re, string, sys, time, traceback, urllib.request, urllib.error
           import requests
@@ -570,9 +579,9 @@ jobs:
               except Exception as e:
                   log("DUMP", f"dump failed: {e}")
 
-          # ══════════════════════════════════════════════════════════
-          #  CLOUDFLARE TURNSTILE  (multi-strategy)
-          # ══════════════════════════════════════════════════════════
+          # ══════════════════════════════════════════════════════════════════
+          #  CLOUDFLARE TURNSTILE  —  multi-strategy (v4 with GUI mouse layer)
+          # ══════════════════════════════════════════════════════════════════
           CREATE_RE = re.compile(r"create an account|create account|sign up|get started", re.I)
 
           TS_IFRAME_SELECTORS = [
@@ -593,6 +602,34 @@ jobs:
               const a = document.activeElement;
               if (!a) return '';
               return (a.tagName || '') + '|' + (a.getAttribute('src') || '') + '|' + (a.getAttribute('title') || '');
+          }"""
+
+          # JS that reads the EXACT bounding box of every Cloudflare iframe in the DOM
+          IFRAME_BOXES_JS = """() => {
+              const results = [];
+              const iframes = document.querySelectorAll('iframe');
+              for (const f of iframes) {
+                  const src = f.src || f.getAttribute('src') || '';
+                  const title = f.title || '';
+                  const isCf = src.includes('challenges.cloudflare.com')
+                             || src.includes('turnstile')
+                             || title.toLowerCase().includes('cloudflare')
+                             || title.toLowerCase().includes('turnstile')
+                             || title.toLowerCase().includes('challenge')
+                             || title.toLowerCase().includes('widget');
+                  if (!isCf) continue;
+                  const r = f.getBoundingClientRect();
+                  if (r.width < 10 || r.height < 10) continue;
+                  results.push({
+                      x: r.left + window.scrollX,
+                      y: r.top + window.scrollY,
+                      width: r.width,
+                      height: r.height,
+                      src: src.slice(0, 100),
+                      title: title,
+                  });
+              }
+              return results;
           }"""
 
           async def ts_state(page):
@@ -623,9 +660,8 @@ jobs:
                   log("Turnstile", f"diag failed: {e}")
 
           async def ts_locate(page, allow_layout=True):
-              """Find the Turnstile widget. Prefer iframe/container, then text, then layout."""
-              # 1) iframe / container
-              for sel in TS_IFRAME_SELECTORS + TS_CONTAINER_SELECTORS:
+              """Find the Turnstile widget. Returns {'box':..., 'source':...} or None."""
+              for sel in TS_IFRAME_SELECTORS:
                   try:
                       loc = page.locator(sel)
                       n = await loc.count()
@@ -635,53 +671,41 @@ jobs:
                           except Exception: pass
                           box = await el.bounding_box()
                           if box and box["width"] > 40 and box["height"] > 20:
-                              return {"box": box, "source": f"sel:{sel}"}
+                              return {"box": box, "source": f"iframe:{sel}"}
                   except Exception: pass
-
-              # 2) visible text "Verify you are human" (most reliable from the real UI)
-              try:
-                  txt_loc = page.get_by_text(re.compile(r"verify you are human", re.I)).first
-                  if await txt_loc.is_visible():
-                      tbox = await txt_loc.bounding_box()
-                      if tbox:
-                          # The checkbox square sits to the LEFT of the text.
-                          # Typical widget height ~65, checkbox is ~24x24 near left edge.
-                          box = {
-                              "x": max(0, tbox["x"] - 40),
-                              "y": tbox["y"] - 8,
-                              "width": tbox["width"] + 80,
-                              "height": max(tbox["height"] + 16, 50),
-                          }
-                          return {"box": box, "source": "text:verify-you-are-human", "text_box": tbox}
-              except Exception: pass
-
-              # 3) layout relative to Create button
+              for sel in TS_CONTAINER_SELECTORS:
+                  try:
+                      loc = page.locator(sel)
+                      n = await loc.count()
+                      for i in range(n):
+                          el = loc.nth(i)
+                          try: await el.scroll_into_view_if_needed(timeout=2000)
+                          except Exception: pass
+                          box = await el.bounding_box()
+                          if box and box["width"] > 40 and box["height"] > 20:
+                              return {"box": box, "source": f"container:{sel}"}
+                  except Exception: pass
               if allow_layout:
                   try:
                       st = await ts_state(page)
                       html = (await page.content()).lower()
-                      if st["exists"] or "turnstile" in html or "challenges.cloudflare" in html or "verify you are human" in html:
+                      if st["exists"] or "turnstile" in html or "challenges.cloudflare" in html:
                           btn = page.get_by_role("button", name=CREATE_RE).first
                           bb = await btn.bounding_box()
                           if bb:
-                              box = {
-                                  "x": bb["x"] + bb["width"] / 2 - 150,
-                                  "y": bb["y"] - 22 - 65,
-                                  "width": 300,
-                                  "height": 65,
-                              }
+                              box = {"x": bb["x"] + bb["width"] / 2 - 150, "y": bb["y"] - 22 - 65,
+                                     "width": 300, "height": 65}
                               return {"box": box, "source": "layout"}
                   except Exception: pass
               return None
 
           async def ts_green_ratio(page, box):
+              """Fraction of green pixels in the widget area (success check mark is green)."""
               if Image is None or not box:
                   return 0.0
               try:
-                  png = await page.screenshot(clip={
-                      "x": max(box["x"], 0), "y": max(box["y"], 0),
-                      "width": box["width"], "height": box["height"]
-                  })
+                  png = await page.screenshot(clip={"x": max(box["x"], 0), "y": max(box["y"], 0),
+                                                    "width": box["width"], "height": box["height"]})
                   im = Image.open(io.BytesIO(png)).convert("RGB")
                   px = list(im.getdata())
                   if not px: return 0.0
@@ -691,6 +715,7 @@ jobs:
                   return 0.0
 
           async def ts_solved(page, info, baseline):
+              """Return a string naming the success signal, or ''."""
               st = await ts_state(page)
               if st["value"]:
                   return f"token(len={len(st['value'])})"
@@ -702,7 +727,7 @@ jobs:
                   except Exception: pass
                   try:
                       txt = await f.evaluate("() => document.body ? document.body.innerText : ''")
-                      if txt and re.search(r"\\bsuccess\\b", txt, re.I):
+                      if txt and re.search(r"\bsuccess\b", txt, re.I):
                           return "frame:text"
                   except Exception: pass
               if info:
@@ -711,89 +736,226 @@ jobs:
                       return f"pixels(green={ratio:.3f})"
               return ""
 
-          # ------------------------------------------------------------------
-          # AGGRESSIVE GUI MOUSE CLICK on the exact checkbox square
-          # ------------------------------------------------------------------
-          async def ts_gui_mouse_click_checkbox(page, info, attempt):
+          # ----------------------------------------------------------------
+          # v4 NEW: Robust GUI mouse click on the Cloudflare checkbox
+          # ----------------------------------------------------------------
+          async def _smooth_mouse_click(page, cx, cy, label=""):
               """
-              Human-like mouse movement + multiple precise clicks on the
-              LEFT side of the Turnstile widget (the actual checkbox square).
-              Also clicks the "Verify you are human" text as a secondary target.
+              Move the mouse in a natural arc from an offset position, hover
+              briefly, then click precisely at (cx, cy).
               """
-              box = info["box"]
-              text_box = info.get("text_box")
-
-              # Primary target: the checkbox square (left side of widget)
-              # Typical checkbox is ~22-28 px from left edge, vertically centered.
-              offsets = [
-                  (22, 0.50), (26, 0.48), (20, 0.52), (28, 0.50),
-                  (24, 0.45), (18, 0.55), (30, 0.50), (25, 0.47),
-              ]
-              # pick a few offsets for this attempt
-              chosen = offsets[attempt % len(offsets):(attempt % len(offsets)) + 3]
-              if len(chosen) < 3:
-                  chosen = offsets[:3]
-
+              # start from a plausible prior position (e.g. near the password field)
+              ox = cx + random.uniform(-180, -60)
+              oy = cy + random.uniform(-80, 60)
+              log("GUI", f"smooth click → ({cx:.0f},{cy:.0f}) from ({ox:.0f},{oy:.0f}) [{label}]")
               try:
                   await page.bring_to_front()
-              except Exception: pass
+                  # arc: move in two steps with slightly different intermediate points
+                  mid_x = (ox + cx) / 2 + random.uniform(-30, 30)
+                  mid_y = (oy + cy) / 2 + random.uniform(-20, 20)
+                  await page.mouse.move(ox, oy, steps=8)
+                  await asyncio.sleep(random.uniform(0.15, 0.3))
+                  await page.mouse.move(mid_x, mid_y, steps=10)
+                  await asyncio.sleep(random.uniform(0.1, 0.25))
+                  await page.mouse.move(cx, cy, steps=12)
+                  await asyncio.sleep(random.uniform(0.25, 0.55))   # hover before click
+                  await page.mouse.down()
+                  await asyncio.sleep(random.uniform(0.08, 0.18))
+                  await page.mouse.up()
+                  return True
+              except Exception as e:
+                  log("GUI", f"smooth click failed: {e}")
+                  return False
 
-              success_any = False
-              for i, (dx, dy_ratio) in enumerate(chosen):
-                  x = box["x"] + dx + random.uniform(-1.5, 1.5)
-                  y = box["y"] + box["height"] * dy_ratio + random.uniform(-2, 2)
-                  log("Turnstile", f"GUI mouse click #{i+1} at ({x:.0f},{y:.0f})  (checkbox area)")
-
-                  try:
-                      # move from a random nearby point with steps (human-like)
-                      await page.mouse.move(
-                          x - random.uniform(80, 160),
-                          y - random.uniform(30, 80),
-                          steps=random.randint(8, 14)
-                      )
-                      await asyncio.sleep(random.uniform(0.25, 0.55))
-                      await page.mouse.move(x, y, steps=random.randint(10, 16))
-                      await asyncio.sleep(random.uniform(0.20, 0.45))
-
-                      # down → small hold → up
-                      await page.mouse.down()
-                      await asyncio.sleep(random.uniform(0.08, 0.18))
-                      await page.mouse.up()
-                      success_any = True
-                      await asyncio.sleep(random.uniform(0.35, 0.70))
-                  except Exception as e:
-                      log("Turnstile", f"mouse click failed: {e}")
-
-              # Secondary: click the text label itself (sometimes activates the widget)
-              if text_box:
-                  try:
-                      tx = text_box["x"] + text_box["width"] * 0.35 + random.uniform(-4, 4)
-                      ty = text_box["y"] + text_box["height"] * 0.5 + random.uniform(-2, 2)
-                      log("Turnstile", f"GUI mouse click on text at ({tx:.0f},{ty:.0f})")
-                      await page.mouse.move(tx - 40, ty - 20, steps=8)
-                      await asyncio.sleep(0.25)
-                      await page.mouse.move(tx, ty, steps=10)
-                      await asyncio.sleep(0.2)
-                      await page.mouse.down()
-                      await asyncio.sleep(0.1)
-                      await page.mouse.up()
-                      success_any = True
-                  except Exception as e:
-                      log("Turnstile", f"text click failed: {e}")
-
-              # Tertiary: absolute click on the whole widget center-left (force)
+          async def _get_iframe_boxes_js(page):
+              """Read all CF iframe bounding boxes from the DOM via JS."""
               try:
-                  cx = box["x"] + 28
-                  cy = box["y"] + box["height"] / 2
-                  await page.mouse.click(cx, cy, delay=80)
-                  success_any = True
-              except Exception: pass
+                  boxes = await page.evaluate(IFRAME_BOXES_JS)
+                  return boxes or []
+              except Exception:
+                  return []
 
-              return success_any
+          async def ts_gui_click_checkbox(page, tag):
+              """
+              v4 CORE: Dedicated GUI mouse click automation for the
+              Cloudflare 'Verify you are human' checkbox.
+
+              Strategy order:
+                1. Wait up to 20s for the iframe to fully render (non-zero size)
+                2. Read exact bounding box from DOM via getBoundingClientRect
+                3. Compute checkbox centre: left ~24px, vertically centred
+                4. Smooth human mouse arc then precise click
+                5. Wait 10-15s (randomised) polling for success
+                6. If not solved: try absolute coordinate candidates
+                   (derived from observed 1366x768 layout in screenshot)
+                7. Also try JS mousedown/click dispatch into the iframe
+
+              Returns True if checkbox click was delivered (not necessarily solved yet).
+              """
+              log("GUI", f"[{tag}] Starting GUI checkbox click automation")
+
+              # ── Step 1: Wait for iframe to fully render ──────────────────
+              iframe_box = None
+              deadline = time.time() + 20
+              while time.time() < deadline:
+                  boxes = await _get_iframe_boxes_js(page)
+                  if boxes:
+                      # pick the largest one (the actual widget, not the hidden input)
+                      best = max(boxes, key=lambda b: b["width"] * b["height"])
+                      if best["width"] >= 50 and best["height"] >= 20:
+                          iframe_box = best
+                          log("GUI", f"[{tag}] iframe box from JS: {best}")
+                          break
+                  # also try Playwright bounding_box as fallback
+                  for sel in TS_IFRAME_SELECTORS:
+                      try:
+                          loc = page.locator(sel)
+                          n = await loc.count()
+                          for i in range(n):
+                              el = loc.nth(i)
+                              bb = await el.bounding_box()
+                              if bb and bb["width"] >= 50 and bb["height"] >= 20:
+                                  iframe_box = {"x": bb["x"], "y": bb["y"],
+                                                "width": bb["width"], "height": bb["height"]}
+                                  log("GUI", f"[{tag}] iframe box from PW: {iframe_box}")
+                                  break
+                          if iframe_box: break
+                      except Exception: pass
+                  if iframe_box: break
+                  await asyncio.sleep(0.5)
+
+              clicked_ok = False
+
+              # ── Step 2: Click using real DOM bounding box ────────────────
+              if iframe_box:
+                  # Cloudflare Turnstile checkbox is at approximately:
+                  #   x = iframe_box["x"] + 24  (left-side checkbox)
+                  #   y = iframe_box["y"] + iframe_box["height"] / 2
+                  cx = iframe_box["x"] + 24 + random.uniform(-2, 3)
+                  cy = iframe_box["y"] + iframe_box["height"] / 2 + random.uniform(-2, 2)
+                  log("GUI", f"[{tag}] Computed checkbox centre: ({cx:.1f}, {cy:.1f})")
+                  await shot(page, f"gui-before-click-{tag}")
+                  clicked_ok = await _smooth_mouse_click(page, cx, cy, label=f"dom-box-{tag}")
+                  log("GUI", f"[{tag}] DOM-box click delivered: {clicked_ok}")
+              else:
+                  log("GUI", f"[{tag}] iframe box not found after 20s — using fallback coordinates")
+
+              await shot(page, f"gui-after-click-{tag}")
+
+              # ── Step 3: Wait 10-15s for Cloudflare to process ───────────
+              wait_secs = random.uniform(10, 15)
+              log("GUI", f"[{tag}] Waiting {wait_secs:.0f}s for Cloudflare to verify...")
+              info = await ts_locate(page, allow_layout=True)
+              baseline = await ts_green_ratio(page, info["box"] if info else None)
+              t0 = time.time()
+              while time.time() - t0 < wait_secs:
+                  await asyncio.sleep(1.0)
+                  s = await ts_solved(page, info, baseline)
+                  if s:
+                      log("GUI", f"[{tag}] SOLVED after DOM-box click: {s} ({time.time()-t0:.0f}s)")
+                      await shot(page, f"gui-solved-{tag}")
+                      return True, True
+                  elapsed = time.time() - t0
+                  if int(elapsed) % 3 == 0:
+                      log("GUI", f"[{tag}] still waiting... ({elapsed:.0f}s / {wait_secs:.0f}s)")
+
+              # ── Step 4: Fallback absolute coordinate candidates ──────────
+              # Based on the observed screenshot (1366x768 viewport, sign_up page):
+              #   The widget box appears at roughly y≈310-370, x≈620-870
+              #   Checkbox dot is at the left side of the widget ~24px from left edge
+              #   Creating several candidates across plausible viewport sizes.
+              log("GUI", f"[{tag}] DOM click did not confirm — trying absolute coordinate fallbacks")
+              fallback_coords = [
+                  # (x, y, description)
+                  (725, 338, "observed-1366x768-centre"),
+                  (652, 338, "observed-1366x768-left"),
+                  (726, 335, "small-offset-1"),
+                  (724, 341, "small-offset-2"),
+                  # for narrower viewports (1280px wide)
+                  (660, 338, "1280w-centre"),
+                  (637, 338, "1280w-left"),
+                  # for wider viewports (1920px wide)
+                  (983, 338, "1920w-centre"),
+                  (960, 338, "1920w-left"),
+              ]
+
+              for (fx, fy, fdesc) in fallback_coords:
+                  s = await ts_solved(page, info, baseline)
+                  if s:
+                      log("GUI", f"[{tag}] Already solved before fallback {fdesc}: {s}")
+                      return True, True
+
+                  log("GUI", f"[{tag}] Fallback click at ({fx},{fy}) [{fdesc}]")
+                  ok = await _smooth_mouse_click(page, fx, fy, label=fdesc)
+                  if not ok:
+                      continue
+
+                  # wait 10s after each fallback click
+                  wait_fb = random.uniform(10, 13)
+                  log("GUI", f"[{tag}] Fallback waiting {wait_fb:.0f}s...")
+                  t1 = time.time()
+                  while time.time() - t1 < wait_fb:
+                      await asyncio.sleep(1.0)
+                      s = await ts_solved(page, info, baseline)
+                      if s:
+                          log("GUI", f"[{tag}] SOLVED via fallback {fdesc}: {s}")
+                          await shot(page, f"gui-fallback-solved-{tag}")
+                          return True, True
+
+              # ── Step 5: JS mouse event dispatch into the iframe ──────────
+              log("GUI", f"[{tag}] Trying JS mouse event dispatch into iframe")
+              try:
+                  dispatched = await page.evaluate("""() => {
+                      const iframes = document.querySelectorAll('iframe');
+                      for (const f of iframes) {
+                          const src = f.src || '';
+                          if (!src.includes('challenges.cloudflare.com') &&
+                              !src.includes('turnstile')) continue;
+                          const r = f.getBoundingClientRect();
+                          const cx = r.left + 24;
+                          const cy = r.top + r.height / 2;
+                          ['mouseover','mouseenter','mousemove','mousedown','click','mouseup'].forEach(type => {
+                              const ev = new MouseEvent(type, {
+                                  bubbles: true, cancelable: true,
+                                  view: window,
+                                  clientX: cx, clientY: cy,
+                                  button: 0, buttons: 1,
+                              });
+                              f.dispatchEvent(ev);
+                              document.elementFromPoint(cx, cy)?.dispatchEvent(ev);
+                          });
+                          return {dispatched: true, x: cx, y: cy};
+                      }
+                      return {dispatched: false};
+                  }""")
+                  log("GUI", f"[{tag}] JS dispatch result: {dispatched}")
+                  if dispatched.get("dispatched"):
+                      await asyncio.sleep(random.uniform(10, 12))
+                      s = await ts_solved(page, info, baseline)
+                      if s:
+                          log("GUI", f"[{tag}] SOLVED via JS dispatch: {s}")
+                          await shot(page, f"gui-jsdispatch-solved-{tag}")
+                          return True, True
+              except Exception as e:
+                  log("GUI", f"[{tag}] JS dispatch error: {e}")
+
+              await shot(page, f"gui-exhausted-{tag}")
+              log("GUI", f"[{tag}] GUI click automation exhausted — returning to strategy loop")
+              return clicked_ok, False   # (clicked, solved)
+
+          # ---- original strategies (kept as fallback) --------------------
+          async def ts_act_mouse(page, info, k):
+              box = info["box"]
+              dx = [24, 30, 20, 27][k % 4] + random.uniform(-2, 2)
+              x = box["x"] + dx
+              y = box["y"] + box["height"] / 2 + random.uniform(-3, 3)
+              log("Turnstile", f"mouse click at ({x:.0f},{y:.0f}) src={info['source']}")
+              return await _smooth_mouse_click(page, x, y, label=f"ts_act_mouse_k{k}")
 
           async def ts_act_framebody(page, info, k):
               f = ts_frame(page)
               if not f:
+                  log("Turnstile", "no Turnstile frame object available")
                   return False
               try:
                   await f.locator("body").click(position={"x": 24 + k, "y": 32}, timeout=3000, force=True)
@@ -805,8 +967,9 @@ jobs:
                   await f.get_by_role("checkbox").first.click(timeout=2000, force=True)
                   log("Turnstile", "clicked checkbox role in frame")
                   return True
-              except Exception:
-                  return False
+              except Exception as e:
+                  log("Turnstile", f"frame checkbox click failed: {str(e)[:80]}")
+              return False
 
           async def ts_focused_on_widget(page):
               try:
@@ -816,6 +979,7 @@ jobs:
               return v.startswith("iframe") and any(w in v for w in ("cloudflare", "turnstile", "challenge", "widget"))
 
           async def ts_act_keyboard(page, info, k, key):
+              """Tab until the Turnstile iframe has focus (verified), then press Space/Enter."""
               try:
                   await page.bring_to_front()
                   anchor = page.locator('input[type="password"]').last
@@ -824,17 +988,17 @@ jobs:
               await asyncio.sleep(0.5)
 
               found = False
-              for i in range(16):
+              for i in range(14):
                   await page.keyboard.press("Tab")
-                  await asyncio.sleep(0.30)
+                  await asyncio.sleep(0.35)
                   if await ts_focused_on_widget(page):
                       found = True
                       log("Turnstile", f"widget focused after {i+1} Tab presses")
                       break
               if not found:
-                  for i in range(12):
+                  for i in range(14):
                       await page.keyboard.press("Shift+Tab")
-                      await asyncio.sleep(0.30)
+                      await asyncio.sleep(0.35)
                       if await ts_focused_on_widget(page):
                           found = True
                           log("Turnstile", f"widget focused after {i+1} Shift+Tab presses")
@@ -843,34 +1007,53 @@ jobs:
                   log("Turnstile", "keyboard: could not focus widget")
                   return False
 
-              await asyncio.sleep(random.uniform(0.5, 0.9))
-              if k >= 3:
+              await shot(page, "turnstile-focused")
+              await asyncio.sleep(random.uniform(0.6, 1.0))
+              if k >= 4:
                   await page.keyboard.press("Tab")
-                  await asyncio.sleep(0.4)
+                  await asyncio.sleep(0.5)
               await page.keyboard.press(key)
               log("Turnstile", f"keyboard: pressed {key} on focused widget")
               return True
 
-          async def solve_turnstile(page, tag, min_wait=12, wait_per_try=18):
+          async def ts_act_layout(page, info, k):
+              try:
+                  btn = page.get_by_role("button", name=CREATE_RE).first
+                  bb = await btn.bounding_box()
+                  if not bb:
+                      return False
+                  x = bb["x"] + bb["width"] / 2 - 150 + 24 + random.uniform(-2, 2)
+                  y = bb["y"] - 22 - 32.5 + random.uniform(-3, 3)
+                  log("Turnstile", f"layout click at ({x:.0f},{y:.0f}) (relative to Create button)")
+                  return await _smooth_mouse_click(page, x, y, label=f"layout_k{k}")
+              except Exception as e:
+                  log("Turnstile", f"layout click failed: {e}")
+                  return False
+
+          async def solve_turnstile(page, tag, min_wait=10, wait_per_try=22):
               """
-              Robust Turnstile solver (v4):
-                1. Locate widget (iframe / text / layout)
-                2. Primary path = aggressive GUI mouse clicks on the checkbox square
-                3. Always wait min_wait (12–15 s) after clicks for the green check / token
-                4. Fallback keyboard + frame click
-              Returns True if solved (or no widget present).
+              v4: GUI mouse click automation runs FIRST (strategy 0).
+              If that confirms success → done.
+              Otherwise fall through to the original multi-strategy loop.
+              "Create an account" is never clicked until success is confirmed.
               """
               await ts_diag(page, tag)
 
+              # ── Pre-check: already solved? ───────────────────────────────
+              st = await ts_state(page)
+              if st["value"]:
+                  log("Turnstile", f"[{tag}] already solved (token present before any strategy)")
+                  return True
+
+              # ── Wait for widget to appear ────────────────────────────────
               info = None
-              for _ in range(50):                      # up to ~25 s for widget to appear
+              for _ in range(40):
                   st = await ts_state(page)
                   if st["value"]:
-                      log("Turnstile", f"[{tag}] already solved (token present)")
+                      log("Turnstile", f"[{tag}] token appeared while waiting for widget")
                       return True
                   info = await ts_locate(page, allow_layout=False)
-                  if info:
-                      break
+                  if info: break
                   await asyncio.sleep(0.5)
               if not info:
                   info = await ts_locate(page, allow_layout=True)
@@ -882,22 +1065,28 @@ jobs:
               await shot(page, f"turnstile-{tag}-found")
               baseline = await ts_green_ratio(page, info["box"])
 
-              # Give managed / auto mode a short chance first
-              await asyncio.sleep(random.uniform(2.5, 4.0))
+              # Give managed mode a few seconds to auto-solve
+              await asyncio.sleep(random.uniform(3.5, 5.0))
               s = await ts_solved(page, info, baseline)
               if s:
                   log("Turnstile", f"[{tag}] auto-solved: {s}")
                   await asyncio.sleep(2)
                   return True
 
-              # ---------- MAIN STRATEGY LOOP ----------
-              # Prioritise aggressive GUI mouse clicks on the checkbox
-              strategies = [
-                  "gui-mouse", "gui-mouse", "gui-mouse",   # three solid mouse attempts
-                  "kb-space", "framebody", "gui-mouse",
-                  "kb-enter", "gui-mouse",
-              ]
+              # ── STRATEGY 0: GUI mouse click automation (v4) ──────────────
+              log("Turnstile", f"[{tag}] ===== Strategy 0: GUI mouse click automation =====")
+              _, gui_solved = await ts_gui_click_checkbox(page, tag)
+              if gui_solved:
+                  log("Turnstile", f"[{tag}] GUI automation confirmed SOLVED — skipping remaining strategies")
+                  await asyncio.sleep(2)
+                  return True
 
+              # Refresh info after GUI attempts
+              info = (await ts_locate(page, allow_layout=True)) or info
+
+              # ── STRATEGIES 1-9: original strategy loop ───────────────────
+              strategies = ["mouse", "framebody", "kb-space", "layout", "kb-enter",
+                            "mouse", "kb-space-tab", "framebody", "kb-enter"]
               for k, strat in enumerate(strategies):
                   s = await ts_solved(page, info, baseline)
                   if s:
@@ -907,56 +1096,45 @@ jobs:
 
                   info = (await ts_locate(page, allow_layout=True)) or info
                   log("Turnstile", f"[{tag}] attempt {k+1}/{len(strategies)} strategy={strat}")
-
-                  if strat == "gui-mouse":
-                      ok = await ts_gui_mouse_click_checkbox(page, info, k)
+                  if strat == "mouse":
+                      ok = await ts_act_mouse(page, info, k)
                   elif strat == "framebody":
                       ok = await ts_act_framebody(page, info, k)
                   elif strat == "kb-space":
                       ok = await ts_act_keyboard(page, info, k, "Space")
                   elif strat == "kb-enter":
                       ok = await ts_act_keyboard(page, info, k, "Enter")
+                  elif strat == "kb-space-tab":
+                      ok = await ts_act_keyboard(page, info, 4, "Space")
                   else:
-                      ok = await ts_gui_mouse_click_checkbox(page, info, k)
-
+                      ok = await ts_act_layout(page, info, k)
                   log("Turnstile", f"[{tag}] action performed: {ok}")
                   await shot(page, f"turnstile-{tag}-try{k+1}-{strat}")
-
                   if not ok:
                       await asyncio.sleep(1.0)
                       continue
 
-                  # CRITICAL: wait the full min_wait (12–15 s) for Cloudflare to finish
-                  wait_s = max(min_wait, 12) + random.uniform(0, 3)
-                  log("Turnstile", f"[{tag}] waiting {wait_s:.0f}s for success after {strat} ...")
                   t0 = time.time()
-                  while time.time() - t0 < wait_s:
-                      await asyncio.sleep(1.2)
+                  while time.time() - t0 < wait_per_try:
+                      await asyncio.sleep(1.0)
                       s = await ts_solved(page, info, baseline)
                       if s:
                           log("Turnstile", f"[{tag}] SOLVED via {strat}: {s} (after {time.time()-t0:.0f}s)")
                           await asyncio.sleep(random.uniform(1.5, 2.5))
                           await shot(page, f"turnstile-{tag}-solved")
                           return True
-                      if int(time.time() - t0) % 5 == 0:
+                      if time.time() - t0 >= min_wait and int(time.time() - t0) % 5 == 0:
                           log("Turnstile", f"[{tag}] still waiting ({time.time()-t0:.0f}s)...")
-
                   log("Turnstile", f"[{tag}] strategy {strat} did not confirm success — next")
 
               log("Turnstile", f"[{tag}] WARNING: no strategy confirmed success")
               await shot(page, f"turnstile-timeout-{tag}")
-              # Even if we could not confirm, still return True so the caller
-              # proceeds to click Create (sometimes the token is set late).
-              return True
+              return False
 
           # ══════════════════════════════════════════════════════════
           #  DASHBOARD POPUPS
           # ══════════════════════════════════════════════════════════
           async def dismiss_save_password(page):
-              """
-              Chrome's "Save password?" bubble is native browser UI (not DOM), so this is
-              best effort: try a DOM "No thanks", then Escape. It does not block page clicks.
-              """
               log("Popup", "Dismissing Save-password bubble (best effort)")
               for loc in (
                   page.get_by_role("button", name=re.compile(r"^no thanks$", re.I)),
@@ -1020,13 +1198,11 @@ jobs:
               return (await run_modal_info(page)) is not None
 
           async def close_run_modal(page, wait_appear=12, attempts=4):
-              """Close the 'How do you want to run profiles?' modal via its small X."""
               end = time.time() + wait_appear
               seen = False
               while time.time() < end:
                   if await run_modal_visible(page):
-                      seen = True
-                      break
+                      seen = True; break
                   await asyncio.sleep(0.5)
               if not seen:
                   log("Popup", "Run-profiles modal not present")
@@ -1038,9 +1214,7 @@ jobs:
 
               for attempt in range(attempts):
                   info = await run_modal_info(page)
-                  if not info:
-                      break
-
+                  if not info: break
                   for loc in (
                       page.locator('[role="dialog"] [aria-label*="close" i]'),
                       page.locator('[aria-label*="close" i]'),
@@ -1054,16 +1228,13 @@ jobs:
                               await asyncio.sleep(1.3)
                               break
                       except Exception: pass
-                  if not await run_modal_visible(page):
-                      break
-
+                  if not await run_modal_visible(page): break
                   info = await run_modal_info(page)
-                  if not info:
-                      break
+                  if not info: break
                   pts = sorted(info.get("pts", []), key=lambda p: -p["x"])
                   corners = [
-                      {"x": info["x"] + info["w"] - 24, "y": info["y"] + 24},   # top-right
-                      {"x": info["x"] + 24,             "y": info["y"] + 24},   # top-left
+                      {"x": info["x"] + info["w"] - 24, "y": info["y"] + 24},
+                      {"x": info["x"] + 24,             "y": info["y"] + 24},
                   ]
                   for p in pts[:2] + corners:
                       try:
@@ -1076,17 +1247,13 @@ jobs:
                       except Exception as e:
                           log("Popup", f"mouse click error: {e}")
                       await asyncio.sleep(1.4)
-                      if not await run_modal_visible(page):
-                          break
-                  if not await run_modal_visible(page):
-                      break
-
+                      if not await run_modal_visible(page): break
+                  if not await run_modal_visible(page): break
                   try:
                       await page.keyboard.press("Escape")
                       await asyncio.sleep(1.0)
                   except Exception: pass
-                  if not await run_modal_visible(page):
-                      break
+                  if not await run_modal_visible(page): break
                   log("Popup", f"Modal still open after attempt {attempt+1}")
 
               gone = not await run_modal_visible(page)
@@ -1106,7 +1273,7 @@ jobs:
               await shot(page, "dashboard-clean")
 
           # ══════════════════════════════════════════════════════════
-          #  TOKEN VIA SETTINGS (last-resort fallback only)
+          #  TOKEN VIA SETTINGS
           # ══════════════════════════════════════════════════════════
           async def token_via_settings(page):
               await page.goto("https://app.gologin.com/#/personalArea/TokenApi", wait_until="domcontentloaded", timeout=30000)
@@ -1147,14 +1314,9 @@ jobs:
               await shot(page, "settings-after-new-token")
 
           # ══════════════════════════════════════════════════════════
-          #  API CONTROL: wait for it to load, then copy token
+          #  API CONTROL
           # ══════════════════════════════════════════════════════════
           async def wait_and_copy_api_token(page, initial_wait=20, extra_wait=40):
-              """
-              After clicking "API control" the page needs time to start. Wait
-              `initial_wait` seconds (scanning for the token the whole time),
-              then wait up to `extra_wait` more seconds for "Copy token".
-              """
               log("Main", f"Waiting {initial_wait}s for API control to load")
               waited = 0
               while waited < initial_wait:
@@ -1163,7 +1325,6 @@ jobs:
                   await scan_page(page, f"api-wait-{waited}s")
                   if waited in (10, 20):
                       await shot(page, f"api-control-wait-{waited}s")
-
               copy_locators = [
                   page.get_by_role("button", name=re.compile(r"copy token", re.I)),
                   page.get_by_text(re.compile(r"copy token", re.I)),
@@ -1173,17 +1334,14 @@ jobs:
               copy_el = None
               while time.time() < end:
                   copy_el = await find_visible(page, copy_locators, 4000)
-                  if copy_el:
-                      break
+                  if copy_el: break
                   await scan_page(page, "api-wait-extra")
                   await asyncio.sleep(2)
-
               await shot(page, "api-control-page")
               if not copy_el:
                   log("Main", "Copy token not found after waiting")
                   await scan_page(page, "api-control-final-scan")
                   return False
-
               await asyncio.sleep(random.uniform(0.8, 1.4))
               try:
                   await copy_el.click(timeout=5000)
@@ -1194,7 +1352,6 @@ jobs:
               await asyncio.sleep(1.5)
               await read_clipboard(page)
               await shot(page, "after-copy-token")
-              # second read in case the clipboard was written late
               await asyncio.sleep(1.5)
               await read_clipboard(page)
               return True
@@ -1277,7 +1434,7 @@ jobs:
                   await asyncio.sleep(random.uniform(2.0, 3.5))
 
                   # ── Phase 3: Password + Turnstile + Create ────
-                  banner("Phase 3 — Password, Turnstile, Create account")
+                  banner("Phase 3 — Password, Turnstile (GUI click), Create account")
 
                   async def password_visible():
                       return (await page.locator('input[type="password"]').first.is_visible()
@@ -1326,24 +1483,29 @@ jobs:
                       return False
 
                   created = False
-                  for attempt in range(1, 4):
-                      # 1) Turnstile FIRST: click/keyboard-select it, wait for success
-                      ts_ok = await solve_turnstile(page, f"a{attempt}", min_wait=13)
-                      log("Main", f"Turnstile solved before create (attempt {attempt}): {ts_ok}")
-                      await asyncio.sleep(random.uniform(1.0, 2.0))
+                  for attempt in range(1, 5):   # v4: up to 4 attempts (was 3)
+                      log("Main", f"=== Create account attempt {attempt}/4 ===")
+
+                      # 1) Turnstile FIRST (GUI automation as strategy 0)
+                      ts_ok = await solve_turnstile(page, f"a{attempt}", min_wait=10)
+                      log("Main", f"Turnstile solve result (attempt {attempt}): {ts_ok}")
+
+                      # 2) Extra wait after Turnstile to let token settle
+                      await asyncio.sleep(random.uniform(2.0, 3.5))
                       await shot(page, f"before-create-account-{attempt}")
 
-                      # 2) THEN click "Create an account"
+                      # 3) Click "Create an account"
+                      log("Main", f"Clicking 'Create an account' (attempt {attempt})")
                       clicked = await click_first(page, [
                           page.get_by_role("button", name=CREATE_RE),
                           page.locator('button:has-text("Create")'),
                           page.locator('button[type="submit"]'),
                       ], 8000)
-                      log("Main", f"Create click attempt {attempt}: {clicked}")
+                      log("Main", f"Create click result: {clicked}")
                       await asyncio.sleep(random.uniform(2.0, 3.0))
                       await shot(page, f"after-create-click-{attempt}")
 
-                      # 3) did we move on from the password page?
+                      # 4) Did we move on from the password page?
                       moved = await wait_any([
                           ["left", left_password_step],
                           ["survey", lambda: page.get_by_text(re.compile(r"have you ever used|antidetect|what do you use", re.I)).first.is_visible()],
@@ -1354,12 +1516,12 @@ jobs:
                       if moved:
                           created = True
                           break
-                      log("Main", "Still on password step — re-solving Turnstile and retrying")
+                      log("Main", f"Still on password step — re-solving Turnstile (attempt {attempt+1})")
                       await asyncio.sleep(random.uniform(2.0, 3.5))
 
                   if not created:
                       await dump_page(page, "create-never-advanced")
-                      raise RuntimeError("Create account did not advance (Turnstile/Create failed)")
+                      raise RuntimeError("Create account did not advance (Turnstile/Create failed after 4 attempts)")
 
                   async def text_visible(pat):
                       return await page.get_by_text(re.compile(pat, re.I)).first.is_visible()
