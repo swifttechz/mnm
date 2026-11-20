@@ -1,19 +1,19 @@
 # ============================================================
 # GoLogin Cloud Browser Signup — robust 2026 version (v4)
 # ============================================================
-# Changes in v4:
-#   1. Turnstile solver completely rewritten with direct GUI mouse coordinates:
-#      - wait_for_turnstile_iframe(): polls up to 20 s for the iframe to appear
-#        and logs its exact bounding box every attempt
-#      - gui_click_turnstile_checkbox(): moves mouse in a human-like 3-phase
-#        trajectory then clicks at (iframe_x + 24, iframe_y + height/2),
-#        which is exactly where the Cloudflare checkbox circle lives
-#      - solve_turnstile(): 6 independent click attempts; after every click it
-#        polls for success every 1 s for 12-15 s (3 independent signals:
-#        cf-turnstile-response token, frame #success element, green pixels)
-#      - "Create an account" is only clicked AFTER success is confirmed
-#   2. Debug screenshots at every Turnstile step for diagnosis
-#   3. All v3 features retained (dashboard popups, API token extraction, REST verify)
+# Changes in v4 (Turnstile fix):
+#   1. Aggressive GUI mouse-click automation for the Cloudflare Turnstile
+#      "Verify you are human" checkbox:
+#        - locate widget by iframe / container / visible text / layout
+#        - multiple precise mouse clicks on the LEFT checkbox square
+#          (coordinates derived from the real widget bounding box)
+#        - also click the "Verify you are human" text label
+#        - human-like move + down/up with random offsets
+#   2. After every click sequence the script ALWAYS waits 12–15 seconds
+#      for the green check / token before clicking "Create an account".
+#   3. Keyboard (Tab + Space/Enter) and frame-body click kept as fallbacks.
+#   4. API control still waits 20 s then looks for Copy token.
+#   5. Dashboard popup handling retained (Save-password / run modal).
 # ============================================================
 
 name: GoLogin Cloud Browser Signup
@@ -71,7 +71,7 @@ on:
         description: "Extra minutes to keep job alive (0-60)"
         required: false
         type: string
-        default: '0'
+        default: '1'
 
 permissions:
   actions: write
@@ -176,7 +176,7 @@ jobs:
           [[ -n "$IN_KEYS" ]] || fail "gologin_api_keys is required"
           [[ -n "$EMAIL" ]] || fail "gologin_email is required"
           [[ "$EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || fail "gologin_email invalid"
-          (( ${#PW} >= 8 )) || fail "gologin_password must be >=8 chars"
+          (( ${#PW} >= 8 )) || fail "gologin_password must be ≥8 chars"
           [[ "$COUNT" =~ ^[0-9]+$ ]] && (( COUNT>=1 && COUNT<=50 )) || fail "account_count must be 1-50"
           [[ "$CONC" =~ ^[0-9]+$ ]] && (( CONC>=1 && CONC<=10 )) || fail "concurrency must be 1-10"
           [[ "$KEEP" =~ ^[0-9]+$ ]] && (( KEEP<=60 )) || fail "keep_alive_minutes must be 0-60"
@@ -241,921 +241,1311 @@ jobs:
       - name: "[2/5] Write signup script"
         run: |
           mkdir -p automation/out
-          python3 << 'ENDWRITE'
-          import base64, pathlib
-          chunks = [
-            "IiIiCkdvTG9naW4gQ2xvdWQgQnJvd3NlciBTaWdudXAg4oCUIHJvYnVzdCAyMDI2ICh2NCkKPT09PT09"
-            "PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09CktleSBpbXByb3ZlbWVudDog"
-            "Q2xvdWRmbGFyZSBUdXJuc3RpbGUgaXMgc29sdmVkIGV4Y2x1c2l2ZWx5IHZpYSBkaXJlY3QKR1VJIG1v"
-            "dXNlIGNvb3JkaW5hdGVzIHRhcmdldGluZyAoaWZyYW1lX3ggKyAyNCwgaWZyYW1lX3kgKyBoZWlnaHQv"
-            "MiksCndoaWNoIGlzIGV4YWN0bHkgd2hlcmUgdGhlIGNoZWNrYm94IGNpcmNsZSBsaXZlcyBpbiBldmVy"
-            "eSBUdXJuc3RpbGUgd2lkZ2V0LgpBZnRlciBldmVyeSBjbGljayB0aGUgc2NyaXB0IHBvbGxzIGZvciBz"
-            "dWNjZXNzIGV2ZXJ5IDEgcyBmb3IgMTItMTUgcy4KIkNyZWF0ZSBhbiBhY2NvdW50IiBpcyBPTkxZIGNs"
-            "aWNrZWQgYWZ0ZXIgc3VjY2VzcyBpcyBjb25maXJtZWQuCiIiIgppbXBvcnQgYXN5bmNpbywgZGF0ZXRp"
-            "bWUsIGlvLCBqc29uLCBvcywgcGF0aGxpYiwgcmFuZG9tLCByZSwgc3RyaW5nLCBzeXMsIHRpbWUsIHRy"
-            "YWNlYmFjaywgdXJsbGliLnJlcXVlc3QsIHVybGxpYi5lcnJvcgppbXBvcnQgcmVxdWVzdHMKZnJvbSBw"
-            "bGF5d3JpZ2h0LmFzeW5jX2FwaSBpbXBvcnQgYXN5bmNfcGxheXdyaWdodAoKdHJ5OgogICAgZnJvbSBQ"
-            "SUwgaW1wb3J0IEltYWdlCmV4Y2VwdCBFeGNlcHRpb246CiAgICBJbWFnZSA9IE5vbmUKCklEWCA9IG9z"
-            "LmVudmlyb24uZ2V0KCJBQ0NfSU5ERVgiLCAiMSIpCk9VVCA9IHBhdGhsaWIuUGF0aChvcy5lbnZpcm9u"
-            "LmdldCgiT1VUX0RJUiIsICJvdXQiKSkucmVzb2x2ZSgpCk9VVC5ta2RpcihwYXJlbnRzPVRydWUsIGV4"
-            "aXN0X29rPVRydWUpCgpkZWYgbG9nKHRhZywgbXNnKToKICAgIHByaW50KGYiW3t0aW1lLnN0cmZ0aW1l"
-            "KCclSDolTTolUycpfV1bZGV2e0lEWH1dW3t0YWd9XSB7bXNnfSIsIGZsdXNoPVRydWUpCgpkZWYgYmFu"
-            "bmVyKHRpdGxlKToKICAgIHByaW50KGYiXG57Jz0nKjYwfVxuW2RldntJRFh9XSB7dGl0bGV9XG57Jz0n"
-            "KjYwfSIsIGZsdXNoPVRydWUpCgpzaG90X24gPSBbMF0KYXN5bmMgZGVmIHNob3QocGFnZSwgbGFiZWwp"
-            "OgogICAgdHJ5OgogICAgICAgIHNob3RfblswXSArPSAxCiAgICAgICAgYXdhaXQgcGFnZS5zY3JlZW5z"
-            "aG90KHBhdGg9c3RyKE9VVCAvIGYie3Nob3RfblswXTowMmR9LXtsYWJlbH0ucG5nIiksIGZ1bGxfcGFn"
-            "ZT1UcnVlKQogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICBwYXNzCgpFTUFJTCAgICA9IG9zLmVu"
-            "dmlyb24uZ2V0KCJBQ0NfRU1BSUwiLCAiIikKUEFTU1dPUkQgPSBvcy5lbnZpcm9uLmdldCgiQUNDX1BB"
-            "U1NXT1JEIiwgIiIpClJBV19LRVlTID0gb3MuZW52aXJvbi5nZXQoIkdMX0FQSV9LRVlTIiwgIiIpLnN0"
-            "cmlwKCkKUFJPRklMRV9PUyAgICAgID0gb3MuZW52aXJvbi5nZXQoIlBST0ZJTEVfT1MiLCAiV2luZG93"
-            "cyAxMCIpClBST1hZX1RZUEVfSU4gICA9IG9zLmVudmlyb24uZ2V0KCJQUk9YWV9UWVBFIiwgIlJlc2lk"
-            "ZW50aWFsIikKUFJPWFlfQ09VTlRSWV9JTj0gb3MuZW52aXJvbi5nZXQoIlBST1hZX0NPVU5UUlkiLCAi"
-            "VW5pdGVkIFN0YXRlcyIpCgpBUElfS0VZUyA9IFtrLnN0cmlwKCkgZm9yIGsgaW4gUkFXX0tFWVMuc3Bs"
-            "aXQoKSBpZiBrLnN0cmlwKCldCmlmIG5vdCBBUElfS0VZUzoKICAgIHJhaXNlIFJ1bnRpbWVFcnJvcigi"
-            "R0xfQVBJX0tFWVMgaXMgZW1wdHkiKQpBUElfVE9LRU4gPSBBUElfS0VZU1soaW50KElEWCkgLSAxKSAl"
-            "IGxlbihBUElfS0VZUyldCmxvZygiQ29uZmlnIiwgZiJBUEkga2V5OiAuLi57QVBJX1RPS0VOWy02Ol19"
-            "IikKCkdMX0JBU0UgICAgICA9ICJodHRwczovL2FwaS5nb2xvZ2luLmNvbSIKQ0xPVURfV1MgICAgID0g"
-            "IndzczovL2Nsb3VkYnJvd3Nlci5nb2xvZ2luLmNvbS9jb25uZWN0IgpIRUFERVJTICAgICAgPSB7IkF1"
-            "dGhvcml6YXRpb24iOiBmIkJlYXJlciB7QVBJX1RPS0VOfSIsICJDb250ZW50LVR5cGUiOiAiYXBwbGlj"
-            "YXRpb24vanNvbiJ9ClNJR05VUF9VUkwgICA9ICJodHRwczovL2FwcC5nb2xvZ2luLmNvbS9zaWduX3Vw"
-            "IgpQUk9GSUxFTElTVF9VUkwgPSAiaHR0cHM6Ly9hcHAuZ29sb2dpbi5jb20vcHJvZmlsZUxpc3QiCgpP"
-            "U19RVUlDS19NQVAgPSB7CiAgICAiV2luZG93cyAxMCI6ICB7Im9zIjogIndpbiIsICAgICAib3NTcGVj"
-            "IjogIiJ9LAogICAgIldpbmRvd3MgMTEiOiAgeyJvcyI6ICJ3aW4iLCAgICAgIm9zU3BlYyI6ICJ3aW4x"
-            "MSJ9LAogICAgIk1hYyBJbnRlbCI6ICAgeyJvcyI6ICJtYWMiLCAgICAgIm9zU3BlYyI6ICIifSwKICAg"
-            "ICJNYWMgQVJNIChNMSkiOnsib3MiOiAibWFjIiwgICAgICJvc1NwZWMiOiAiTTEifSwKICAgICJMaW51"
-            "eCI6ICAgICAgIHsib3MiOiAibGluIiwgICAgICJvc1NwZWMiOiAiIn0sCiAgICAiQW5kcm9pZCI6ICAg"
-            "ICB7Im9zIjogImFuZHJvaWQiLCAib3NTcGVjIjogIiJ9LAp9CkNPVU5UUllfQ09ERV9NQVAgPSB7CiAg"
-            "ICAiVW5pdGVkIFN0YXRlcyI6ICJ1cyIsICJVbml0ZWQgS2luZ2RvbSI6ICJnYiIsICJHZXJtYW55Ijog"
-            "ImRlIiwKICAgICJGcmFuY2UiOiAiZnIiLCAgIkNhbmFkYSI6ICJjYSIsICAiQXVzdHJhbGlhIjogImF1"
-            "IiwKICAgICJKYXBhbiI6ICJqcCIsICAgIkJyYXppbCI6ICJiciIsICAiSW5kaWEiOiAiaW4iLCAiTmV0"
-            "aGVybGFuZHMiOiAibmwiLAp9ClBST1hZX1RZUEVfTUFQID0gewogICAgIlJlc2lkZW50aWFsIjogeyJp"
-            "c01vYmlsZSI6IEZhbHNlLCAiaXNEQyI6IEZhbHNlfSwKICAgICJEYXRhY2VudGVyIjogIHsiaXNNb2Jp"
-            "bGUiOiBGYWxzZSwgImlzREMiOiBUcnVlfSwKICAgICJNb2JpbGUiOiAgICAgIHsiaXNNb2JpbGUiOiBU"
-            "cnVlLCAgImlzREMiOiBGYWxzZX0sCn0KCm9zX3BhcmFtcyAgID0gT1NfUVVJQ0tfTUFQLmdldChQUk9G"
-            "SUxFX09TLCBPU19RVUlDS19NQVBbIldpbmRvd3MgMTAiXSkKcHJveHlfY2MgICAgPSBDT1VOVFJZX0NP"
-            "REVfTUFQLmdldChQUk9YWV9DT1VOVFJZX0lOLCAidXMiKQpwcm94eV9mbGFncyA9IFBST1hZX1RZUEVf"
-            "TUFQLmdldChQUk9YWV9UWVBFX0lOLCBQUk9YWV9UWVBFX01BUFsiUmVzaWRlbnRpYWwiXSkKCiMg4pSA"
-            "4pSAIFJFU1QgaGVscGVycyDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDi"
-            "lIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDi"
-            "lIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAKZGVmIGdsX3JlcShtZXRob2QsIHBhdGgs"
-            "IHBheWxvYWQ9Tm9uZSwgcmFpc2Vfb25fZXJyb3I9VHJ1ZSk6CiAgICB1cmwgPSBmIntHTF9CQVNFfXtw"
-            "YXRofSIKICAgIHIgPSByZXF1ZXN0cy5yZXF1ZXN0KG1ldGhvZCwgdXJsLCBoZWFkZXJzPUhFQURFUlMs"
-            "IGpzb249cGF5bG9hZCwgdGltZW91dD0zMCkKICAgIGlmIHJhaXNlX29uX2Vycm9yIGFuZCBub3Qgci5v"
-            "azoKICAgICAgICBsb2coIlJFU1QiLCBmInttZXRob2R9IHtwYXRofSAtPiB7ci5zdGF0dXNfY29kZX06"
-            "IHtyLnRleHRbOjQwMF19IikKICAgICAgICByLnJhaXNlX2Zvcl9zdGF0dXMoKQogICAgcmV0dXJuIHIK"
-            "CmRlZiByYW5kX25hbWUobj02KToKICAgIHJldHVybiAiIi5qb2luKHJhbmRvbS5jaG9pY2VzKHN0cmlu"
-            "Zy5hc2NpaV9sb3dlcmNhc2UgKyBzdHJpbmcuZGlnaXRzLCBrPW4pKQoKZGVmIGNyZWF0ZV9wcm9maWxl"
-            "KCk6CiAgICBwcm9maWxlX25hbWUgPSBmInNpZ251cC17SURYfS17cmFuZF9uYW1lKCl9IgogICAgYm9k"
-            "eSA9IHsib3MiOiBvc19wYXJhbXNbIm9zIl0sICJuYW1lIjogcHJvZmlsZV9uYW1lfQogICAgaWYgb3Nf"
-            "cGFyYW1zLmdldCgib3NTcGVjIik6CiAgICAgICAgYm9keVsib3NTcGVjIl0gPSBvc19wYXJhbXNbIm9z"
-            "U3BlYyJdCiAgICBsb2coIlByb2ZpbGUiLCBmIlBPU1QgL2Jyb3dzZXIvcXVpY2sgIGJvZHk9e2JvZHl9"
-            "IikKICAgIHIgPSBnbF9yZXEoIlBPU1QiLCAiL2Jyb3dzZXIvcXVpY2siLCBib2R5KQogICAgZGF0YSA9"
-            "IHIuanNvbigpCiAgICBwcm9maWxlX2lkID0gKGRhdGEuZ2V0KCJpZCIpIG9yIGRhdGEuZ2V0KCJfaWQi"
-            "KSBvciBkYXRhLmdldCgiYnJvd3NlclByb2ZpbGVJZCIpIG9yICIiKQogICAgaWYgbm90IHByb2ZpbGVf"
-            "aWQgYW5kIGlzaW5zdGFuY2UoZGF0YSwgZGljdCk6CiAgICAgICAgZm9yIHYgaW4gZGF0YS52YWx1ZXMo"
-            "KToKICAgICAgICAgICAgaWYgaXNpbnN0YW5jZSh2LCBzdHIpIGFuZCBsZW4odikgPT0gMjQ6CiAgICAg"
-            "ICAgICAgICAgICBwcm9maWxlX2lkID0gdjsgYnJlYWsKICAgIGlmIG5vdCBwcm9maWxlX2lkOgogICAg"
-            "ICAgIHJhaXNlIFJ1bnRpbWVFcnJvcihmIk5vIHByb2ZpbGUgaWQgaW4gcmVzcG9uc2U6IHtkYXRhfSIp"
-            "CiAgICBsb2coIlByb2ZpbGUiLCBmIkNyZWF0ZWQgaWQ9e3Byb2ZpbGVfaWR9IikKICAgIHJldHVybiBw"
-            "cm9maWxlX2lkCgpkZWYgYXR0YWNoX3Byb3h5KHByb2ZpbGVfaWQpOgogICAgbG9nKCJQcm94eSIsIGYi"
-            "QXR0YWNoaW5nIHtQUk9YWV9UWVBFX0lOfSAvIHtQUk9YWV9DT1VOVFJZX0lOfSAoe3Byb3h5X2NjfSki"
-            "KQogICAgdHJ5OgogICAgICAgIGJvZHkgPSB7CiAgICAgICAgICAgICJjb3VudHJ5Q29kZSI6IHByb3h5"
-            "X2NjLAogICAgICAgICAgICAiaXNNb2JpbGUiOiBwcm94eV9mbGFnc1siaXNNb2JpbGUiXSwKICAgICAg"
-            "ICAgICAgImlzREMiOiBwcm94eV9mbGFnc1siaXNEQyJdLAogICAgICAgICAgICAiY3VzdG9tTmFtZSI6"
-            "IGYic3tJRFh9LXtyYW5kX25hbWUoNCl9IiwKICAgICAgICAgICAgInByb2ZpbGVJZFRvTGluayI6IHBy"
-            "b2ZpbGVfaWQsCiAgICAgICAgfQogICAgICAgIHIgPSByZXF1ZXN0cy5wb3N0KGYie0dMX0JBU0V9L3Vz"
-            "ZXJzLXByb3hpZXMvbW9iaWxlLXByb3h5IiwgaGVhZGVycz1IRUFERVJTLCBqc29uPWJvZHksIHRpbWVv"
-            "dXQ9MzApCiAgICAgICAgbG9nKCJQcm94eSIsIGYibW9iaWxlLXByb3h5IC0+IHtyLnN0YXR1c19jb2Rl"
-            "fSIpCiAgICAgICAgaWYgci5zdGF0dXNfY29kZSBpbiAoMjAwLCAyMDEpOgogICAgICAgICAgICByZXR1"
-            "cm4gVHJ1ZQogICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOgogICAgICAgIGxvZygiUHJveHkiLCBmIm1v"
-            "YmlsZS1wcm94eSBlcnJvcjoge2V9IikKICAgIHRyeToKICAgICAgICBwYXRjaCA9IHsicHJveHlFbmFi"
-            "bGVkIjogVHJ1ZSwgInByb3h5IjogeyJtb2RlIjogImdvbG9naW4iLCAiYXV0b1Byb3h5UmVnaW9uIjog"
-            "cHJveHlfY2N9fQogICAgICAgIHIgPSBnbF9yZXEoIlBBVENIIiwgZiIvYnJvd3Nlci97cHJvZmlsZV9p"
-            "ZH0iLCBwYXRjaCwgcmFpc2Vfb25fZXJyb3I9RmFsc2UpCiAgICAgICAgaWYgci5vazoKICAgICAgICAg"
-            "ICAgbG9nKCJQcm94eSIsICJBdHRhY2hlZCB2aWEgUEFUQ0giKQogICAgICAgICAgICByZXR1cm4gVHJ1"
-            "ZQogICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOgogICAgICAgIGxvZygiUHJveHkiLCBmIlBBVENIIGVy"
-            "cm9yOiB7ZX0iKQogICAgbG9nKCJQcm94eSIsICJXQVJOSU5HOiBjb250aW51aW5nIHdpdGhvdXQgcHJv"
-            "eHkiKQogICAgcmV0dXJuIEZhbHNlCgpkZWYgc3RvcF9jbG91ZF9wcm9maWxlKHByb2ZpbGVfaWQpOgog"
-            "ICAgdHJ5OgogICAgICAgIHIgPSBnbF9yZXEoIkRFTEVURSIsIGYiL2Jyb3dzZXIve3Byb2ZpbGVfaWR9"
-            "L3dlYiIsIHJhaXNlX29uX2Vycm9yPUZhbHNlKQogICAgICAgIGxvZygiUHJvZmlsZSIsIGYiU3RvcCBj"
-            "bG91ZDoge3Iuc3RhdHVzX2NvZGV9IikKICAgIGV4Y2VwdCBFeGNlcHRpb246IHBhc3MKCmRlZiBkZWxl"
-            "dGVfcHJvZmlsZShwcm9maWxlX2lkKToKICAgIHRyeToKICAgICAgICByID0gZ2xfcmVxKCJERUxFVEUi"
-            "LCBmIi9icm93c2VyL3twcm9maWxlX2lkfSIsIHJhaXNlX29uX2Vycm9yPUZhbHNlKQogICAgICAgIGxv"
-            "ZygiUHJvZmlsZSIsIGYiRGVsZXRlOiB7ci5zdGF0dXNfY29kZX0iKQogICAgZXhjZXB0IEV4Y2VwdGlv"
-            "bjogcGFzcwoKIyDilIDilIAgVG9rZW4gY2FuZGlkYXRlcyDilIDilIDilIDilIDilIDilIDilIDilIDi"
-            "lIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDi"
-            "lIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAKSldUID0gcmUuY29tcGlsZShy"
-            "ImV5SltBLVphLXowLTlfLV17OCx9XC5bQS1aYS16MC05Xy1dezgsfVwuW0EtWmEtejAtOV8tXXs4LH0i"
-            "KQpjYW5kaWRhdGVzID0gW10KCmRlZiByYW5rX29mKHNvdXJjZSk6CiAgICBzID0gKHNvdXJjZSBvciAi"
-            "IikubG93ZXIoKQogICAgaWYgImNsaXBib2FyZCIgaW4gcyBvciAiY29waWVkIiBpbiBzOiByZXR1cm4g"
-            "MAogICAgaWYgImlucHV0IiAgICAgaW4gczogcmV0dXJuIDEKICAgIGlmICJwYWdlIiAgICAgIGluIHMg"
-            "b3IgInN0b3JhZ2UiIGluIHM6IHJldHVybiAzCiAgICBpZiAibmV0d29yayIgICBpbiBzOiByZXR1cm4g"
-            "NAogICAgcmV0dXJuIDUKCmRlZiBhZGRfY2FuZGlkYXRlKHRvaywgc291cmNlKToKICAgIGlmIG5vdCB0"
-            "b2s6IHJldHVybgogICAgZm9yIGMgaW4gY2FuZGlkYXRlczoKICAgICAgICBpZiBjWyJ0b2tlbiJdID09"
-            "IHRvazoKICAgICAgICAgICAgaWYgcmFua19vZihzb3VyY2UpIDwgcmFua19vZihjWyJzb3VyY2UiXSk6"
-            "CiAgICAgICAgICAgICAgICBjWyJzb3VyY2UiXSA9IHNvdXJjZQogICAgICAgICAgICByZXR1cm4KICAg"
-            "IGNhbmRpZGF0ZXMuYXBwZW5kKHsidG9rZW4iOiB0b2ssICJzb3VyY2UiOiBzb3VyY2V9KQogICAgbG9n"
-            "KCJUb2tlbiIsIGYiY2FuZGlkYXRlIGZyb20ge3NvdXJjZX06IC4uLnt0b2tbLTg6XX0iKQoKYXN5bmMg"
-            "ZGVmIHNjYW5fcGFnZShwYWdlLCB0YWcpOgogICAgdHJ5OgogICAgICAgIGRhdGEgPSBhd2FpdCBwYWdl"
-            "LmV2YWx1YXRlKCIiIigpID0+IHsKICAgICAgICAgICAgY29uc3Qgb3V0ID0ge2lucHV0czpbXSwgc3Rv"
-            "cmFnZTpbXX07CiAgICAgICAgICAgIHRyeSB7IGRvY3VtZW50LnF1ZXJ5U2VsZWN0b3JBbGwoJ2lucHV0"
-            "LHRleHRhcmVhJykuZm9yRWFjaChlPT57aWYoZS52YWx1ZSlvdXQuaW5wdXRzLnB1c2goU3RyaW5nKGUu"
-            "dmFsdWUpKTt9KTsgfSBjYXRjaChlKXt9CiAgICAgICAgICAgIHRyeSB7CiAgICAgICAgICAgICAgICBm"
-            "b3IoY29uc3QgcyBvZiBbd2luZG93LmxvY2FsU3RvcmFnZSx3aW5kb3cuc2Vzc2lvblN0b3JhZ2VdKXsK"
-            "ICAgICAgICAgICAgICAgICAgICBmb3IobGV0IGk9MDtpPHMubGVuZ3RoO2krKylvdXQuc3RvcmFnZS5w"
-            "dXNoKFN0cmluZyhzLmdldEl0ZW0ocy5rZXkoaSkpKSk7CiAgICAgICAgICAgICAgICB9CiAgICAgICAg"
-            "ICAgIH0gY2F0Y2goZSl7fQogICAgICAgICAgICByZXR1cm4gb3V0OwogICAgICAgIH0iIiIpCiAgICAg"
-            "ICAgZm9yIGtpbmQsIGxhYmVsIGluICgoImlucHV0cyIsImlucHV0IiksKCJzdG9yYWdlIiwic3RvcmFn"
-            "ZSIpKToKICAgICAgICAgICAgZm9yIHRleHQgaW4gZGF0YS5nZXQoa2luZCwgW10pOgogICAgICAgICAg"
-            "ICAgICAgZm9yIG0gaW4gSldULmZpbmRhbGwodGV4dCBvciAiIik6CiAgICAgICAgICAgICAgICAgICAg"
-            "YWRkX2NhbmRpZGF0ZShtLCBmIntsYWJlbH06e3RhZ30iKQogICAgZXhjZXB0IEV4Y2VwdGlvbjogcGFz"
-            "cwogICAgdHJ5OgogICAgICAgIGZvciBtIGluIEpXVC5maW5kYWxsKGF3YWl0IHBhZ2UuY29udGVudCgp"
-            "KToKICAgICAgICAgICAgYWRkX2NhbmRpZGF0ZShtLCBmInBhZ2U6e3RhZ30iKQogICAgZXhjZXB0IEV4"
-            "Y2VwdGlvbjogcGFzcwoKYXN5bmMgZGVmIHJlYWRfY2xpcGJvYXJkKHBhZ2UpOgogICAgdHJ5OgogICAg"
-            "ICAgIHR4dCA9IGF3YWl0IHBhZ2UuZXZhbHVhdGUoIigpID0+IG5hdmlnYXRvci5jbGlwYm9hcmQucmVh"
-            "ZFRleHQoKSIpCiAgICAgICAgZm9yIG0gaW4gSldULmZpbmRhbGwodHh0IG9yICIiKToKICAgICAgICAg"
-            "ICAgYWRkX2NhbmRpZGF0ZShtLCAiY2xpcGJvYXJkIikKICAgIGV4Y2VwdCBFeGNlcHRpb246IHBhc3MK"
-            "ICAgIGF3YWl0IHNjYW5fcGFnZShwYWdlLCAiYWZ0ZXItY29weSIpCgpkZWYgcmVzdF9jaGVjayh0b2tl"
-            "bik6CiAgICB0cnk6CiAgICAgICAgcmVxID0gdXJsbGliLnJlcXVlc3QuUmVxdWVzdChmIntHTF9CQVNF"
-            "fS91c2VyIiwKICAgICAgICAgICAgaGVhZGVycz17IkF1dGhvcml6YXRpb24iOiBmIkJlYXJlciB7dG9r"
-            "ZW59IiwgIkFjY2VwdCI6ICJhcHBsaWNhdGlvbi9qc29uIn0pCiAgICAgICAgd2l0aCB1cmxsaWIucmVx"
-            "dWVzdC51cmxvcGVuKHJlcSwgdGltZW91dD0yMCkgYXMgcjoKICAgICAgICAgICAgcmV0dXJuIHIuc3Rh"
-            "dHVzCiAgICBleGNlcHQgdXJsbGliLmVycm9yLkhUVFBFcnJvciBhcyBlOgogICAgICAgIHJldHVybiBl"
-            "LmNvZGUKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICByZXR1cm4gZiJlcnJvcjp7ZX0i"
-            "CgojIOKUgOKUgCBCcm93c2VyIGluaXQgc2NyaXB0IOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKU"
-            "gOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKU"
-            "gOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgApJTklUX0pTID0gIiIiCigoKSA9PiB7CiAgY29uc3Qg"
-            "cmVjID0gdCA9PiB7IHRyeXsod2luZG93Ll9fY29waWVkPXdpbmRvdy5fX2NvcGllZHx8W10pLnB1c2go"
-            "U3RyaW5nKHQpKTt9Y2F0Y2goZSl7fSB9OwogIHRyeSB7CiAgICBjb25zdCBjYiA9IG5hdmlnYXRvci5j"
-            "bGlwYm9hcmQ7CiAgICBpZihjYiAmJiBjYi53cml0ZVRleHQpewogICAgICBjb25zdCBvcmlnPWNiLndy"
-            "aXRlVGV4dC5iaW5kKGNiKTsKICAgICAgY2Iud3JpdGVUZXh0PXQ9PntyZWModCk7cmV0dXJuIG9yaWco"
-            "dCkuY2F0Y2goKCk9PlByb21pc2UucmVzb2x2ZSgpKTt9OwogICAgfQogIH0gY2F0Y2goZSl7fQogIGRv"
-            "Y3VtZW50LmFkZEV2ZW50TGlzdGVuZXIoJ2NvcHknLCgpPT57dHJ5e3JlYyhTdHJpbmcod2luZG93Lmdl"
-            "dFNlbGVjdGlvbigpKSk7fWNhdGNoKGUpe319LHRydWUpOwp9KSgpOwoiIiIKCiMg4pSA4pSAIEdlbmVy"
-            "aWMgYnJvd3NlciBoZWxwZXJzIOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKU"
-            "gOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKU"
-            "gOKUgApPVkVSTEFZX1JFID0gcmUuY29tcGlsZShyIl4oXHUwMGQ3fFx1MjcxNXx4fGNsb3NlfGdvdCBp"
-            "dHxhY2NlcHQoIGFsbCk/KCBjb29raWVzKT98bWF5YmUgbGF0ZXJ8bm8sPyB0aGFua3N8bm90IG5vd3xk"
-            "aXNtaXNzKSQiLCByZS5JKQoKYXN5bmMgZGVmIGZpbmRfdmlzaWJsZShwYWdlLCBsb2NhdG9ycywgdGlt"
-            "ZW91dF9tcz01MDAwKToKICAgIGVuZCA9IHRpbWUudGltZSgpICsgdGltZW91dF9tcyAvIDEwMDAuMAog"
-            "ICAgd2hpbGUgVHJ1ZToKICAgICAgICBmb3IgbG9jIGluIGxvY2F0b3JzOgogICAgICAgICAgICB0cnk6"
-            "CiAgICAgICAgICAgICAgICBlbCA9IGxvYy5maXJzdAogICAgICAgICAgICAgICAgaWYgYXdhaXQgZWwu"
-            "aXNfdmlzaWJsZSgpOgogICAgICAgICAgICAgICAgICAgIHJldHVybiBlbAogICAgICAgICAgICBleGNl"
-            "cHQgRXhjZXB0aW9uOiBwYXNzCiAgICAgICAgaWYgdGltZS50aW1lKCkgPj0gZW5kOgogICAgICAgICAg"
-            "ICByZXR1cm4gTm9uZQogICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAoMC4zKQoKYXN5bmMgZGVmIGNs"
-            "aWNrX2ZpcnN0KHBhZ2UsIGxvY2F0b3JzLCB0aW1lb3V0X21zPTUwMDApOgogICAgZWwgPSBhd2FpdCBm"
-            "aW5kX3Zpc2libGUocGFnZSwgbG9jYXRvcnMsIHRpbWVvdXRfbXMpCiAgICBpZiBlbCBpcyBOb25lOiBy"
-            "ZXR1cm4gRmFsc2UKICAgIHRyeToKICAgICAgICBhd2FpdCBlbC5jbGljayh0aW1lb3V0PTUwMDApCiAg"
-            "ICAgICAgcmV0dXJuIFRydWUKICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgdHJ5OgogICAgICAg"
-            "ICAgICBhd2FpdCBlbC5jbGljayh0aW1lb3V0PTMwMDAsIGZvcmNlPVRydWUpCiAgICAgICAgICAgIHJl"
-            "dHVybiBUcnVlCiAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICAgICAgcmV0dXJuIEZhbHNl"
-            "Cgphc3luYyBkZWYgd2FpdF9hbnkoY29uZGl0aW9ucywgdGltZW91dF9tcz05MDAwMCk6CiAgICBlbmQg"
-            "PSB0aW1lLnRpbWUoKSArIHRpbWVvdXRfbXMgLyAxMDAwLjAKICAgIHdoaWxlIHRpbWUudGltZSgpIDwg"
-            "ZW5kOgogICAgICAgIGZvciBuYW1lLCBmbiBpbiBjb25kaXRpb25zOgogICAgICAgICAgICB0cnk6CiAg"
-            "ICAgICAgICAgICAgICBpZiBhd2FpdCBmbigpOgogICAgICAgICAgICAgICAgICAgIHJldHVybiBuYW1l"
-            "CiAgICAgICAgICAgIGV4Y2VwdCBFeGNlcHRpb246IHBhc3MKICAgICAgICBhd2FpdCBhc3luY2lvLnNs"
-            "ZWVwKDAuNikKICAgIHJldHVybiBOb25lCgphc3luYyBkZWYgdHlwZV9odW1hbihsb2NhdG9yLCB0ZXh0"
-            "KToKICAgIGF3YWl0IGxvY2F0b3IuY2xpY2soKQogICAgdHJ5OiBhd2FpdCBsb2NhdG9yLmZpbGwoIiIp"
-            "CiAgICBleGNlcHQgRXhjZXB0aW9uOiBwYXNzCiAgICBhd2FpdCBsb2NhdG9yLnByZXNzX3NlcXVlbnRp"
-            "YWxseSh0ZXh0LCBkZWxheT1yYW5kb20ucmFuZGludCg1MCwgMTIwKSkKICAgIHRyeToKICAgICAgICBp"
-            "ZiBhd2FpdCBsb2NhdG9yLmlucHV0X3ZhbHVlKCkgIT0gdGV4dDoKICAgICAgICAgICAgYXdhaXQgbG9j"
-            "YXRvci5maWxsKHRleHQpCiAgICBleGNlcHQgRXhjZXB0aW9uOiBwYXNzCgphc3luYyBkZWYgdGlja190"
-            "b3MocGFnZSk6CiAgICB0aWNrZWQgPSAwCiAgICBmb3Igc2VsX2xvYyBpbiAocGFnZS5nZXRfYnlfcm9s"
-            "ZSgiY2hlY2tib3giKSwgcGFnZS5sb2NhdG9yKCdpbnB1dFt0eXBlPSJjaGVja2JveCJdJykpOgogICAg"
-            "ICAgIHRyeTogbiA9IGF3YWl0IHNlbF9sb2MuY291bnQoKQogICAgICAgIGV4Y2VwdCBFeGNlcHRpb246"
-            "IGNvbnRpbnVlCiAgICAgICAgZm9yIGkgaW4gcmFuZ2Uobik6CiAgICAgICAgICAgIGJveCA9IHNlbF9s"
-            "b2MubnRoKGkpCiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgIGlmIGF3YWl0IGJveC5pc19j"
-            "aGVja2VkKCk6IGNvbnRpbnVlCiAgICAgICAgICAgICAgICB0cnk6IGF3YWl0IGJveC5jaGVjayh0aW1l"
-            "b3V0PTMwMDAsIGZvcmNlPVRydWUpCiAgICAgICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uOiBhd2Fp"
-            "dCBib3guY2xpY2sodGltZW91dD0zMDAwLCBmb3JjZT1UcnVlKQogICAgICAgICAgICAgICAgdGlja2Vk"
-            "ICs9IDEKICAgICAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjogcGFzcwogICAgICAgIGlmIHRpY2tlZDog"
-            "YnJlYWsKICAgIGxvZygiTWFpbiIsIGYiVG9TIGNoZWNrYm94ZXMgdGlja2VkOiB7dGlja2VkfSIpCiAg"
-            "ICByZXR1cm4gdGlja2VkCgphc3luYyBkZWYgZGlzbWlzc19vdmVybGF5cyhwYWdlLCB0cmllcz02KToK"
-            "ICAgIGZvciBfIGluIHJhbmdlKHRyaWVzKToKICAgICAgICBjbG9zZWQgPSBGYWxzZQogICAgICAgIGZv"
-            "ciBsb2MgaW4gKAogICAgICAgICAgICBwYWdlLmxvY2F0b3IoJ1tyb2xlPSJkaWFsb2ciXSBbYXJpYS1s"
-            "YWJlbD0iQ2xvc2UiIGldJyksCiAgICAgICAgICAgIHBhZ2UubG9jYXRvcignW2FyaWEtbGFiZWw9IkNs"
-            "b3NlIiBpXScpLAogICAgICAgICAgICBwYWdlLmdldF9ieV9yb2xlKCJidXR0b24iLCBuYW1lPU9WRVJM"
-            "QVlfUkUpLAogICAgICAgICk6CiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgIGVsID0gbG9j"
-            "LmZpcnN0CiAgICAgICAgICAgICAgICBpZiBhd2FpdCBlbC5pc192aXNpYmxlKCk6CiAgICAgICAgICAg"
-            "ICAgICAgICAgYXdhaXQgZWwuY2xpY2sodGltZW91dD0yMDAwKQogICAgICAgICAgICAgICAgICAgIGNs"
-            "b3NlZCA9IFRydWUKICAgICAgICAgICAgICAgICAgICBhd2FpdCBhc3luY2lvLnNsZWVwKDAuNykKICAg"
-            "ICAgICAgICAgICAgICAgICBicmVhawogICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uOiBwYXNzCiAg"
-            "ICAgICAgaWYgbm90IGNsb3NlZDogYnJlYWsKCmFzeW5jIGRlZiBpc19kYXNoYm9hcmQocGFnZSk6CiAg"
-            "ICB0cnk6CiAgICAgICAgdXJsID0gcGFnZS51cmwubG93ZXIoKQogICAgICAgIGlmIGFueSh4IGluIHVy"
-            "bCBmb3IgeCBpbiAoInNpZ25fdXAiLCAibG9naW4iLCAiZG93bmxvYWQtaW5zdGFsbGVyIiwgInZlcmlm"
-            "eSIpKToKICAgICAgICAgICAgcmV0dXJuIEZhbHNlCiAgICAgICAgaWYgYW55KHggaW4gdXJsIGZvciB4"
-            "IGluICgicHJvZmlsZWxpc3QiLCAiZGFzaGJvYXJkIiwgInBlcnNvbmFsYXJlYSIsICJicm93c2VyIikp"
-            "OgogICAgICAgICAgICByZXR1cm4gVHJ1ZQogICAgICAgIHJldHVybiBhd2FpdCBwYWdlLmdldF9ieV9y"
-            "b2xlKCJidXR0b24iLCBuYW1lPSJSdW4iLCBleGFjdD1UcnVlKS5maXJzdC5pc192aXNpYmxlKCkKICAg"
-            "IGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgcmV0dXJuIEZhbHNlCgphc3luYyBkZWYgZHVtcF9wYWdl"
-            "KHBhZ2UsIGxhYmVsPSJkdW1wIik6CiAgICB0cnk6CiAgICAgICAgdXJsICA9IHBhZ2UudXJsCiAgICAg"
-            "ICAgdGV4dCA9IGF3YWl0IHBhZ2UuZXZhbHVhdGUoIigpID0+IGRvY3VtZW50LmJvZHkgPyBkb2N1bWVu"
-            "dC5ib2R5LmlubmVyVGV4dC5zbGljZSgwLCAyNTAwKSA6ICcnIikKICAgICAgICBsb2coIkRVTVAiLCBm"
-            "Ilt7bGFiZWx9XSBVUkw9e3VybH0iKQogICAgICAgIGxvZygiRFVNUCIsIGYiW3tsYWJlbH1dIFRFWFQ9"
-            "XG57dGV4dFs6MTUwMF19IikKICAgICAgICBhd2FpdCBzaG90KHBhZ2UsIGYiZmFpbC17bGFiZWx9IikK"
-            "ICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICBsb2coIkRVTVAiLCBmImR1bXAgZmFpbGVk"
-            "OiB7ZX0iKQoKIyDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDi"
-            "lZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDi"
-            "lZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDi"
-            "lZDilZDilZDilZDilZDilZAKIyAgQ0xPVURGTEFSRSBUVVJOU1RJTEUgIOKAlCAgdjQ6IGRpcmVjdCBH"
-            "VUkgY29vcmRpbmF0ZSBjbGlja2luZwojIOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKV"
-            "kOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKV"
-            "kOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKV"
-            "kOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkAojIFN0YW5kYXJkIFR1cm5zdGlsZSB3aWRnZXQg"
-            "ZGltZW5zaW9uczogfjMwMCDDlyA2NSBweC4KIyBUaGUgY2hlY2tib3ggY2lyY2xlIGlzIGF0OiAoaWZy"
-            "YW1lX3ggKyAyNCwgaWZyYW1lX3kgKyBoZWlnaHQvMikuCiMgVGhhdCBtYXRjaGVzIHRoZSBzY3JlZW5z"
-            "aG90OiBjaGVja2JveCBhdCB+eCsyNCwgdmVydGljYWxseSBjZW50ZXJlZC4KClRTX0lGUkFNRV9TRUxF"
-            "Q1RPUlMgPSBbCiAgICAnaWZyYW1lW3NyYyo9ImNoYWxsZW5nZXMuY2xvdWRmbGFyZS5jb20iXScsCiAg"
-            "ICAnaWZyYW1lW3NyYyo9InR1cm5zdGlsZSJdJywKICAgICdpZnJhbWVbdGl0bGUqPSJjbG91ZGZsYXJl"
-            "IiBpXScsCiAgICAnaWZyYW1lW3RpdGxlKj0iY2hhbGxlbmdlIiBpXScsCiAgICAnaWZyYW1lW3RpdGxl"
-            "Kj0id2lkZ2V0IiBpXScsCl0KVFNfQ09OVEFJTkVSX1NFTEVDVE9SUyA9IFsKICAgICcuY2YtdHVybnN0"
-            "aWxlJywgJ1tjbGFzcyo9InR1cm5zdGlsZSIgaV0nLCAnW2lkKj0idHVybnN0aWxlIiBpXScsICdbZGF0"
-            "YS1zaXRla2V5XScsCl0KVFNfSU5QVVRfSlMgPSAiIiIoKSA9PiB7CiAgICBjb25zdCBlID0gZG9jdW1l"
-            "bnQucXVlcnlTZWxlY3RvcigKICAgICAgICAiaW5wdXRbbmFtZT0nY2YtdHVybnN0aWxlLXJlc3BvbnNl"
-            "J10sdGV4dGFyZWFbbmFtZT0nY2YtdHVybnN0aWxlLXJlc3BvbnNlJ10iKTsKICAgIHJldHVybiBlID8g"
-            "e2V4aXN0czogdHJ1ZSwgdmFsdWU6IGUudmFsdWUgfHwgJyd9IDoge2V4aXN0czogZmFsc2UsIHZhbHVl"
-            "OiAnJ307Cn0iIiIKCkNSRUFURV9SRSA9IHJlLmNvbXBpbGUociJjcmVhdGUgYW4gYWNjb3VudHxjcmVh"
-            "dGUgYWNjb3VudHxzaWduIHVwfGdldCBzdGFydGVkIiwgcmUuSSkKCmFzeW5jIGRlZiB0c19zdGF0ZShw"
-            "YWdlKToKICAgIHRyeToKICAgICAgICByZXR1cm4gYXdhaXQgcGFnZS5ldmFsdWF0ZShUU19JTlBVVF9K"
-            "UykKICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgcmV0dXJuIHsiZXhpc3RzIjogRmFsc2UsICJ2"
-            "YWx1ZSI6ICIifQoKZGVmIHRzX2ZyYW1lKHBhZ2UpOgogICAgZm9yIGYgaW4gcGFnZS5mcmFtZXM6CiAg"
-            "ICAgICAgdHJ5OgogICAgICAgICAgICBpZiAiY2hhbGxlbmdlcy5jbG91ZGZsYXJlLmNvbSIgaW4gKGYu"
-            "dXJsIG9yICIiKToKICAgICAgICAgICAgICAgIHJldHVybiBmCiAgICAgICAgZXhjZXB0IEV4Y2VwdGlv"
-            "bjogcGFzcwogICAgcmV0dXJuIE5vbmUKCmFzeW5jIGRlZiB0c19kaWFnKHBhZ2UsIHRhZyk6CiAgICAi"
-            "IiJMb2cgYWxsIGlmcmFtZXMgcHJlc2VudCDigJQgaGVscHMgZGlhZ25vc2Ugd2h5IGEgd2lkZ2V0IGlz"
-            "bid0IGZvdW5kLiIiIgogICAgdHJ5OgogICAgICAgIGZyYW1lcyA9IFtmLnVybFs6OTBdIGZvciBmIGlu"
-            "IHBhZ2UuZnJhbWVzIGlmIGYudXJsIGFuZCBmLnVybCAhPSAiYWJvdXQ6YmxhbmsiXQogICAgICAgIGxv"
-            "ZygiVHVybnN0aWxlIiwgZiJbe3RhZ31dIGFjdGl2ZSBmcmFtZXM6IHtmcmFtZXN9IikKICAgICAgICBu"
-            "ID0gYXdhaXQgcGFnZS5sb2NhdG9yKCJpZnJhbWUiKS5jb3VudCgpCiAgICAgICAgZm9yIGkgaW4gcmFu"
-            "Z2UobWluKG4sIDEwKSk6CiAgICAgICAgICAgIGVsICA9IHBhZ2UubG9jYXRvcigiaWZyYW1lIikubnRo"
-            "KGkpCiAgICAgICAgICAgIGJveCA9IGF3YWl0IGVsLmJvdW5kaW5nX2JveCgpCiAgICAgICAgICAgIHNy"
-            "YyA9IChhd2FpdCBlbC5nZXRfYXR0cmlidXRlKCJzcmMiKSkgb3IgIiIKICAgICAgICAgICAgdHRsID0g"
-            "KGF3YWl0IGVsLmdldF9hdHRyaWJ1dGUoInRpdGxlIikpIG9yICIiCiAgICAgICAgICAgIGxvZygiVHVy"
-            "bnN0aWxlIiwgZiJbe3RhZ31dIGlmcmFtZSN7aX0gc3JjPXtzcmNbOjcwXX0gdGl0bGU9e3R0bFs6MzBd"
-            "fSBib3g9e2JveH0iKQogICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOgogICAgICAgIGxvZygiVHVybnN0"
-            "aWxlIiwgZiJkaWFnIGZhaWxlZDoge2V9IikKCmFzeW5jIGRlZiB0c19ncmVlbl9yYXRpbyhwYWdlLCBi"
-            "b3gpOgogICAgIiIiRnJhY3Rpb24gb2YgZ3JlZW4gcGl4ZWxzIGluIHRoZSB3aWRnZXQgYXJlYSDigJQg"
-            "Q2xvdWRmbGFyZSBzdWNjZXNzID0gZ3JlZW4gY2hlY2ttYXJrLiIiIgogICAgaWYgSW1hZ2UgaXMgTm9u"
-            "ZSBvciBub3QgYm94OgogICAgICAgIHJldHVybiAwLjAKICAgIHRyeToKICAgICAgICBwbmcgPSBhd2Fp"
-            "dCBwYWdlLnNjcmVlbnNob3QoY2xpcD17CiAgICAgICAgICAgICJ4IjogbWF4KGJveFsieCJdLCAwKSwg"
-            "InkiOiBtYXgoYm94WyJ5Il0sIDApLAogICAgICAgICAgICAid2lkdGgiOiBib3hbIndpZHRoIl0sICJo"
-            "ZWlnaHQiOiBib3hbImhlaWdodCJdLAogICAgICAgIH0pCiAgICAgICAgaW0gPSBJbWFnZS5vcGVuKGlv"
-            "LkJ5dGVzSU8ocG5nKSkuY29udmVydCgiUkdCIikKICAgICAgICBweCA9IGxpc3QoaW0uZ2V0ZGF0YSgp"
-            "KQogICAgICAgIGlmIG5vdCBweDogcmV0dXJuIDAuMAogICAgICAgIGcgPSBzdW0oMSBmb3IgKHIsIGdn"
-            "LCBiKSBpbiBweCBpZiBnZyA+IDExMCBhbmQgZ2cgLSByID4gNDUgYW5kIGdnIC0gYiA+IDQ1KQogICAg"
-            "ICAgIHJldHVybiBnIC8gbGVuKHB4KQogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICByZXR1cm4g"
-            "MC4wCgphc3luYyBkZWYgdHNfc29sdmVkKHBhZ2UsIGlmcmFtZV9ib3gsIGJhc2VsaW5lX2dyZWVuKToK"
-            "ICAgICIiIgogICAgQ2hlY2sgYWxsIDMgaW5kZXBlbmRlbnQgc3VjY2VzcyBzaWduYWxzLiBSZXR1cm5z"
-            "IGRlc2NyaXB0aXZlIHN0cmluZyBvbiBzdWNjZXNzLCAnJyBvdGhlcndpc2UuCiAgICAgIFNpZ25hbCAx"
-            "OiBjZi10dXJuc3RpbGUtcmVzcG9uc2UgaGlkZGVuIGlucHV0IGhhcyBhIHRva2VuIHZhbHVlCiAgICAg"
-            "IFNpZ25hbCAyOiB0aGUgVHVybnN0aWxlIGZyYW1lIGNvbnRhaW5zIGEgI3N1Y2Nlc3MgZWxlbWVudCBv"
-            "ciAnc3VjY2VzcycgdGV4dAogICAgICBTaWduYWwgMzogZ3JlZW4gcGl4ZWwgcmF0aW8gaW4gdGhlIHdp"
-            "ZGdldCBhcmVhIGhhcyByaXNlbiBhYm92ZSBiYXNlbGluZQogICAgIiIiCiAgICAjIFNpZ25hbCAxIOKA"
-            "lCB0b2tlbgogICAgc3QgPSBhd2FpdCB0c19zdGF0ZShwYWdlKQogICAgaWYgc3RbInZhbHVlIl06CiAg"
-            "ICAgICAgcmV0dXJuIGYidG9rZW4obGVuPXtsZW4oc3RbJ3ZhbHVlJ10pfSkiCiAgICAjIFNpZ25hbCAy"
-            "IOKAlCBmcmFtZSBzdGF0ZQogICAgZiA9IHRzX2ZyYW1lKHBhZ2UpCiAgICBpZiBmOgogICAgICAgIHRy"
-            "eToKICAgICAgICAgICAgaWYgYXdhaXQgZi5sb2NhdG9yKCIjc3VjY2VzcyIpLmZpcnN0LmlzX3Zpc2li"
-            "bGUoKToKICAgICAgICAgICAgICAgIHJldHVybiAiZnJhbWU6I3N1Y2Nlc3MiCiAgICAgICAgZXhjZXB0"
-            "IEV4Y2VwdGlvbjogcGFzcwogICAgICAgIHRyeToKICAgICAgICAgICAgdHh0ID0gYXdhaXQgZi5ldmFs"
-            "dWF0ZSgiKCkgPT4gZG9jdW1lbnQuYm9keSA/IGRvY3VtZW50LmJvZHkuaW5uZXJUZXh0IDogJyciKQog"
-            "ICAgICAgICAgICBpZiB0eHQgYW5kIHJlLnNlYXJjaChyIlxic3VjY2Vzc1xiIiwgdHh0LCByZS5JKToK"
-            "ICAgICAgICAgICAgICAgIHJldHVybiAiZnJhbWU6dGV4dC1zdWNjZXNzIgogICAgICAgIGV4Y2VwdCBF"
-            "eGNlcHRpb246IHBhc3MKICAgICMgU2lnbmFsIDMg4oCUIGdyZWVuIHBpeGVscwogICAgaWYgaWZyYW1l"
-            "X2JveDoKICAgICAgICByYXRpbyA9IGF3YWl0IHRzX2dyZWVuX3JhdGlvKHBhZ2UsIGlmcmFtZV9ib3gp"
-            "CiAgICAgICAgaWYgcmF0aW8gPiBtYXgoMC4wMDgsIGJhc2VsaW5lX2dyZWVuICsgMC4wMDYpOgogICAg"
-            "ICAgICAgICByZXR1cm4gZiJwaXhlbHMoZ3JlZW49e3JhdGlvOi4zZn0gdnMgYmFzZWxpbmU9e2Jhc2Vs"
-            "aW5lX2dyZWVuOi4zZn0pIgogICAgcmV0dXJuICIiCgojIOKUgOKUgCBTdGVwIDE6IHdhaXQgZm9yIHRo"
-            "ZSBpZnJhbWUgRE9NIGVsZW1lbnQg4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA"
-            "4pSA4pSA4pSA4pSA4pSA4pSACmFzeW5jIGRlZiB3YWl0X2Zvcl90dXJuc3RpbGVfaWZyYW1lKHBhZ2Us"
-            "IHRpbWVvdXRfcz0yMCk6CiAgICAiIiIKICAgIFBvbGwgZm9yIGEgdmlzaWJsZSBUdXJuc3RpbGUgaWZy"
-            "YW1lIGVsZW1lbnQgdXAgdG8gdGltZW91dF9zIHNlY29uZHMuCiAgICBSZXR1cm5zIChlbGVtZW50LCBi"
-            "b3VuZGluZ19ib3gpIG9uIHN1Y2Nlc3MsIChOb25lLCBOb25lKSBpZiBub3QgZm91bmQKICAgIG9yIGlm"
-            "IHRoZSB0b2tlbiBhcHBlYXJlZCBvbiBpdHMgb3duIGR1cmluZyB0aGUgd2FpdC4KICAgICIiIgogICAg"
-            "bG9nKCJUdXJuc3RpbGUiLCBmIldhaXRpbmcgdXAgdG8ge3RpbWVvdXRfc31zIGZvciBUdXJuc3RpbGUg"
-            "aWZyYW1lLi4uIikKICAgIGVuZCA9IHRpbWUudGltZSgpICsgdGltZW91dF9zCiAgICB3aGlsZSB0aW1l"
-            "LnRpbWUoKSA8IGVuZDoKICAgICAgICAjIEFscmVhZHkgc29sdmVkIHdoaWxlIHdlIHdhaXRlZD8KICAg"
-            "ICAgICBzdCA9IGF3YWl0IHRzX3N0YXRlKHBhZ2UpCiAgICAgICAgaWYgc3RbInZhbHVlIl06CiAgICAg"
-            "ICAgICAgIGxvZygiVHVybnN0aWxlIiwgIlRva2VuIGFwcGVhcmVkIGR1cmluZyBpZnJhbWUgd2FpdCDi"
-            "gJQgYWxyZWFkeSBzb2x2ZWQiKQogICAgICAgICAgICByZXR1cm4gTm9uZSwgTm9uZQoKICAgICAgICBm"
-            "b3Igc2VsIGluIFRTX0lGUkFNRV9TRUxFQ1RPUlM6CiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAg"
-            "ICAgIGxvYyA9IHBhZ2UubG9jYXRvcihzZWwpCiAgICAgICAgICAgICAgICBuICAgPSBhd2FpdCBsb2Mu"
-            "Y291bnQoKQogICAgICAgICAgICAgICAgZm9yIGkgaW4gcmFuZ2Uobik6CiAgICAgICAgICAgICAgICAg"
-            "ICAgZWwgPSBsb2MubnRoKGkpCiAgICAgICAgICAgICAgICAgICAgdHJ5OiBhd2FpdCBlbC5zY3JvbGxf"
-            "aW50b192aWV3X2lmX25lZWRlZCh0aW1lb3V0PTEwMDApCiAgICAgICAgICAgICAgICAgICAgZXhjZXB0"
-            "IEV4Y2VwdGlvbjogcGFzcwogICAgICAgICAgICAgICAgICAgIGJveCA9IGF3YWl0IGVsLmJvdW5kaW5n"
-            "X2JveCgpCiAgICAgICAgICAgICAgICAgICAgaWYgYm94IGFuZCBib3hbIndpZHRoIl0gPiA1MCBhbmQg"
-            "Ym94WyJoZWlnaHQiXSA+IDIwOgogICAgICAgICAgICAgICAgICAgICAgICBsb2coIlR1cm5zdGlsZSIs"
-            "ICgKICAgICAgICAgICAgICAgICAgICAgICAgICAgIGYiSWZyYW1lIGZvdW5kIHZpYSAne3NlbH0nOiAi"
-            "CiAgICAgICAgICAgICAgICAgICAgICAgICAgICBmIng9e2JveFsneCddOi4wZn0geT17Ym94Wyd5J106"
-            "LjBmfSAiCiAgICAgICAgICAgICAgICAgICAgICAgICAgICBmInc9e2JveFsnd2lkdGgnXTouMGZ9IGg9"
-            "e2JveFsnaGVpZ2h0J106LjBmfSIKICAgICAgICAgICAgICAgICAgICAgICAgKSkKICAgICAgICAgICAg"
-            "ICAgICAgICAgICAgcmV0dXJuIGVsLCBib3gKICAgICAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAg"
-            "ICAgICAgICAgICAgIHBhc3MKCiAgICAgICAgZm9yIHNlbCBpbiBUU19DT05UQUlORVJfU0VMRUNUT1JT"
-            "OgogICAgICAgICAgICB0cnk6CiAgICAgICAgICAgICAgICBsb2MgPSBwYWdlLmxvY2F0b3Ioc2VsKQog"
-            "ICAgICAgICAgICAgICAgbiAgID0gYXdhaXQgbG9jLmNvdW50KCkKICAgICAgICAgICAgICAgIGZvciBp"
-            "IGluIHJhbmdlKG4pOgogICAgICAgICAgICAgICAgICAgIGVsID0gbG9jLm50aChpKQogICAgICAgICAg"
-            "ICAgICAgICAgIHRyeTogYXdhaXQgZWwuc2Nyb2xsX2ludG9fdmlld19pZl9uZWVkZWQodGltZW91dD0x"
-            "MDAwKQogICAgICAgICAgICAgICAgICAgIGV4Y2VwdCBFeGNlcHRpb246IHBhc3MKICAgICAgICAgICAg"
-            "ICAgICAgICBib3ggPSBhd2FpdCBlbC5ib3VuZGluZ19ib3goKQogICAgICAgICAgICAgICAgICAgIGlm"
-            "IGJveCBhbmQgYm94WyJ3aWR0aCJdID4gNTAgYW5kIGJveFsiaGVpZ2h0Il0gPiAyMDoKICAgICAgICAg"
-            "ICAgICAgICAgICAgICAgbG9nKCJUdXJuc3RpbGUiLCAoCiAgICAgICAgICAgICAgICAgICAgICAgICAg"
-            "ICBmIkNvbnRhaW5lciBmb3VuZCB2aWEgJ3tzZWx9JzogIgogICAgICAgICAgICAgICAgICAgICAgICAg"
-            "ICAgZiJ4PXtib3hbJ3gnXTouMGZ9IHk9e2JveFsneSddOi4wZn0gIgogICAgICAgICAgICAgICAgICAg"
-            "ICAgICAgICAgZiJ3PXtib3hbJ3dpZHRoJ106LjBmfSBoPXtib3hbJ2hlaWdodCddOi4wZn0iCiAgICAg"
-            "ICAgICAgICAgICAgICAgICAgICkpCiAgICAgICAgICAgICAgICAgICAgICAgIHJldHVybiBlbCwgYm94"
-            "CiAgICAgICAgICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgICAgICAgICBwYXNzCgogICAgICAg"
-            "IGF3YWl0IGFzeW5jaW8uc2xlZXAoMC41KQoKICAgIGxvZygiVHVybnN0aWxlIiwgZiJObyBUdXJuc3Rp"
-            "bGUgaWZyYW1lL2NvbnRhaW5lciBmb3VuZCBhZnRlciB7dGltZW91dF9zfXMiKQogICAgcmV0dXJuIE5v"
-            "bmUsIE5vbmUKCiMg4pSA4pSAIFN0ZXAgMjogR1VJIG1vdXNlIGNsaWNrIGF0IGV4YWN0IGNoZWNrYm94"
-            "IGNvb3JkaW5hdGVzIOKUgOKUgOKUgOKUgOKUgAphc3luYyBkZWYgZ3VpX2NsaWNrX3R1cm5zdGlsZV9j"
-            "aGVja2JveChwYWdlLCBpZnJhbWVfZWwsIGlmcmFtZV9ib3gsIGF0dGVtcHQ9MCk6CiAgICAiIiIKICAg"
-            "IENsaWNrIHRoZSBDbG91ZGZsYXJlIFR1cm5zdGlsZSBjaGVja2JveCB1c2luZyBwcmVjaXNlIHBhZ2Ut"
-            "bGV2ZWwgY29vcmRpbmF0ZXMuCgogICAgV2lkZ2V0IGxheW91dCAoQ2xvdWRmbGFyZSBzdGFuZGFyZCk6"
-            "CiAgICAgIOKUjOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKU"
-            "gOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKU"
-            "gOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKU"
-            "gOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUkAogICAgICDilIIgIFvil4tdICBWZXJpZnkgeW91IGFy"
-            "ZSBodW1hbiAgICAgICAgICBbQ2xvdWRmbGFyZSBsb2dvIC8gYmFkZ2VdICDilIIKICAgICAg4pSU4pSA"
-            "4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA"
-            "4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA"
-            "4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA"
-            "4pSA4pSA4pSA4pSA4pSYCiAgICAgIFRoZSDil4sgY2hlY2tib3ggY2lyY2xlIGNlbnRyZSBpcyBhdCBh"
-            "cHByb3hpbWF0ZWx5OgogICAgICAgIHggPSBpZnJhbWVfeCArIDI0CiAgICAgICAgeSA9IGlmcmFtZV95"
-            "ICsgKGlmcmFtZV9oZWlnaHQgLyAyKSAgIOKGkCB2ZXJ0aWNhbGx5IGNlbnRyZWQKCiAgICBXZSB1c2Ug"
-            "c2xpZ2h0IHBlci1hdHRlbXB0IGppdHRlciBzbyByZXBlYXRlZCBjbGlja3MgbGFuZCBvbgogICAgc2xp"
-            "Z2h0bHkgZGlmZmVyZW50IHBpeGVscyAocmVkdWNlcyBib3QgZmluZ2VycHJpbnRpbmcpLgogICAgIiIi"
-            "CiAgICAjIFBlci1hdHRlbXB0IHgveSBvZmZzZXRzIGluIHBpeGVscyByZWxhdGl2ZSB0byAoaWZyYW1l"
-            "X3grMjQsIGlmcmFtZV95K2gvMikKICAgIGppdHRlcl94ID0gWzAsICs0LCAtMywgKzIsIC01LCArNiwg"
-            "LTIsICszXVthdHRlbXB0ICUgOF0KICAgIGppdHRlcl95ID0gWzAsICsyLCAtMiwgKzMsIC0zLCArMSwg"
-            "LTEsICs0XVthdHRlbXB0ICUgOF0KCiAgICAjIFJlZnJlc2ggYm91bmRpbmcgYm94IOKAlCB0aGUgcGFn"
-            "ZSBtYXkgaGF2ZSBzY3JvbGxlZCBzaW5jZSB0aGUgaWZyYW1lIHdhcyBmb3VuZAogICAgdHJ5OgogICAg"
-            "ICAgIGZyZXNoID0gYXdhaXQgaWZyYW1lX2VsLmJvdW5kaW5nX2JveCgpCiAgICAgICAgaWYgZnJlc2gg"
-            "YW5kIGZyZXNoWyJ3aWR0aCJdID4gMjAgYW5kIGZyZXNoWyJoZWlnaHQiXSA+IDEwOgogICAgICAgICAg"
-            "ICBpZnJhbWVfYm94ID0gZnJlc2gKICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgcGFzcwoKICAg"
-            "IGNiX3ggPSBpZnJhbWVfYm94WyJ4Il0gKyAyNCArIGppdHRlcl94ICsgcmFuZG9tLnVuaWZvcm0oLTEu"
-            "NSwgMS41KQogICAgY2JfeSA9IGlmcmFtZV9ib3hbInkiXSArIChpZnJhbWVfYm94WyJoZWlnaHQiXSAv"
-            "IDIpICsgaml0dGVyX3kgKyByYW5kb20udW5pZm9ybSgtMS41LCAxLjUpCgogICAgbG9nKCJUdXJuc3Rp"
-            "bGUiLCAoCiAgICAgICAgZiJHVUkgY2xpY2sgYXR0ZW1wdCB7YXR0ZW1wdCsxfTogdGFyZ2V0PSh7Y2Jf"
-            "eDouMWZ9LHtjYl95Oi4xZn0pICAiCiAgICAgICAgZiJpZnJhbWU9W3g9e2lmcmFtZV9ib3hbJ3gnXTou"
-            "MGZ9IHk9e2lmcmFtZV9ib3hbJ3knXTouMGZ9ICIKICAgICAgICBmInc9e2lmcmFtZV9ib3hbJ3dpZHRo"
-            "J106LjBmfSBoPXtpZnJhbWVfYm94WydoZWlnaHQnXTouMGZ9XSIKICAgICkpCgogICAgdHJ5OgogICAg"
-            "ICAgIGF3YWl0IHBhZ2UuYnJpbmdfdG9fZnJvbnQoKQoKICAgICAgICAjIOKUgOKUgCBQaGFzZSAxOiBh"
-            "cHByb2FjaCBmcm9tIGFib3ZlLXJpZ2h0IChuYXR1cmFsIHJlYWRpbmcgcG9zaXRpb24pIOKUgOKUgAog"
-            "ICAgICAgIGF3YWl0IHBhZ2UubW91c2UubW92ZSgKICAgICAgICAgICAgY2JfeCArIHJhbmRvbS51bmlm"
-            "b3JtKDkwLCAxODApLAogICAgICAgICAgICBjYl95IC0gcmFuZG9tLnVuaWZvcm0oMzUsIDcwKSwKICAg"
-            "ICAgICAgICAgc3RlcHM9cmFuZG9tLnJhbmRpbnQoOSwgMTMpLAogICAgICAgICkKICAgICAgICBhd2Fp"
-            "dCBhc3luY2lvLnNsZWVwKHJhbmRvbS51bmlmb3JtKDAuMjAsIDAuNDUpKQoKICAgICAgICAjIOKUgOKU"
-            "gCBQaGFzZSAyOiBpbnRlcm1lZGlhdGUgcG9pbnQsIHNsb3cgZG93biDilIDilIAKICAgICAgICBhd2Fp"
-            "dCBwYWdlLm1vdXNlLm1vdmUoCiAgICAgICAgICAgIGNiX3ggKyByYW5kb20udW5pZm9ybSgxMCwgMzAp"
-            "LAogICAgICAgICAgICBjYl95ICsgcmFuZG9tLnVuaWZvcm0oLTgsIDgpLAogICAgICAgICAgICBzdGVw"
-            "cz1yYW5kb20ucmFuZGludCg3LCAxMSksCiAgICAgICAgKQogICAgICAgIGF3YWl0IGFzeW5jaW8uc2xl"
-            "ZXAocmFuZG9tLnVuaWZvcm0oMC4wOCwgMC4yMCkpCgogICAgICAgICMg4pSA4pSAIFBoYXNlIDM6IGZp"
-            "bmFsIGxhbmRpbmcgb24gdGhlIGNoZWNrYm94IOKUgOKUgAogICAgICAgIGF3YWl0IHBhZ2UubW91c2Uu"
-            "bW92ZShjYl94LCBjYl95LCBzdGVwcz00KQogICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAocmFuZG9t"
-            "LnVuaWZvcm0oMC4wNiwgMC4xMykpCgogICAgICAgICMg4pSA4pSAIENsaWNrOiBtb3VzZS5kb3duICsg"
-            "bW91c2UudXAgKG1vcmUgcmVsaWFibGUgdGhhbiBtb3VzZS5jbGljayBpbiBpZnJhbWVzKSDilIDilIAK"
-            "ICAgICAgICBhd2FpdCBwYWdlLm1vdXNlLmRvd24oKQogICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAo"
-            "cmFuZG9tLnVuaWZvcm0oMC4wNywgMC4xNCkpCiAgICAgICAgYXdhaXQgcGFnZS5tb3VzZS51cCgpCgog"
-            "ICAgICAgIGxvZygiVHVybnN0aWxlIiwgZiIgID4gbW91c2UuZG93bi91cCBkaXNwYXRjaGVkIGF0ICh7"
-            "Y2JfeDouMWZ9LHtjYl95Oi4xZn0pIikKCiAgICAgICAgIyDilIDilIAgU2Vjb25kYXJ5IGNsaWNrIHZp"
-            "YSBwYWdlLm1vdXNlLmNsaWNrIChiZWx0LWFuZC1zdXNwZW5kZXJzKSDilIDilIAKICAgICAgICBhd2Fp"
-            "dCBhc3luY2lvLnNsZWVwKHJhbmRvbS51bmlmb3JtKDAuMjUsIDAuNDUpKQogICAgICAgIGF3YWl0IHBh"
-            "Z2UubW91c2UuY2xpY2soY2JfeCwgY2JfeSkKICAgICAgICBsb2coIlR1cm5zdGlsZSIsIGYiICA+IG1v"
-            "dXNlLmNsaWNrIGFsc28gZGlzcGF0Y2hlZCIpCgogICAgICAgIHJldHVybiBUcnVlCgogICAgZXhjZXB0"
-            "IEV4Y2VwdGlvbiBhcyBlOgogICAgICAgIGxvZygiVHVybnN0aWxlIiwgZiJHVUkgY2xpY2sgZXJyb3Ig"
-            "b24gYXR0ZW1wdCB7YXR0ZW1wdCsxfToge2V9IikKICAgICAgICAjIExhc3QtcmVzb3J0OiBkaXJlY3Qg"
-            "cGFnZS5tb3VzZS5jbGljayB3aXRoIG5vIHRyYWplY3RvcnkKICAgICAgICB0cnk6CiAgICAgICAgICAg"
-            "IGF3YWl0IHBhZ2UubW91c2UuY2xpY2soY2JfeCwgY2JfeSkKICAgICAgICAgICAgbG9nKCJUdXJuc3Rp"
-            "bGUiLCBmIiAgPiBiYXJlIGZhbGxiYWNrIGNsaWNrIGF0ICh7Y2JfeDouMWZ9LHtjYl95Oi4xZn0pIikK"
-            "ICAgICAgICAgICAgcmV0dXJuIFRydWUKICAgICAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGUyOgogICAg"
-            "ICAgICAgICBsb2coIlR1cm5zdGlsZSIsIGYiICA+IGZhbGxiYWNrIGFsc28gZmFpbGVkOiB7ZTJ9IikK"
-            "ICAgICAgICAgICAgcmV0dXJuIEZhbHNlCgojIOKUgOKUgCBTdGVwIDM6IGZ1bGwgc29sdmluZyBsb29w"
-            "IOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKU"
-            "gOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgAphc3luYyBkZWYgc29sdmVfdHVy"
-            "bnN0aWxlKHBhZ2UsIHRhZywgd2FpdF9hZnRlcl9jbGlja19zPTEzKToKICAgICIiIgogICAgTWFpbiBU"
-            "dXJuc3RpbGUgc29sdmVyIOKAlCBjYWxsZWQgb25jZSBwZXIgc2lnbi11cCBhdHRlbXB0LgoKICAgIEZs"
-            "b3c6CiAgICAgIDEuIERpYWdub3N0aWMgZHVtcCBvZiBhbGwgaWZyYW1lcwogICAgICAyLiBGYXN0LXBh"
-            "dGg6IGFscmVhZHkgc29sdmVkPwogICAgICAzLiB3YWl0X2Zvcl90dXJuc3RpbGVfaWZyYW1lKCkg4oCU"
-            "IHVwIHRvIDIwIHMKICAgICAgNC4gQmFzZWxpbmUgZ3JlZW4tcGl4ZWwgcmVhZGluZwogICAgICA1LiAz"
-            "LXNlY29uZCBpZGxlIGNoZWNrIChtYW5hZ2VkLW1vZGUgYXV0by1zb2x2ZSkKICAgICAgNi4gTG9vcDog"
-            "Z3VpX2NsaWNrX3R1cm5zdGlsZV9jaGVja2JveCgpIOKGkiBwb2xsIGV2ZXJ5IDEgcyBmb3IgMTItMTUg"
-            "cwogICAgICA3LiBVcCB0byA2IGluZGVwZW5kZW50IGF0dGVtcHRzIGJlZm9yZSBnaXZpbmcgdXAKICAg"
-            "IFJldHVybnMgVHJ1ZSBpZiBzb2x2ZWQgKG9yIG5vIHdpZGdldCksIEZhbHNlIGlmIGFsbCBhdHRlbXB0"
-            "cyBmYWlsZWQuCiAgICAiIiIKICAgIGxvZygiVHVybnN0aWxlIiwgZiJbe3RhZ31dIOKVkOKVkOKVkOKV"
-            "kOKVkOKVkCBUdXJuc3RpbGUgc29sdmVyIFNUQVJUIOKVkOKVkOKVkOKVkOKVkOKVkCIpCiAgICBhd2Fp"
-            "dCBzaG90KHBhZ2UsIGYidHMte3RhZ30tc3RhcnQiKQogICAgYXdhaXQgdHNfZGlhZyhwYWdlLCB0YWcp"
-            "CgogICAgIyBGYXN0LXBhdGg6IHRva2VuIGFscmVhZHkgcHJlc2VudAogICAgc3QgPSBhd2FpdCB0c19z"
-            "dGF0ZShwYWdlKQogICAgaWYgc3RbInZhbHVlIl06CiAgICAgICAgbG9nKCJUdXJuc3RpbGUiLCBmIlt7"
-            "dGFnfV0gQWxyZWFkeSBzb2x2ZWQgYmVmb3JlIGFueXRoaW5nICh0b2tlbiBwcmVzZW50KSIpCiAgICAg"
-            "ICAgcmV0dXJuIFRydWUKCiAgICAjIEZpbmQgaWZyYW1lCiAgICBpZnJhbWVfZWwsIGlmcmFtZV9ib3gg"
-            "PSBhd2FpdCB3YWl0X2Zvcl90dXJuc3RpbGVfaWZyYW1lKHBhZ2UsIHRpbWVvdXRfcz0yMCkKCiAgICBp"
-            "ZiBpZnJhbWVfZWwgaXMgTm9uZSBhbmQgaWZyYW1lX2JveCBpcyBOb25lOgogICAgICAgICMgQ291bGQg"
-            "bWVhbjogYXV0by1zb2x2ZWQgZHVyaW5nIHdhaXQsIE9SIG5vIHdpZGdldCBhdCBhbGwKICAgICAgICBz"
-            "dCA9IGF3YWl0IHRzX3N0YXRlKHBhZ2UpCiAgICAgICAgaWYgc3RbInZhbHVlIl06CiAgICAgICAgICAg"
-            "IGxvZygiVHVybnN0aWxlIiwgZiJbe3RhZ31dIFRva2VuIGFwcGVhcmVkIGR1cmluZyB3YWl0IOKAlCBz"
-            "b2x2ZWQiKQogICAgICAgICAgICByZXR1cm4gVHJ1ZQogICAgICAgIGxvZygiVHVybnN0aWxlIiwgZiJb"
-            "e3RhZ31dIE5vIFR1cm5zdGlsZSB3aWRnZXQgZm91bmQg4oCUIGFzc3VtaW5nIG5vdCByZXF1aXJlZCIp"
-            "CiAgICAgICAgcmV0dXJuIFRydWUKCiAgICBhd2FpdCBzaG90KHBhZ2UsIGYidHMte3RhZ30taWZyYW1l"
-            "LWZvdW5kIikKICAgIGJhc2VsaW5lX2dyZWVuID0gYXdhaXQgdHNfZ3JlZW5fcmF0aW8ocGFnZSwgaWZy"
-            "YW1lX2JveCkKICAgIGxvZygiVHVybnN0aWxlIiwgZiJbe3RhZ31dIEJhc2VsaW5lIGdyZWVuIHJhdGlv"
-            "OiB7YmFzZWxpbmVfZ3JlZW46LjRmfSIpCgogICAgIyBHaXZlIG1hbmFnZWQtbW9kZSAzIHMgdG8gYXV0"
-            "by1zb2x2ZQogICAgbG9nKCJUdXJuc3RpbGUiLCBmIlt7dGFnfV0gSWRsZSAzIHMg4oCUIGNoZWNraW5n"
-            "IGZvciBhdXRvLXNvbHZlLi4uIikKICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAocmFuZG9tLnVuaWZvcm0o"
-            "Mi44LCAzLjUpKQogICAgcyA9IGF3YWl0IHRzX3NvbHZlZChwYWdlLCBpZnJhbWVfYm94LCBiYXNlbGlu"
-            "ZV9ncmVlbikKICAgIGlmIHM6CiAgICAgICAgbG9nKCJUdXJuc3RpbGUiLCBmIlt7dGFnfV0gQXV0by1z"
-            "b2x2ZWQ6IHtzfSIpCiAgICAgICAgcmV0dXJuIFRydWUKCiAgICAjIOKUgOKUgCBNYWluIGNsaWNrIGxv"
-            "b3Ag4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA"
-            "4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA"
-            "CiAgICBtYXhfYXR0ZW1wdHMgPSA2CiAgICBmb3IgYXR0ZW1wdCBpbiByYW5nZShtYXhfYXR0ZW1wdHMp"
-            "OgogICAgICAgICMgQ2hlY2sgc29sdmVkIGJlZm9yZSB0aGlzIGF0dGVtcHQKICAgICAgICBzID0gYXdh"
-            "aXQgdHNfc29sdmVkKHBhZ2UsIGlmcmFtZV9ib3gsIGJhc2VsaW5lX2dyZWVuKQogICAgICAgIGlmIHM6"
-            "CiAgICAgICAgICAgIGxvZygiVHVybnN0aWxlIiwgZiJbe3RhZ31dIFNvbHZlZCBiZWZvcmUgYXR0ZW1w"
-            "dCB7YXR0ZW1wdCsxfToge3N9IikKICAgICAgICAgICAgYXdhaXQgYXN5bmNpby5zbGVlcCgyKQogICAg"
-            "ICAgICAgICByZXR1cm4gVHJ1ZQoKICAgICAgICBsb2coIlR1cm5zdGlsZSIsIGYiW3t0YWd9XSDilIDi"
-            "lIDilIAgQ2xpY2sgYXR0ZW1wdCB7YXR0ZW1wdCsxfS97bWF4X2F0dGVtcHRzfSDilIDilIDilIAiKQoK"
-            "ICAgICAgICAjIENsaWNrCiAgICAgICAgY2xpY2tlZCA9IGF3YWl0IGd1aV9jbGlja190dXJuc3RpbGVf"
-            "Y2hlY2tib3gocGFnZSwgaWZyYW1lX2VsLCBpZnJhbWVfYm94LCBhdHRlbXB0KQogICAgICAgIGF3YWl0"
-            "IHNob3QocGFnZSwgZiJ0cy17dGFnfS1jbGlja3thdHRlbXB0KzF9IikKCiAgICAgICAgaWYgbm90IGNs"
-            "aWNrZWQ6CiAgICAgICAgICAgIGxvZygiVHVybnN0aWxlIiwgZiJbe3RhZ31dIENsaWNrIGRpc3BhdGNo"
-            "IGZhaWxlZCDigJQgc2xlZXBpbmcgMiBzIGJlZm9yZSByZXRyeSIpCiAgICAgICAgICAgIGF3YWl0IGFz"
-            "eW5jaW8uc2xlZXAoMikKICAgICAgICAgICAgY29udGludWUKCiAgICAgICAgIyDilIDilIAgUG9sbCBl"
-            "dmVyeSAxIHMgZm9yIHdhaXRfYWZ0ZXJfY2xpY2tfcyBzZWNvbmRzIOKUgOKUgOKUgOKUgAogICAgICAg"
-            "IHBvbGxfc2Vjb25kcyA9IHdhaXRfYWZ0ZXJfY2xpY2tfcyArIHJhbmRvbS5yYW5kaW50KDAsIDMpICAj"
-            "IDEyLTE2IHMKICAgICAgICBsb2coIlR1cm5zdGlsZSIsIGYiW3t0YWd9XSBQb2xsaW5nIGZvciBzdWNj"
-            "ZXNzIGZvciB1cCB0byB7cG9sbF9zZWNvbmRzfSBzLi4uIikKICAgICAgICB0MCA9IHRpbWUudGltZSgp"
-            "CiAgICAgICAgc29sdmVkX3NpZ25hbCA9ICIiCgogICAgICAgIGZvciB0aWNrIGluIHJhbmdlKHBvbGxf"
-            "c2Vjb25kcyk6CiAgICAgICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAoMSkKICAgICAgICAgICAgIyBS"
-            "ZWZyZXNoIGlmcmFtZSBib3ggZXZlcnkgNSBzIChwYWdlIG1heSBoYXZlIHNjcm9sbGVkKQogICAgICAg"
-            "ICAgICBpZiB0aWNrICUgNSA9PSA0OgogICAgICAgICAgICAgICAgdHJ5OgogICAgICAgICAgICAgICAg"
-            "ICAgIGZyZXNoID0gYXdhaXQgaWZyYW1lX2VsLmJvdW5kaW5nX2JveCgpCiAgICAgICAgICAgICAgICAg"
-            "ICAgaWYgZnJlc2ggYW5kIGZyZXNoWyJ3aWR0aCJdID4gMjA6CiAgICAgICAgICAgICAgICAgICAgICAg"
-            "IGlmcmFtZV9ib3ggPSBmcmVzaAogICAgICAgICAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAg"
-            "ICAgICAgICAgICAgICBwYXNzCgogICAgICAgICAgICBzb2x2ZWRfc2lnbmFsID0gYXdhaXQgdHNfc29s"
-            "dmVkKHBhZ2UsIGlmcmFtZV9ib3gsIGJhc2VsaW5lX2dyZWVuKQogICAgICAgICAgICBpZiBzb2x2ZWRf"
-            "c2lnbmFsOgogICAgICAgICAgICAgICAgZWxhcHNlZCA9IHRpbWUudGltZSgpIC0gdDAKICAgICAgICAg"
-            "ICAgICAgIGxvZygiVHVybnN0aWxlIiwgKAogICAgICAgICAgICAgICAgICAgIGYiW3t0YWd9XSDinJMg"
-            "U09MVkVEIGF0IHRpY2sge3RpY2srMX0gKHtlbGFwc2VkOi4xZn1zKSAiCiAgICAgICAgICAgICAgICAg"
-            "ICAgZiJ2aWEgc2lnbmFsOiB7c29sdmVkX3NpZ25hbH0iCiAgICAgICAgICAgICAgICApKQogICAgICAg"
-            "ICAgICAgICAgYnJlYWsKCiAgICAgICAgICAgIGlmICh0aWNrICsgMSkgJSA1ID09IDA6CiAgICAgICAg"
-            "ICAgICAgICBsb2coIlR1cm5zdGlsZSIsIGYiW3t0YWd9XSAgIC4uLiBzdGlsbCB3YWl0aW5nICh7dGlj"
-            "aysxfS97cG9sbF9zZWNvbmRzfXMpIikKCiAgICAgICAgaWYgc29sdmVkX3NpZ25hbDoKICAgICAgICAg"
-            "ICAgYXdhaXQgYXN5bmNpby5zbGVlcChyYW5kb20udW5pZm9ybSgxLjUsIDIuNSkpCiAgICAgICAgICAg"
-            "IGF3YWl0IHNob3QocGFnZSwgZiJ0cy17dGFnfS1zb2x2ZWQiKQogICAgICAgICAgICBsb2coIlR1cm5z"
-            "dGlsZSIsIGYiW3t0YWd9XSDilZDilZDilZDilZDilZDilZAgVHVybnN0aWxlIHNvbHZlciBTVUNDRVNT"
-            "IOKVkOKVkOKVkOKVkOKVkOKVkCIpCiAgICAgICAgICAgIHJldHVybiBUcnVlCgogICAgICAgIGxvZygi"
-            "VHVybnN0aWxlIiwgKAogICAgICAgICAgICBmIlt7dGFnfV0gQXR0ZW1wdCB7YXR0ZW1wdCsxfSBub3Qg"
-            "Y29uZmlybWVkIGFmdGVyIHtwb2xsX3NlY29uZHN9cyDigJQgd2lsbCByZXRyeSIKICAgICAgICApKQog"
-            "ICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAocmFuZG9tLnVuaWZvcm0oMS4wLCAyLjApKQoKICAgIGxv"
-            "ZygiVHVybnN0aWxlIiwgZiJbe3RhZ31dIOKclyBXQVJOSU5HOiBhbGwge21heF9hdHRlbXB0c30gYXR0"
-            "ZW1wdHMgZmFpbGVkIHRvIGNvbmZpcm0gc29sdmUiKQogICAgYXdhaXQgc2hvdChwYWdlLCBmInRzLXt0"
-            "YWd9LWZhaWxlZCIpCiAgICByZXR1cm4gRmFsc2UKCiMg4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ"
-            "4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ"
-            "4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ"
-            "4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQCiMgIERBU0hCT0FSRCBQT1BVUFMK"
-            "IyDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDi"
-            "lZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDi"
-            "lZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDi"
-            "lZDilZDilZAKYXN5bmMgZGVmIGRpc21pc3Nfc2F2ZV9wYXNzd29yZChwYWdlKToKICAgIGZvciBsb2Mg"
-            "aW4gKAogICAgICAgIHBhZ2UuZ2V0X2J5X3JvbGUoImJ1dHRvbiIsIG5hbWU9cmUuY29tcGlsZShyIl5u"
-            "byB0aGFua3MkIiwgcmUuSSkpLAogICAgICAgIHBhZ2UuZ2V0X2J5X3RleHQocmUuY29tcGlsZShyIl5u"
-            "byB0aGFua3MkIiwgcmUuSSkpLAogICAgICAgIHBhZ2UubG9jYXRvcignYnV0dG9uOmhhcy10ZXh0KCJO"
-            "byB0aGFua3MiKScpLAogICAgKToKICAgICAgICB0cnk6CiAgICAgICAgICAgIGVsID0gbG9jLmZpcnN0"
-            "CiAgICAgICAgICAgIGlmIGF3YWl0IGVsLmlzX3Zpc2libGUoKToKICAgICAgICAgICAgICAgIGF3YWl0"
-            "IGVsLmNsaWNrKHRpbWVvdXQ9MjAwMCkKICAgICAgICAgICAgICAgIGxvZygiUG9wdXAiLCAnQ2xpY2tl"
-            "ZCAiTm8gdGhhbmtzIicpCiAgICAgICAgICAgICAgICBhd2FpdCBhc3luY2lvLnNsZWVwKDEuMCkKICAg"
-            "ICAgICAgICAgICAgIHJldHVybiBUcnVlCiAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjogcGFzcwogICAg"
-            "dHJ5OgogICAgICAgIGF3YWl0IHBhZ2Uua2V5Ym9hcmQucHJlc3MoIkVzY2FwZSIpCiAgICAgICAgYXdh"
-            "aXQgYXN5bmNpby5zbGVlcCgwLjYpCiAgICBleGNlcHQgRXhjZXB0aW9uOiBwYXNzCiAgICByZXR1cm4g"
-            "RmFsc2UKClJVTl9NT0RBTF9SRSAgPSByZS5jb21waWxlKHIiaG93IGRvIHlvdSB3YW50IHRvIHJ1biBw"
-            "cm9maWxlcyIsIHJlLkkpCk1PREFMX1JFQ1RfSlMgPSAiIiIoKSA9PiB7CiAgICBjb25zdCByZSA9IC9o"
-            "b3cgZG8geW91IHdhbnQgdG8gcnVuIHByb2ZpbGVzL2k7CiAgICBsZXQgdGFyZ2V0ID0gbnVsbDsKICAg"
-            "IGZvciAoY29uc3QgZWwgb2YgZG9jdW1lbnQucXVlcnlTZWxlY3RvckFsbCgnaDEsaDIsaDMsaDQsaDUs"
-            "ZGl2LHAsc3BhbicpKSB7CiAgICAgICAgaWYgKGVsLmNoaWxkcmVuLmxlbmd0aCA9PT0gMCAmJiByZS50"
-            "ZXN0KGVsLnRleHRDb250ZW50IHx8ICcnKSkgeyB0YXJnZXQgPSBlbDsgYnJlYWs7IH0KICAgIH0KICAg"
-            "IGlmICghdGFyZ2V0KSByZXR1cm4gbnVsbDsKICAgIGxldCBjYXJkID0gdGFyZ2V0OwogICAgd2hpbGUg"
-            "KGNhcmQucGFyZW50RWxlbWVudCkgewogICAgICAgIGNvbnN0IHIgPSBjYXJkLmdldEJvdW5kaW5nQ2xp"
-            "ZW50UmVjdCgpOwogICAgICAgIGlmIChyLndpZHRoID49IDQyMCAmJiByLmhlaWdodCA+PSAzMjApIGJy"
-            "ZWFrOwogICAgICAgIGNhcmQgPSBjYXJkLnBhcmVudEVsZW1lbnQ7CiAgICB9CiAgICBjb25zdCByID0g"
-            "Y2FyZC5nZXRCb3VuZGluZ0NsaWVudFJlY3QoKTsKICAgIGlmIChyLndpZHRoIDwgMTAwIHx8IHIuaGVp"
-            "Z2h0IDwgMTAwKSByZXR1cm4gbnVsbDsKICAgIGNvbnN0IHB0cyA9IFtdOwogICAgY2FyZC5xdWVyeVNl"
-            "bGVjdG9yQWxsKCdidXR0b24sW3JvbGU9ImJ1dHRvbiJdLHN2ZyxpLGEsc3BhbixbY2xhc3MqPSJjbG9z"
-            "ZSIgaV0nKS5mb3JFYWNoKGUgPT4gewogICAgICAgIGNvbnN0IGIgPSBlLmdldEJvdW5kaW5nQ2xpZW50"
-            "UmVjdCgpOwogICAgICAgIGNvbnN0IHR4dCA9IChlLnRleHRDb250ZW50IHx8ICcnKS50cmltKCk7CiAg"
-            "ICAgICAgaWYgKGIud2lkdGggPiAwICYmIGIud2lkdGggPD0gNDggJiYgYi5oZWlnaHQgPiAwICYmIGIu"
-            "aGVpZ2h0IDw9IDQ4ICYmCiAgICAgICAgICAgIChiLnRvcCAtIHIudG9wKSA8IDcwICYmIHR4dC5sZW5n"
-            "dGggPD0gMikgewogICAgICAgICAgICBwdHMucHVzaCh7eDogYi5sZWZ0ICsgYi53aWR0aCAvIDIsIHk6"
-            "IGIudG9wICsgYi5oZWlnaHQgLyAyfSk7CiAgICAgICAgfQogICAgfSk7CiAgICByZXR1cm4ge3g6IHIu"
-            "bGVmdCwgeTogci50b3AsIHc6IHIud2lkdGgsIGg6IHIuaGVpZ2h0LCBwdHM6IHB0c307Cn0iIiIKCmFz"
-            "eW5jIGRlZiBydW5fbW9kYWxfaW5mbyhwYWdlKToKICAgIHRyeToKICAgICAgICByZXR1cm4gYXdhaXQg"
-            "cGFnZS5ldmFsdWF0ZShNT0RBTF9SRUNUX0pTKQogICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAgICAgICBy"
-            "ZXR1cm4gTm9uZQoKYXN5bmMgZGVmIHJ1bl9tb2RhbF92aXNpYmxlKHBhZ2UpOgogICAgdHJ5OgogICAg"
-            "ICAgIGlmIGF3YWl0IHBhZ2UuZ2V0X2J5X3RleHQoUlVOX01PREFMX1JFKS5maXJzdC5pc192aXNpYmxl"
-            "KCk6CiAgICAgICAgICAgIHJldHVybiBUcnVlCiAgICBleGNlcHQgRXhjZXB0aW9uOiBwYXNzCiAgICBy"
-            "ZXR1cm4gKGF3YWl0IHJ1bl9tb2RhbF9pbmZvKHBhZ2UpKSBpcyBub3QgTm9uZQoKYXN5bmMgZGVmIGNs"
-            "b3NlX3J1bl9tb2RhbChwYWdlLCB3YWl0X2FwcGVhcj0xMiwgYXR0ZW1wdHM9NCk6CiAgICBlbmQgPSB0"
-            "aW1lLnRpbWUoKSArIHdhaXRfYXBwZWFyCiAgICBzZWVuID0gRmFsc2UKICAgIHdoaWxlIHRpbWUudGlt"
-            "ZSgpIDwgZW5kOgogICAgICAgIGlmIGF3YWl0IHJ1bl9tb2RhbF92aXNpYmxlKHBhZ2UpOgogICAgICAg"
-            "ICAgICBzZWVuID0gVHJ1ZQogICAgICAgICAgICBicmVhawogICAgICAgIGF3YWl0IGFzeW5jaW8uc2xl"
-            "ZXAoMC41KQogICAgaWYgbm90IHNlZW46CiAgICAgICAgbG9nKCJQb3B1cCIsICJSdW4tcHJvZmlsZXMg"
-            "bW9kYWwgbm90IHByZXNlbnQiKQogICAgICAgIHJldHVybiBUcnVlCgogICAgbG9nKCJQb3B1cCIsICJS"
-            "dW4tcHJvZmlsZXMgbW9kYWwgZGV0ZWN0ZWQg4oCUIGNsb3NpbmciKQogICAgYXdhaXQgc2hvdChwYWdl"
-            "LCAicnVuLW1vZGFsLW9wZW4iKQogICAgYXdhaXQgYXN5bmNpby5zbGVlcChyYW5kb20udW5pZm9ybSgw"
-            "LjgsIDEuNCkpCgogICAgZm9yIGF0dGVtcHQgaW4gcmFuZ2UoYXR0ZW1wdHMpOgogICAgICAgIGluZm8g"
-            "PSBhd2FpdCBydW5fbW9kYWxfaW5mbyhwYWdlKQogICAgICAgIGlmIG5vdCBpbmZvOgogICAgICAgICAg"
-            "ICBicmVhawogICAgICAgIGZvciBsb2MgaW4gKAogICAgICAgICAgICBwYWdlLmxvY2F0b3IoJ1tyb2xl"
-            "PSJkaWFsb2ciXSBbYXJpYS1sYWJlbCo9ImNsb3NlIiBpXScpLAogICAgICAgICAgICBwYWdlLmxvY2F0"
-            "b3IoJ1thcmlhLWxhYmVsKj0iY2xvc2UiIGldJyksCiAgICAgICAgICAgIHBhZ2UubG9jYXRvcignYnV0"
-            "dG9uW2NsYXNzKj0iY2xvc2UiIGldJyksCiAgICAgICAgKToKICAgICAgICAgICAgdHJ5OgogICAgICAg"
-            "ICAgICAgICAgZWwgPSBsb2MuZmlyc3QKICAgICAgICAgICAgICAgIGlmIGF3YWl0IGVsLmlzX3Zpc2li"
-            "bGUoKToKICAgICAgICAgICAgICAgICAgICBhd2FpdCBlbC5jbGljayh0aW1lb3V0PTIwMDApCiAgICAg"
-            "ICAgICAgICAgICAgICAgbG9nKCJQb3B1cCIsICJDbGlja2VkIFggdmlhIERPTSBzZWxlY3RvciIpCiAg"
-            "ICAgICAgICAgICAgICAgICAgYXdhaXQgYXN5bmNpby5zbGVlcCgxLjMpCiAgICAgICAgICAgICAgICAg"
-            "ICAgYnJlYWsKICAgICAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjogcGFzcwogICAgICAgIGlmIG5vdCBh"
-            "d2FpdCBydW5fbW9kYWxfdmlzaWJsZShwYWdlKToKICAgICAgICAgICAgYnJlYWsKCiAgICAgICAgaW5m"
-            "byA9IGF3YWl0IHJ1bl9tb2RhbF9pbmZvKHBhZ2UpCiAgICAgICAgaWYgbm90IGluZm86CiAgICAgICAg"
-            "ICAgIGJyZWFrCiAgICAgICAgcHRzID0gc29ydGVkKGluZm8uZ2V0KCJwdHMiLCBbXSksIGtleT1sYW1i"
-            "ZGEgcDogLXBbIngiXSkKICAgICAgICBjb3JuZXJzID0gWwogICAgICAgICAgICB7IngiOiBpbmZvWyJ4"
-            "Il0gKyBpbmZvWyJ3Il0gLSAyNCwgInkiOiBpbmZvWyJ5Il0gKyAyNH0sCiAgICAgICAgICAgIHsieCI6"
-            "IGluZm9bIngiXSArIDI0LCAgICAgICAgICAgICAieSI6IGluZm9bInkiXSArIDI0fSwKICAgICAgICBd"
-            "CiAgICAgICAgZm9yIHAgaW4gcHRzWzoyXSArIGNvcm5lcnM6CiAgICAgICAgICAgIHRyeToKICAgICAg"
-            "ICAgICAgICAgIGF3YWl0IHBhZ2UubW91c2UubW92ZShwWyJ4Il0gLSAyNSwgcFsieSJdICsgMTUsIHN0"
-            "ZXBzPTYpCiAgICAgICAgICAgICAgICBhd2FpdCBhc3luY2lvLnNsZWVwKDAuMykKICAgICAgICAgICAg"
-            "ICAgIGF3YWl0IHBhZ2UubW91c2UubW92ZShwWyJ4Il0sIHBbInkiXSwgc3RlcHM9NikKICAgICAgICAg"
-            "ICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAoMC4yKQogICAgICAgICAgICAgICAgYXdhaXQgcGFnZS5t"
-            "b3VzZS5jbGljayhwWyJ4Il0sIHBbInkiXSkKICAgICAgICAgICAgICAgIGxvZygiUG9wdXAiLCBmIkNs"
-            "aWNrZWQgKHtwWyd4J106LjBmfSx7cFsneSddOi4wZn0pIikKICAgICAgICAgICAgZXhjZXB0IEV4Y2Vw"
-            "dGlvbiBhcyBlOgogICAgICAgICAgICAgICAgbG9nKCJQb3B1cCIsIGYibW91c2UgY2xpY2sgZXJyb3I6"
-            "IHtlfSIpCiAgICAgICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAoMS40KQogICAgICAgICAgICBpZiBu"
-            "b3QgYXdhaXQgcnVuX21vZGFsX3Zpc2libGUocGFnZSk6CiAgICAgICAgICAgICAgICBicmVhawogICAg"
-            "ICAgIGlmIG5vdCBhd2FpdCBydW5fbW9kYWxfdmlzaWJsZShwYWdlKToKICAgICAgICAgICAgYnJlYWsK"
-            "ICAgICAgICB0cnk6CiAgICAgICAgICAgIGF3YWl0IHBhZ2Uua2V5Ym9hcmQucHJlc3MoIkVzY2FwZSIp"
-            "CiAgICAgICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAoMS4wKQogICAgICAgIGV4Y2VwdCBFeGNlcHRp"
-            "b246IHBhc3MKICAgICAgICBpZiBub3QgYXdhaXQgcnVuX21vZGFsX3Zpc2libGUocGFnZSk6CiAgICAg"
-            "ICAgICAgIGJyZWFrCgogICAgZ29uZSA9IG5vdCBhd2FpdCBydW5fbW9kYWxfdmlzaWJsZShwYWdlKQog"
-            "ICAgbG9nKCJQb3B1cCIsIGYiUnVuLXByb2ZpbGVzIG1vZGFsIGNsb3NlZDoge2dvbmV9IikKICAgIGF3"
-            "YWl0IHNob3QocGFnZSwgInJ1bi1tb2RhbC1hZnRlciIpCiAgICByZXR1cm4gZ29uZQoKYXN5bmMgZGVm"
-            "IGNsZWFyX2Rhc2hib2FyZF9wb3B1cHMocGFnZSk6CiAgICBhd2FpdCBhc3luY2lvLnNsZWVwKHJhbmRv"
-            "bS51bmlmb3JtKDIuMCwgMy4wKSkKICAgIGF3YWl0IGRpc21pc3Nfc2F2ZV9wYXNzd29yZChwYWdlKQog"
-            "ICAgYXdhaXQgYXN5bmNpby5zbGVlcChyYW5kb20udW5pZm9ybSgxLjAsIDEuOCkpCiAgICBhd2FpdCBj"
-            "bG9zZV9ydW5fbW9kYWwocGFnZSkKICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAocmFuZG9tLnVuaWZvcm0o"
-            "MC44LCAxLjUpKQogICAgYXdhaXQgZGlzbWlzc19zYXZlX3Bhc3N3b3JkKHBhZ2UpCiAgICBhd2FpdCBk"
-            "aXNtaXNzX292ZXJsYXlzKHBhZ2UsIDQpCiAgICBhd2FpdCBhc3luY2lvLnNsZWVwKHJhbmRvbS51bmlm"
-            "b3JtKDAuOCwgMS4yKSkKICAgIGF3YWl0IHNob3QocGFnZSwgImRhc2hib2FyZC1jbGVhbiIpCgojIOKV"
-            "kOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKV"
-            "kOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKV"
-            "kOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKV"
-            "kOKVkAojICBUT0tFTiBWSUEgU0VUVElOR1MgIChsYXN0LXJlc29ydCBmYWxsYmFjaykKIyDilZDilZDi"
-            "lZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDi"
-            "lZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDi"
-            "lZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZAK"
-            "YXN5bmMgZGVmIHRva2VuX3ZpYV9zZXR0aW5ncyhwYWdlKToKICAgIGF3YWl0IHBhZ2UuZ290bygiaHR0"
-            "cHM6Ly9hcHAuZ29sb2dpbi5jb20vIy9wZXJzb25hbEFyZWEvVG9rZW5BcGkiLCB3YWl0X3VudGlsPSJk"
-            "b21jb250ZW50bG9hZGVkIiwgdGltZW91dD0zMDAwMCkKICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAoMykK"
-            "ICAgIGF3YWl0IGNsb3NlX3J1bl9tb2RhbChwYWdlLCB3YWl0X2FwcGVhcj0zKQogICAgYXdhaXQgZGlz"
-            "bWlzc19vdmVybGF5cyhwYWdlLCAzKQogICAgbmV3X2J0biA9IGF3YWl0IGZpbmRfdmlzaWJsZShwYWdl"
-            "LCBbCiAgICAgICAgcGFnZS5nZXRfYnlfcm9sZSgiYnV0dG9uIiwgbmFtZT1yZS5jb21waWxlKHIibmV3"
-            "IHRva2VuIiwgcmUuSSkpLAogICAgICAgIHBhZ2UuZ2V0X2J5X3JvbGUoImJ1dHRvbiIsIG5hbWU9cmUu"
-            "Y29tcGlsZShyIihjcmVhdGV8Z2VuZXJhdGUpLnswLDEyfXRva2VuIiwgcmUuSSkpLAogICAgXSwgODAw"
-            "MCkKICAgIGlmIG5vdCBuZXdfYnRuOgogICAgICAgIGF3YWl0IGNsaWNrX2ZpcnN0KHBhZ2UsIFsKICAg"
-            "ICAgICAgICAgcGFnZS5nZXRfYnlfdGV4dChyZS5jb21waWxlKHIiQVBJXHMqKCZ8YW5kKVxzKk1DUCIs"
-            "IHJlLkkpKSwKICAgICAgICAgICAgcGFnZS5nZXRfYnlfcm9sZSgibGluayIsIG5hbWU9cmUuY29tcGls"
-            "ZShyIl5hcGkiLCByZS5JKSksCiAgICAgICAgXSwgNDAwMCkKICAgICAgICBhd2FpdCBhc3luY2lvLnNs"
-            "ZWVwKDIpCiAgICAgICAgbmV3X2J0biA9IGF3YWl0IGZpbmRfdmlzaWJsZShwYWdlLCBbcGFnZS5nZXRf"
-            "Ynlfcm9sZSgiYnV0dG9uIiwgbmFtZT1yZS5jb21waWxlKHIibmV3IHRva2VuIiwgcmUuSSkpXSwgODAw"
-            "MCkKICAgIGF3YWl0IHNjYW5fcGFnZShwYWdlLCAic2V0dGluZ3MtZXhpc3RpbmciKQogICAgYXdhaXQg"
-            "c2hvdChwYWdlLCAiYXBpLXBhZ2UiKQogICAgaWYgbm90IG5ld19idG46CiAgICAgICAgbG9nKCJUb2tl"
-            "biIsICJObyBOZXcgdG9rZW4gYnV0dG9uIikKICAgICAgICByZXR1cm4KICAgIGF3YWl0IG5ld19idG4u"
-            "Y2xpY2soKQogICAgYXdhaXQgYXN5bmNpby5zbGVlcCgxLjUpCiAgICB0cnk6CiAgICAgICAgbmFtZV9p"
-            "bnB1dCA9IHBhZ2UubG9jYXRvcignW3JvbGU9ImRpYWxvZyJdIGlucHV0W3R5cGU9InRleHQiXSxbY2xh"
-            "c3MqPSJtb2RhbCIgaV0gaW5wdXRbdHlwZT0idGV4dCJdJykuZmlyc3QKICAgICAgICBpZiBhd2FpdCBu"
-            "YW1lX2lucHV0LmlzX3Zpc2libGUoKToKICAgICAgICAgICAgYXdhaXQgbmFtZV9pbnB1dC5maWxsKGYi"
-            "YWN0aW9ucy17SURYfSIpCiAgICBleGNlcHQgRXhjZXB0aW9uOiBwYXNzCiAgICBhd2FpdCBjbGlja19m"
-            "aXJzdChwYWdlLCBbcGFnZS5nZXRfYnlfcm9sZSgiYnV0dG9uIiwgbmFtZT1yZS5jb21waWxlKHIiXihj"
-            "cmVhdGV8Z2VuZXJhdGV8c2F2ZXxjb25maXJtfG9rfGRvbmV8Y29udGludWUpXGIiLCByZS5JKSldLCAz"
-            "MDAwKQogICAgYXdhaXQgYXN5bmNpby5zbGVlcCgyLjUpCiAgICBhd2FpdCBzY2FuX3BhZ2UocGFnZSwg"
-            "InNldHRpbmdzLW5ldyIpCiAgICBhd2FpdCBjbGlja19maXJzdChwYWdlLCBbCiAgICAgICAgcGFnZS5n"
-            "ZXRfYnlfcm9sZSgiYnV0dG9uIiwgbmFtZT1yZS5jb21waWxlKHIiY29weSIsIHJlLkkpKSwKICAgICAg"
-            "ICBwYWdlLmdldF9ieV90ZXh0KHJlLmNvbXBpbGUociJeY29weSggdG9rZW4pPyQiLCByZS5JKSksCiAg"
-            "ICBdLCAyMDAwKQogICAgYXdhaXQgcmVhZF9jbGlwYm9hcmQocGFnZSkKICAgIGF3YWl0IHNob3QocGFn"
-            "ZSwgInNldHRpbmdzLWFmdGVyLW5ldy10b2tlbiIpCgojIOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKV"
-            "kOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKV"
-            "kOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKV"
-            "kOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkAojICBBUEkgQ09OVFJPTDogd2Fp"
-            "dCB0aGVuIGNvcHkgdG9rZW4KIyDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDi"
-            "lZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDi"
-            "lZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDi"
-            "lZDilZDilZDilZDilZDilZDilZDilZDilZAKYXN5bmMgZGVmIHdhaXRfYW5kX2NvcHlfYXBpX3Rva2Vu"
-            "KHBhZ2UsIGluaXRpYWxfd2FpdD0yMCwgZXh0cmFfd2FpdD00MCk6CiAgICBsb2coIk1haW4iLCBmIldh"
-            "aXRpbmcge2luaXRpYWxfd2FpdH1zIGZvciBBUEkgY29udHJvbCB0byBsb2FkIikKICAgIHdhaXRlZCA9"
-            "IDAKICAgIHdoaWxlIHdhaXRlZCA8IGluaXRpYWxfd2FpdDoKICAgICAgICBhd2FpdCBhc3luY2lvLnNs"
-            "ZWVwKDUpCiAgICAgICAgd2FpdGVkICs9IDUKICAgICAgICBhd2FpdCBzY2FuX3BhZ2UocGFnZSwgZiJh"
-            "cGktd2FpdC17d2FpdGVkfXMiKQogICAgICAgIGlmIHdhaXRlZCBpbiAoMTAsIDIwKToKICAgICAgICAg"
-            "ICAgYXdhaXQgc2hvdChwYWdlLCBmImFwaS1jb250cm9sLXdhaXQte3dhaXRlZH1zIikKCiAgICBjb3B5"
-            "X2xvY2F0b3JzID0gWwogICAgICAgIHBhZ2UuZ2V0X2J5X3JvbGUoImJ1dHRvbiIsIG5hbWU9cmUuY29t"
-            "cGlsZShyImNvcHkgdG9rZW4iLCByZS5JKSksCiAgICAgICAgcGFnZS5nZXRfYnlfdGV4dChyZS5jb21w"
-            "aWxlKHIiY29weSB0b2tlbiIsIHJlLkkpKSwKICAgICAgICBwYWdlLmdldF9ieV9yb2xlKCJidXR0b24i"
-            "LCBuYW1lPXJlLmNvbXBpbGUociJeY29weSQiLCByZS5JKSksCiAgICBdCiAgICBlbmQgPSB0aW1lLnRp"
-            "bWUoKSArIGV4dHJhX3dhaXQKICAgIGNvcHlfZWwgPSBOb25lCiAgICB3aGlsZSB0aW1lLnRpbWUoKSA8"
-            "IGVuZDoKICAgICAgICBjb3B5X2VsID0gYXdhaXQgZmluZF92aXNpYmxlKHBhZ2UsIGNvcHlfbG9jYXRv"
-            "cnMsIDQwMDApCiAgICAgICAgaWYgY29weV9lbDoKICAgICAgICAgICAgYnJlYWsKICAgICAgICBhd2Fp"
-            "dCBzY2FuX3BhZ2UocGFnZSwgImFwaS13YWl0LWV4dHJhIikKICAgICAgICBhd2FpdCBhc3luY2lvLnNs"
-            "ZWVwKDIpCgogICAgYXdhaXQgc2hvdChwYWdlLCAiYXBpLWNvbnRyb2wtcGFnZSIpCiAgICBpZiBub3Qg"
-            "Y29weV9lbDoKICAgICAgICBsb2coIk1haW4iLCAiQ29weSB0b2tlbiBub3QgZm91bmQgYWZ0ZXIgd2Fp"
-            "dGluZyIpCiAgICAgICAgYXdhaXQgc2Nhbl9wYWdlKHBhZ2UsICJhcGktY29udHJvbC1maW5hbC1zY2Fu"
-            "IikKICAgICAgICByZXR1cm4gRmFsc2UKCiAgICBhd2FpdCBhc3luY2lvLnNsZWVwKHJhbmRvbS51bmlm"
-            "b3JtKDAuOCwgMS40KSkKICAgIHRyeToKICAgICAgICBhd2FpdCBjb3B5X2VsLmNsaWNrKHRpbWVvdXQ9"
-            "NTAwMCkKICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgdHJ5OiBhd2FpdCBjb3B5X2VsLmNsaWNr"
-            "KHRpbWVvdXQ9MzAwMCwgZm9yY2U9VHJ1ZSkKICAgICAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6IGxv"
-            "ZygiTWFpbiIsIGYiY29weSBjbGljayBmYWlsZWQ6IHtlfSIpCiAgICBsb2coIk1haW4iLCAiQ2xpY2tl"
-            "ZCBDb3B5IHRva2VuIikKICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAoMS41KQogICAgYXdhaXQgcmVhZF9j"
-            "bGlwYm9hcmQocGFnZSkKICAgIGF3YWl0IHNob3QocGFnZSwgImFmdGVyLWNvcHktdG9rZW4iKQogICAg"
-            "YXdhaXQgYXN5bmNpby5zbGVlcCgxLjUpCiAgICBhd2FpdCByZWFkX2NsaXBib2FyZChwYWdlKQogICAg"
-            "cmV0dXJuIFRydWUKCiMg4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ"
-            "4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ"
-            "4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ"
-            "4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQCiMgIE1BSU4gQlJPV1NFUiBGTE9XCiMg4pWQ4pWQ4pWQ4pWQ4pWQ"
-            "4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ"
-            "4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ"
-            "4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQCmFzeW5jIGRl"
-            "ZiBydW5fZmxvdyhwcm9maWxlX2lkLCByZXN1bHQpOgogICAgd3NfdXJsID0gZiJ7Q0xPVURfV1N9P3Rv"
-            "a2VuPXtBUElfVE9LRU59JnByb2ZpbGU9e3Byb2ZpbGVfaWR9IgogICAgbG9nKCJDbG91ZCIsIGYiQ29u"
-            "bmVjdGluZyBwcm9maWxlPXtwcm9maWxlX2lkfSIpCgogICAgaW1wb3J0IGFpb2h0dHAKICAgIGFzeW5j"
-            "IHdpdGggYWlvaHR0cC5DbGllbnRTZXNzaW9uKCkgYXMgc2Vzc2lvbjoKICAgICAgICBjaGVja191cmwg"
-            "PSB3c191cmwucmVwbGFjZSgid3NzOi8vIiwgImh0dHBzOi8vIikucmVwbGFjZSgid3M6Ly8iLCAiaHR0"
-            "cDovLyIpCiAgICAgICAgYXN5bmMgd2l0aCBzZXNzaW9uLmdldChjaGVja191cmwpIGFzIHJlc3A6CiAg"
-            "ICAgICAgICAgIGxvZygiQ2xvdWQiLCBmIkNvbm5lY3Rpb24gY2hlY2s6IEhUVFAge3Jlc3Auc3RhdHVz"
-            "fSIpCiAgICAgICAgICAgIGlmIHJlc3Auc3RhdHVzID49IDQwMDoKICAgICAgICAgICAgICAgIHJhaXNl"
-            "IFJ1bnRpbWVFcnJvcihmIkNsb3VkIGJyb3dzZXIgcmVmdXNlZDoge3Jlc3AucmVhc29ufSIpCgogICAg"
-            "YXN5bmMgd2l0aCBhc3luY19wbGF5d3JpZ2h0KCkgYXMgcHc6CiAgICAgICAgYnJvd3NlciA9IGF3YWl0"
-            "IHB3LmNocm9taXVtLmNvbm5lY3Rfb3Zlcl9jZHAod3NfdXJsLCB0aW1lb3V0PTYwMDAwKQogICAgICAg"
-            "IGxvZygiQ2xvdWQiLCAiUGxheXdyaWdodCBjb25uZWN0ZWQiKQogICAgICAgIGNvbnRleHQgPSBicm93"
-            "c2VyLmNvbnRleHRzWzBdIGlmIGJyb3dzZXIuY29udGV4dHMgZWxzZSBhd2FpdCBicm93c2VyLm5ld19j"
-            "b250ZXh0KCkKICAgICAgICB0cnk6CiAgICAgICAgICAgIGF3YWl0IGNvbnRleHQuZ3JhbnRfcGVybWlz"
-            "c2lvbnMoWyJjbGlwYm9hcmQtcmVhZCIsICJjbGlwYm9hcmQtd3JpdGUiXSkKICAgICAgICBleGNlcHQg"
-            "RXhjZXB0aW9uOiBwYXNzCgogICAgICAgIGFzeW5jIGRlZiBvbl9yZXNwb25zZShyKToKICAgICAgICAg"
-            "ICAgdHJ5OgogICAgICAgICAgICAgICAgaWYgImdvbG9naW4uY29tIiBub3QgaW4gci51cmwgb3IgInRv"
-            "a2VuIiBub3QgaW4gci51cmwubG93ZXIoKTogcmV0dXJuCiAgICAgICAgICAgICAgICBjdCA9IHIuaGVh"
-            "ZGVycy5nZXQoImNvbnRlbnQtdHlwZSIsICIiKQogICAgICAgICAgICAgICAgaWYgImpzb24iIG5vdCBp"
-            "biBjdCBhbmQgInRleHQiIG5vdCBpbiBjdDogcmV0dXJuCiAgICAgICAgICAgICAgICBmb3IgbSBpbiBK"
-            "V1QuZmluZGFsbChhd2FpdCByLnRleHQoKSk6CiAgICAgICAgICAgICAgICAgICAgYWRkX2NhbmRpZGF0"
-            "ZShtLCBmIm5ldHdvcms6e3IudXJsLnNwbGl0KCc/JylbMF1bLTQwOl19IikKICAgICAgICAgICAgZXhj"
-            "ZXB0IEV4Y2VwdGlvbjogcGFzcwoKICAgICAgICBjb250ZXh0Lm9uKCJyZXNwb25zZSIsIG9uX3Jlc3Bv"
-            "bnNlKQogICAgICAgIGF3YWl0IGNvbnRleHQuYWRkX2luaXRfc2NyaXB0KElOSVRfSlMpCgogICAgICAg"
-            "IHBhZ2VzID0gY29udGV4dC5wYWdlcwogICAgICAgIHBhZ2UgID0gcGFnZXNbMF0gaWYgcGFnZXMgZWxz"
-            "ZSBhd2FpdCBjb250ZXh0Lm5ld19wYWdlKCkKICAgICAgICBwYWdlLnNldF9kZWZhdWx0X3RpbWVvdXQo"
-            "MzAwMDApCiAgICAgICAgdHJ5OiBhd2FpdCBwYWdlLmV2YWx1YXRlKElOSVRfSlMpCiAgICAgICAgZXhj"
-            "ZXB0IEV4Y2VwdGlvbjogcGFzcwoKICAgICAgICAjIOKUgOKUgCBQaGFzZSAyOiBTaWduLXVwIGZvcm0g"
-            "4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA"
-            "4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSACiAgICAgICAgYmFubmVyKCJQaGFzZSAyIOKAlCBGaWxs"
-            "IHNpZ24tdXAgZm9ybSIpCiAgICAgICAgbG9nKCJNYWluIiwgZiJDdXJyZW50IFVSTDoge3BhZ2UudXJs"
-            "fSIpCiAgICAgICAgaWYgInNpZ25fdXAiIG5vdCBpbiBwYWdlLnVybDoKICAgICAgICAgICAgYXdhaXQg"
-            "cGFnZS5nb3RvKFNJR05VUF9VUkwsIHdhaXRfdW50aWw9ImRvbWNvbnRlbnRsb2FkZWQiLCB0aW1lb3V0"
-            "PTYwMDAwKQoKICAgICAgICBlbWFpbF9maWVsZCA9IGF3YWl0IGZpbmRfdmlzaWJsZShwYWdlLCBbCiAg"
-            "ICAgICAgICAgIHBhZ2UuZ2V0X2J5X3BsYWNlaG9sZGVyKHJlLmNvbXBpbGUociJ5b3VyIGVtYWlsIiwg"
-            "cmUuSSkpLAogICAgICAgICAgICBwYWdlLmxvY2F0b3IoJ2lucHV0W3R5cGU9ImVtYWlsIl0nKSwKICAg"
-            "ICAgICAgICAgcGFnZS5sb2NhdG9yKCdpbnB1dFtuYW1lPSJlbWFpbCJdJyksCiAgICAgICAgICAgIHBh"
-            "Z2UubG9jYXRvcignaW5wdXRbcGxhY2Vob2xkZXIqPSJlbWFpbCIgaV0nKSwKICAgICAgICBdLCAzMDAw"
-            "MCkKCiAgICAgICAgaWYgbm90IGVtYWlsX2ZpZWxkOgogICAgICAgICAgICBhd2FpdCBkdW1wX3BhZ2Uo"
-            "cGFnZSwgIm5vLWVtYWlsLWZpZWxkIikKICAgICAgICAgICAgcmFpc2UgUnVudGltZUVycm9yKCJTaWdu"
-            "LXVwIGVtYWlsIGZpZWxkIG5vdCBmb3VuZCIpCgogICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAocmFu"
-            "ZG9tLnVuaWZvcm0oMS41LCAyLjUpKQogICAgICAgIGF3YWl0IHNob3QocGFnZSwgInNpZ251cC1wYWdl"
-            "IikKICAgICAgICBsb2coIk1haW4iLCBmIkVudGVyaW5nIGVtYWlsOiB7RU1BSUx9IikKICAgICAgICBh"
-            "d2FpdCB0eXBlX2h1bWFuKGVtYWlsX2ZpZWxkLCBFTUFJTCkKICAgICAgICBhd2FpdCBhc3luY2lvLnNs"
-            "ZWVwKHJhbmRvbS51bmlmb3JtKDEuNSwgMi44KSkKICAgICAgICBhd2FpdCBzaG90KHBhZ2UsICJlbWFp"
-            "bC1lbnRlcmVkIikKCiAgICAgICAgYXdhaXQgdGlja190b3MocGFnZSkKICAgICAgICBhd2FpdCBhc3lu"
-            "Y2lvLnNsZWVwKHJhbmRvbS51bmlmb3JtKDAuOCwgMS41KSkKICAgICAgICBhd2FpdCBzaG90KHBhZ2Us"
-            "ICJ0b3MtdGlja2VkIikKCiAgICAgICAgYXdhaXQgY2xpY2tfZmlyc3QocGFnZSwgWwogICAgICAgICAg"
-            "ICBwYWdlLmdldF9ieV9yb2xlKCJidXR0b24iLCBuYW1lPXJlLmNvbXBpbGUociJ0cnkgNyBkYXlzIGZv"
-            "ciBmcmVlIiwgcmUuSSkpLAogICAgICAgICAgICBwYWdlLmdldF9ieV9yb2xlKCJidXR0b24iLCBuYW1l"
-            "PXJlLmNvbXBpbGUociJ0cnkuKmZyZWUiLCByZS5JKSksCiAgICAgICAgICAgIHBhZ2UuZ2V0X2J5X3Jv"
-            "bGUoImJ1dHRvbiIsIG5hbWU9cmUuY29tcGlsZShyImNvbnRpbnVlIiwgcmUuSSkpLAogICAgICAgICAg"
-            "ICBwYWdlLmxvY2F0b3IoJ2J1dHRvbjpoYXMtdGV4dCgiVHJ5IDcgZGF5cyIpJyksCiAgICAgICAgXSwg"
-            "MTIwMDApCiAgICAgICAgYXdhaXQgYXN5bmNpby5zbGVlcChyYW5kb20udW5pZm9ybSgyLjAsIDMuNSkp"
-            "CgogICAgICAgICMg4pSA4pSAIFBoYXNlIDM6IFBhc3N3b3JkIOKGkiBUdXJuc3RpbGUg4oaSIENyZWF0"
-            "ZSBhY2NvdW50IOKUgOKUgOKUgAogICAgICAgIGJhbm5lcigiUGhhc2UgMyDigJQgUGFzc3dvcmQgKyBU"
-            "dXJuc3RpbGUgKyBDcmVhdGUgYWNjb3VudCIpCgogICAgICAgIGFzeW5jIGRlZiBwYXNzd29yZF92aXNp"
-            "YmxlKCk6CiAgICAgICAgICAgIHJldHVybiAoCiAgICAgICAgICAgICAgICBhd2FpdCBwYWdlLmxvY2F0"
-            "b3IoJ2lucHV0W3R5cGU9InBhc3N3b3JkIl0nKS5maXJzdC5pc192aXNpYmxlKCkKICAgICAgICAgICAg"
-            "ICAgIG9yIGF3YWl0IHBhZ2UuZ2V0X2J5X3BsYWNlaG9sZGVyKHJlLmNvbXBpbGUociJ5b3VyIHBhc3N3"
-            "b3JkfHBhc3N3b3JkIiwgcmUuSSkpLmZpcnN0LmlzX3Zpc2libGUoKQogICAgICAgICAgICApCgogICAg"
-            "ICAgIHN0YWdlMSA9IGF3YWl0IHdhaXRfYW55KFsKICAgICAgICAgICAgWyJwYXNzd29yZCIsIHBhc3N3"
-            "b3JkX3Zpc2libGVdLAogICAgICAgICAgICBbImVycm9yIiwgbGFtYmRhOiBwYWdlLmdldF9ieV90ZXh0"
-            "KHJlLmNvbXBpbGUoCiAgICAgICAgICAgICAgICByImFscmVhZHkgKHJlZ2lzdGVyZWR8ZXhpc3RzfGlu"
-            "IHVzZXx0YWtlbil8aW52YWxpZCBlbWFpbHx0b28gbWFueXxzb21ldGhpbmcgd2VudCB3cm9uZ3x0cnkg"
-            "YWdhaW4iLCByZS5JCiAgICAgICAgICAgICkpLmZpcnN0LmlzX3Zpc2libGUoKV0sCiAgICAgICAgXSwg"
-            "NTAwMDApCgogICAgICAgIGF3YWl0IHNob3QocGFnZSwgImFmdGVyLWVtYWlsLXN1Ym1pdCIpCiAgICAg"
-            "ICAgaWYgc3RhZ2UxICE9ICJwYXNzd29yZCI6CiAgICAgICAgICAgIGF3YWl0IGR1bXBfcGFnZShwYWdl"
-            "LCBmInN0YWdlMS17c3RhZ2UxfSIpCiAgICAgICAgICAgIHJhaXNlIFJ1bnRpbWVFcnJvcihmIlBhc3N3"
-            "b3JkIHN0ZXAgbm90IHJlYWNoZWQgKHN0YWdlPXtzdGFnZTF9KSIpCgogICAgICAgIGF3YWl0IGFzeW5j"
-            "aW8uc2xlZXAocmFuZG9tLnVuaWZvcm0oMS4wLCAyLjApKQoKICAgICAgICAjIEZpbGwgcGFzc3dvcmQg"
-            "ZmllbGRzCiAgICAgICAgcGFzc19maWVsZCA9IHBhZ2UuZ2V0X2J5X3BsYWNlaG9sZGVyKHJlLmNvbXBp"
-            "bGUociJ5b3VyIHBhc3N3b3JkfHBhc3N3b3JkIiwgcmUuSSkpLmZpcnN0CiAgICAgICAgY29uZmlybV9m"
-            "aWVsZCA9IHBhZ2UuZ2V0X2J5X3BsYWNlaG9sZGVyKHJlLmNvbXBpbGUociJjb25maXJtIHBhc3N3b3Jk"
-            "IiwgcmUuSSkpLmZpcnN0CiAgICAgICAgdHJ5OgogICAgICAgICAgICBpZiBub3QgKGF3YWl0IHBhc3Nf"
-            "ZmllbGQuaXNfdmlzaWJsZSgpIGFuZCBhd2FpdCBjb25maXJtX2ZpZWxkLmlzX3Zpc2libGUoKSk6CiAg"
-            "ICAgICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yCiAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbjoKICAg"
-            "ICAgICAgICAgcHdfaW5wdXRzID0gcGFnZS5sb2NhdG9yKCdpbnB1dFt0eXBlPSJwYXNzd29yZCJdJykK"
-            "ICAgICAgICAgICAgcGFzc19maWVsZCAgICA9IHB3X2lucHV0cy5udGgoMCkKICAgICAgICAgICAgY29u"
-            "ZmlybV9maWVsZCA9IHB3X2lucHV0cy5udGgoMSkgaWYgYXdhaXQgcHdfaW5wdXRzLmNvdW50KCkgPiAx"
-            "IGVsc2UgTm9uZQoKICAgICAgICBhd2FpdCB0eXBlX2h1bWFuKHBhc3NfZmllbGQsIFBBU1NXT1JEKQog"
-            "ICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAocmFuZG9tLnVuaWZvcm0oMC42LCAxLjEpKQogICAgICAg"
-            "IGlmIGNvbmZpcm1fZmllbGQgaXMgbm90IE5vbmU6CiAgICAgICAgICAgIGF3YWl0IHR5cGVfaHVtYW4o"
-            "Y29uZmlybV9maWVsZCwgUEFTU1dPUkQpCiAgICAgICAgYXdhaXQgYXN5bmNpby5zbGVlcChyYW5kb20u"
-            "dW5pZm9ybSgwLjgsIDEuNCkpCgogICAgICAgIGF3YWl0IHRpY2tfdG9zKHBhZ2UpCiAgICAgICAgYXdh"
-            "aXQgYXN5bmNpby5zbGVlcChyYW5kb20udW5pZm9ybSgwLjgsIDEuNCkpCiAgICAgICAgYXdhaXQgc2hv"
-            "dChwYWdlLCAicGFzc3dvcmQtZmlsbGVkIikKCiAgICAgICAgIyDilIDilIAgU29sdmUgVHVybnN0aWxl"
-            "IEZJUlNULCB0aGVuIGNsaWNrIENyZWF0ZSDilIDilIDilIDilIDilIDilIDilIDilIDilIAKICAgICAg"
-            "ICAjIChUaGlzIGlzIHRoZSBjb3JlIHY0IGltcHJvdmVtZW50OiBDcmVhdGUgaXMgT05MWSBjbGlja2Vk"
-            "CiAgICAgICAgIyAgYWZ0ZXIgdGhlIHNvbHZlciBjb25maXJtcyBzdWNjZXNzLikKICAgICAgICBsb2co"
-            "Ik1haW4iLCAiSGFuZGluZyBvZmYgdG8gVHVybnN0aWxlIHNvbHZlci4uLiIpCiAgICAgICAgdHNfb2sg"
-            "PSBhd2FpdCBzb2x2ZV90dXJuc3RpbGUocGFnZSwgInNpZ251cCIsIHdhaXRfYWZ0ZXJfY2xpY2tfcz0x"
-            "MykKICAgICAgICBsb2coIk1haW4iLCBmIlR1cm5zdGlsZSBzb2x2ZXIgcmV0dXJuZWQ6IHt0c19va30i"
-            "KQoKICAgICAgICBpZiBub3QgdHNfb2s6CiAgICAgICAgICAgIGxvZygiTWFpbiIsICJUdXJuc3RpbGUg"
-            "bm90IGNvbmZpcm1lZCDigJQgd2lsbCBhdHRlbXB0IENyZWF0ZSBhbnl3YXkgYW5kIHJldHJ5IGlmIG5l"
-            "ZWRlZCIpCgogICAgICAgICMgU2hvcnQgaHVtYW4gcGF1c2UgYWZ0ZXIgc29sdmluZyBiZWZvcmUgY2xp"
-            "Y2tpbmcgQ3JlYXRlCiAgICAgICAgYXdhaXQgYXN5bmNpby5zbGVlcChyYW5kb20udW5pZm9ybSgyLjAs"
-            "IDMuMCkpCiAgICAgICAgYXdhaXQgc2hvdChwYWdlLCAiYmVmb3JlLWNyZWF0ZS1hY2NvdW50IikKCiAg"
-            "ICAgICAgYXN5bmMgZGVmIGxlZnRfcGFzc3dvcmRfc3RlcCgpOgogICAgICAgICAgICB0cnk6CiAgICAg"
-            "ICAgICAgICAgICBpZiBub3QgYXdhaXQgcGFnZS5sb2NhdG9yKCdpbnB1dFt0eXBlPSJwYXNzd29yZCJd"
-            "JykuZmlyc3QuaXNfdmlzaWJsZSgpOgogICAgICAgICAgICAgICAgICAgIHJldHVybiBUcnVlCiAgICAg"
-            "ICAgICAgIGV4Y2VwdCBFeGNlcHRpb246CiAgICAgICAgICAgICAgICByZXR1cm4gVHJ1ZQogICAgICAg"
-            "ICAgICByZXR1cm4gRmFsc2UKCiAgICAgICAgY3JlYXRlZCA9IEZhbHNlCiAgICAgICAgZm9yIGNyZWF0"
-            "ZV9hdHRlbXB0IGluIHJhbmdlKDEsIDQpOgogICAgICAgICAgICAjIElmIG5vdCBvbiBwYXNzd29yZCBw"
-            "YWdlIGFueSBtb3JlLCB3ZSBhbHJlYWR5IGFkdmFuY2VkCiAgICAgICAgICAgIGlmIGF3YWl0IGxlZnRf"
-            "cGFzc3dvcmRfc3RlcCgpOgogICAgICAgICAgICAgICAgbG9nKCJNYWluIiwgZiJBbHJlYWR5IGxlZnQg"
-            "cGFzc3dvcmQgcGFnZSBiZWZvcmUgY3JlYXRlIGF0dGVtcHQge2NyZWF0ZV9hdHRlbXB0fSIpCiAgICAg"
-            "ICAgICAgICAgICBjcmVhdGVkID0gVHJ1ZQogICAgICAgICAgICAgICAgYnJlYWsKCiAgICAgICAgICAg"
-            "ICMgSWYgVHVybnN0aWxlIG5vdCBjb25maXJtZWQgb24gYSByZXRyeSwgcmUtc29sdmUgaXQKICAgICAg"
-            "ICAgICAgaWYgY3JlYXRlX2F0dGVtcHQgPiAxOgogICAgICAgICAgICAgICAgbG9nKCJNYWluIiwgZiJS"
-            "ZS1zb2x2aW5nIFR1cm5zdGlsZSBiZWZvcmUgY3JlYXRlIGF0dGVtcHQge2NyZWF0ZV9hdHRlbXB0fSIp"
-            "CiAgICAgICAgICAgICAgICBhd2FpdCBzb2x2ZV90dXJuc3RpbGUocGFnZSwgZiJyZXRyeXtjcmVhdGVf"
-            "YXR0ZW1wdH0iLCB3YWl0X2FmdGVyX2NsaWNrX3M9MTMpCiAgICAgICAgICAgICAgICBhd2FpdCBhc3lu"
-            "Y2lvLnNsZWVwKHJhbmRvbS51bmlmb3JtKDEuNSwgMi41KSkKCiAgICAgICAgICAgIGNsaWNrZWQgPSBh"
-            "d2FpdCBjbGlja19maXJzdChwYWdlLCBbCiAgICAgICAgICAgICAgICBwYWdlLmdldF9ieV9yb2xlKCJi"
-            "dXR0b24iLCBuYW1lPUNSRUFURV9SRSksCiAgICAgICAgICAgICAgICBwYWdlLmxvY2F0b3IoJ2J1dHRv"
-            "bjpoYXMtdGV4dCgiQ3JlYXRlIiknKSwKICAgICAgICAgICAgICAgIHBhZ2UubG9jYXRvcignYnV0dG9u"
-            "W3R5cGU9InN1Ym1pdCJdJyksCiAgICAgICAgICAgIF0sIDgwMDApCiAgICAgICAgICAgIGxvZygiTWFp"
-            "biIsIGYiQ3JlYXRlIGFjY291bnQgY2xpY2sgYXR0ZW1wdCB7Y3JlYXRlX2F0dGVtcHR9OiBjbGlja2Vk"
-            "PXtjbGlja2VkfSIpCiAgICAgICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAocmFuZG9tLnVuaWZvcm0o"
-            "Mi4wLCAzLjApKQogICAgICAgICAgICBhd2FpdCBzaG90KHBhZ2UsIGYiYWZ0ZXItY3JlYXRlLWNsaWNr"
-            "LXtjcmVhdGVfYXR0ZW1wdH0iKQoKICAgICAgICAgICAgbW92ZWQgPSBhd2FpdCB3YWl0X2FueShbCiAg"
-            "ICAgICAgICAgICAgICBbImxlZnQiLCAgICBsZWZ0X3Bhc3N3b3JkX3N0ZXBdLAogICAgICAgICAgICAg"
-            "ICAgWyJzdXJ2ZXkiLCAgbGFtYmRhOiBwYWdlLmdldF9ieV90ZXh0KHJlLmNvbXBpbGUociJoYXZlIHlv"
-            "dSBldmVyIHVzZWR8YW50aWRldGVjdHx3aGF0IGRvIHlvdSB1c2UiLCByZS5JKSkuZmlyc3QuaXNfdmlz"
-            "aWJsZSgpXSwKICAgICAgICAgICAgICAgIFsidmVyaWZ5IiwgIGxhbWJkYTogcGFnZS5nZXRfYnlfdGV4"
-            "dChyZS5jb21waWxlKHIiY2hlY2sgeW91ciAoZW1haWx8aW5ib3gpfHZlcmlmeSB5b3VyIGVtYWlsfGNv"
-            "bmZpcm1hdGlvbiBsaW5rfHdlIHNlbnQiLCByZS5JKSkuZmlyc3QuaXNfdmlzaWJsZSgpXSwKICAgICAg"
-            "ICAgICAgICAgIFsiZGFzaCIsICAgIGxhbWJkYTogaXNfZGFzaGJvYXJkKHBhZ2UpXSwKICAgICAgICAg"
-            "ICAgXSwgMjUwMDApCiAgICAgICAgICAgIGxvZygiTWFpbiIsIGYiQWZ0ZXIgY3JlYXRlIGNsaWNrIHtj"
-            "cmVhdGVfYXR0ZW1wdH06IG1vdmVkPXttb3ZlZH0iKQoKICAgICAgICAgICAgaWYgbW92ZWQ6CiAgICAg"
-            "ICAgICAgICAgICBjcmVhdGVkID0gVHJ1ZQogICAgICAgICAgICAgICAgYnJlYWsKICAgICAgICAgICAg"
-            "bG9nKCJNYWluIiwgZiJTdGlsbCBvbiBwYXNzd29yZCBwYWdlIGFmdGVyIGF0dGVtcHQge2NyZWF0ZV9h"
-            "dHRlbXB0fSIpCgogICAgICAgIGlmIG5vdCBjcmVhdGVkOgogICAgICAgICAgICBhd2FpdCBkdW1wX3Bh"
-            "Z2UocGFnZSwgImNyZWF0ZS1uZXZlci1hZHZhbmNlZCIpCiAgICAgICAgICAgIHJhaXNlIFJ1bnRpbWVF"
-            "cnJvcigiQ3JlYXRlIGFjY291bnQgZGlkIG5vdCBhZHZhbmNlIGFmdGVyIGFsbCBhdHRlbXB0cyIpCgog"
-            "ICAgICAgIGFzeW5jIGRlZiB0ZXh0X3Zpc2libGUocGF0KToKICAgICAgICAgICAgcmV0dXJuIGF3YWl0"
-            "IHBhZ2UuZ2V0X2J5X3RleHQocmUuY29tcGlsZShwYXQsIHJlLkkpKS5maXJzdC5pc192aXNpYmxlKCkK"
-            "CiAgICAgICAgc3RhZ2UyID0gYXdhaXQgd2FpdF9hbnkoWwogICAgICAgICAgICBbInN1cnZleSIsICAg"
-            "ICAgbGFtYmRhOiB0ZXh0X3Zpc2libGUociJoYXZlIHlvdSBldmVyIHVzZWR8YW50aWRldGVjdHx3aGF0"
-            "IGRvIHlvdSB1c2UiKV0sCiAgICAgICAgICAgIFsiYWxsc2V0IiwgICAgICBsYW1iZGE6IHRleHRfdmlz"
-            "aWJsZShyImFsbCBzZXR8eW91Lj9yZSBhbGwgc2V0fHdlbGNvbWUiKV0sCiAgICAgICAgICAgIFsidmVy"
-            "aWZ5IiwgICAgICBsYW1iZGE6IHRleHRfdmlzaWJsZShyImNoZWNrIHlvdXIgKGVtYWlsfGluYm94KXx2"
-            "ZXJpZnkgeW91ciBlbWFpbHxjb25maXJtYXRpb24gbGlua3x3ZSBzZW50IildLAogICAgICAgICAgICBb"
-            "ImRhc2hib2FyZCIsICAgbGFtYmRhOiBpc19kYXNoYm9hcmQocGFnZSldLAogICAgICAgICAgICBbImlu"
-            "c3RhbGxlciIsICAgbGFtYmRhOiAiZG93bmxvYWQtaW5zdGFsbGVyIiBpbiBwYWdlLnVybC5sb3dlcigp"
-            "XSwKICAgICAgICAgICAgWyJwcm9maWxlbGlzdCIsIGxhbWJkYTogInByb2ZpbGVsaXN0IiBpbiBwYWdl"
-            "LnVybC5sb3dlcigpIG9yICJicm93c2VyIiBpbiBwYWdlLnVybC5sb3dlcigpXSwKICAgICAgICAgICAg"
-            "WyJlcnJvciIsICAgICAgIGxhbWJkYTogdGV4dF92aXNpYmxlKHIiYWxyZWFkeSAocmVnaXN0ZXJlZHxl"
-            "eGlzdHN8aW4gdXNlfHRha2VuKXxwYXNzd29yZCBpcyB0b298c29tZXRoaW5nIHdlbnQgd3Jvbmd8dHJ5"
-            "IGFnYWlufGludmFsaWQiKV0sCiAgICAgICAgXSwgMTAwMDAwKQoKICAgICAgICBhd2FpdCBzaG90KHBh"
-            "Z2UsICJhZnRlci1jcmVhdGUtYWNjb3VudCIpCiAgICAgICAgbG9nKCJNYWluIiwgZiJQb3N0LWNyZWF0"
-            "ZSBzdGFnZSA9IHtzdGFnZTJ9IikKCiAgICAgICAgaWYgc3RhZ2UyIGluICgiZXJyb3IiLCBOb25lKToK"
-            "ICAgICAgICAgICAgYXdhaXQgZHVtcF9wYWdlKHBhZ2UsIGYic3RhZ2UyLXtzdGFnZTJ9IikKICAgICAg"
-            "ICAgICAgcmFpc2UgUnVudGltZUVycm9yKGYiQWNjb3VudCBjcmVhdGlvbiBmYWlsZWQgKHN0YWdlPXtz"
-            "dGFnZTJ9KSIpCgogICAgICAgIHJlc3VsdFsic2lnbnVwIl0gPSBUcnVlCiAgICAgICAgbG9nKCJNYWlu"
-            "IiwgZiJBQ0NPVU5UIENSRUFURUQgKG9yIHBlbmRpbmcgdmVyaWZ5KToge0VNQUlMfSAoc3RhZ2U9e3N0"
-            "YWdlMn0pIikKCiAgICAgICAgaWYgc3RhZ2UyID09ICJ2ZXJpZnkiOgogICAgICAgICAgICBsb2coIk1h"
-            "aW4iLCAiRW1haWwgdmVyaWZpY2F0aW9uIHJlcXVpcmVkIOKAlCB0b2tlbiBleHRyYWN0aW9uIG1heSBi"
-            "ZSBsaW1pdGVkIikKCiAgICAgICAgIyDilIDilIAgUGhhc2UgNDogT25ib2FyZGluZyAmIHBvcHVwcyDi"
-            "lIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDi"
-            "lIAKICAgICAgICBiYW5uZXIoIlBoYXNlIDQg4oCUIE9uYm9hcmRpbmcgJiBwb3B1cHMiKQogICAgICAg"
-            "IGF3YWl0IGFzeW5jaW8uc2xlZXAocmFuZG9tLnVuaWZvcm0oMi4wLCAzLjApKQoKICAgICAgICBmb3Ig"
-            "XyBpbiByYW5nZSg0KToKICAgICAgICAgICAgc2tpcCA9IGF3YWl0IGZpbmRfdmlzaWJsZShwYWdlLCBb"
-            "CiAgICAgICAgICAgICAgICBwYWdlLmdldF9ieV90ZXh0KHJlLmNvbXBpbGUociJza2lwIHJlY29tbWVu"
-            "ZGVkIHNldHVwfF5za2lwJCIsIHJlLkkpKSwKICAgICAgICAgICAgICAgIHBhZ2UuZ2V0X2J5X3JvbGUo"
-            "ImxpbmsiLCAgIG5hbWU9cmUuY29tcGlsZShyInNraXAiLCByZS5JKSksCiAgICAgICAgICAgICAgICBw"
-            "YWdlLmdldF9ieV9yb2xlKCJidXR0b24iLCBuYW1lPXJlLmNvbXBpbGUociJza2lwIiwgcmUuSSkpLAog"
-            "ICAgICAgICAgICBdLCAyNTAwKQogICAgICAgICAgICBpZiBza2lwOgogICAgICAgICAgICAgICAgdHJ5"
-            "OgogICAgICAgICAgICAgICAgICAgIGF3YWl0IHNraXAuY2xpY2soKQogICAgICAgICAgICAgICAgICAg"
-            "IGxvZygiTWFpbiIsICJDbGlja2VkIFNraXAiKQogICAgICAgICAgICAgICAgZXhjZXB0IEV4Y2VwdGlv"
-            "bjogcGFzcwogICAgICAgICAgICAgICAgYXdhaXQgYXN5bmNpby5zbGVlcCgxLjUpCiAgICAgICAgICAg"
-            "ICAgICBicmVhawogICAgICAgICAgICBpZiAiZG93bmxvYWQtaW5zdGFsbGVyIiBpbiBwYWdlLnVybDoK"
-            "ICAgICAgICAgICAgICAgIGJyZWFrCiAgICAgICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAoMC41KQoK"
-            "ICAgICAgICBpZiAicHJvZmlsZWxpc3QiIG5vdCBpbiBwYWdlLnVybC5sb3dlcigpOgogICAgICAgICAg"
-            "ICBsb2coIk1haW4iLCBmIk5hdmlnYXRpbmcgdG8gcHJvZmlsZSBsaXN0ICh3YXMge3BhZ2UudXJsfSki"
-            "KQogICAgICAgICAgICBhd2FpdCBwYWdlLmdvdG8oUFJPRklMRUxJU1RfVVJMLCB3YWl0X3VudGlsPSJk"
-            "b21jb250ZW50bG9hZGVkIiwgdGltZW91dD00NTAwMCkKICAgICAgICAgICAgYXdhaXQgYXN5bmNpby5z"
-            "bGVlcChyYW5kb20udW5pZm9ybSgzLjAsIDQuNSkpCgogICAgICAgIGF3YWl0IHNob3QocGFnZSwgImRh"
-            "c2hib2FyZC1yYXciKQogICAgICAgIGF3YWl0IGNsZWFyX2Rhc2hib2FyZF9wb3B1cHMocGFnZSkKCiAg"
-            "ICAgICAgaWYgbm90IGF3YWl0IGlzX2Rhc2hib2FyZChwYWdlKToKICAgICAgICAgICAgYXdhaXQgcGFn"
-            "ZS5nb3RvKFBST0ZJTEVMSVNUX1VSTCwgd2FpdF91bnRpbD0iZG9tY29udGVudGxvYWRlZCIsIHRpbWVv"
-            "dXQ9MzAwMDApCiAgICAgICAgICAgIGF3YWl0IGFzeW5jaW8uc2xlZXAoMykKICAgICAgICAgICAgYXdh"
-            "aXQgY2xlYXJfZGFzaGJvYXJkX3BvcHVwcyhwYWdlKQoKICAgICAgICBhd2FpdCBzaG90KHBhZ2UsICJk"
-            "YXNoYm9hcmQiKQogICAgICAgIGxvZygiTWFpbiIsICJSZWFjaGVkIGRhc2hib2FyZCBhcmVhIikKCiAg"
-            "ICAgICAgIyDilIDilIAgUGhhc2UgNTogRXh0cmFjdCBBUEkgdG9rZW4g4pSA4pSA4pSA4pSA4pSA4pSA"
-            "4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSACiAgICAg"
-            "ICAgYmFubmVyKCJQaGFzZSA1IOKAlCBFeHRyYWN0IEFQSSB0b2tlbiIpCiAgICAgICAgYXdhaXQgYXN5"
-            "bmNpby5zbGVlcChyYW5kb20udW5pZm9ybSgxLjUsIDIuNSkpCiAgICAgICAgcnVuX2J0biA9IGF3YWl0"
-            "IGZpbmRfdmlzaWJsZShwYWdlLCBbcGFnZS5nZXRfYnlfcm9sZSgiYnV0dG9uIiwgbmFtZT0iUnVuIiwg"
-            "ZXhhY3Q9VHJ1ZSldLCAyMDAwMCkKCiAgICAgICAgaWYgbm90IHJ1bl9idG46CiAgICAgICAgICAgIGxv"
-            "ZygiTWFpbiIsICJObyBSdW4gYnV0dG9uIOKAlCBnb2luZyB0byBTZXR0aW5ncyBBUEkgcGFnZSIpCiAg"
-            "ICAgICAgICAgIGF3YWl0IHRva2VuX3ZpYV9zZXR0aW5ncyhwYWdlKQogICAgICAgIGVsc2U6CiAgICAg"
-            "ICAgICAgIGlmIGF3YWl0IHJ1bl9tb2RhbF92aXNpYmxlKHBhZ2UpOgogICAgICAgICAgICAgICAgYXdh"
-            "aXQgY2xvc2VfcnVuX21vZGFsKHBhZ2UsIHdhaXRfYXBwZWFyPTEpCiAgICAgICAgICAgIGF3YWl0IHJ1"
-            "bl9idG4uY2xpY2soKQogICAgICAgICAgICBsb2coIk1haW4iLCAiQ2xpY2tlZCBSdW4iKQogICAgICAg"
-            "ICAgICBhd2FpdCBhc3luY2lvLnNsZWVwKHJhbmRvbS51bmlmb3JtKDEuNSwgMi41KSkKICAgICAgICAg"
-            "ICAgYXdhaXQgc2hvdChwYWdlLCAicnVuLW1lbnUiKQogICAgICAgICAgICBhcGlfY2xpY2tlZCA9IGF3"
-            "YWl0IGNsaWNrX2ZpcnN0KHBhZ2UsIFsKICAgICAgICAgICAgICAgIHBhZ2UuZ2V0X2J5X3RleHQocmUu"
-            "Y29tcGlsZShyImFwaSBjb250cm9sIiwgcmUuSSkpLAogICAgICAgICAgICAgICAgcGFnZS5nZXRfYnlf"
-            "cm9sZSgibWVudWl0ZW0iLCBuYW1lPXJlLmNvbXBpbGUociJhcGkgY29udHJvbCIsIHJlLkkpKSwKICAg"
-            "ICAgICAgICAgXSwgMTAwMDApCiAgICAgICAgICAgIGlmIG5vdCBhcGlfY2xpY2tlZDoKICAgICAgICAg"
-            "ICAgICAgIGxvZygiTWFpbiIsICJBUEkgY29udHJvbCBub3QgZm91bmQg4oCUIFNldHRpbmdzIikKICAg"
-            "ICAgICAgICAgICAgIGF3YWl0IHRva2VuX3ZpYV9zZXR0aW5ncyhwYWdlKQogICAgICAgICAgICBlbHNl"
-            "OgogICAgICAgICAgICAgICAgbG9nKCJNYWluIiwgJ0NsaWNrZWQgIkFQSSBjb250cm9sIicpCiAgICAg"
-            "ICAgICAgICAgICBhd2FpdCB3YWl0X2FuZF9jb3B5X2FwaV90b2tlbihwYWdlLCBpbml0aWFsX3dhaXQ9"
-            "MjAsIGV4dHJhX3dhaXQ9NDApCgogICAgICAgIGlmIG5vdCBbYyBmb3IgYyBpbiBjYW5kaWRhdGVzIGlm"
-            "IHJhbmtfb2YoY1sic291cmNlIl0pIDw9IDJdOgogICAgICAgICAgICBpZiBub3QgY2FuZGlkYXRlczoK"
-            "ICAgICAgICAgICAgICAgIGxvZygiTWFpbiIsICJOb3RoaW5nIGNhcHR1cmVkIGF0IGFsbCDigJQgbGFz"
-            "dC1yZXNvcnQgU2V0dGluZ3MgcGFnZSIpCiAgICAgICAgICAgICAgICBhd2FpdCB0b2tlbl92aWFfc2V0"
-            "dGluZ3MocGFnZSkKICAgICAgICAgICAgZWxzZToKICAgICAgICAgICAgICAgIGxvZygiTWFpbiIsICJP"
-            "bmx5IGxvdy1jb25maWRlbmNlIGNhbmRpZGF0ZXMgY2FwdHVyZWQg4oCUIHdpbGwgUkVTVC12ZXJpZnkg"
-            "dGhlbSIpCgogICAgICAgIGF3YWl0IGJyb3dzZXIuY2xvc2UoKQoKICAgIGlmIG5vdCBjYW5kaWRhdGVz"
-            "OgogICAgICAgIHJhaXNlIFJ1bnRpbWVFcnJvcigiU2lnbnVwIHN1Y2NlZWRlZCBidXQgbm8gQVBJIHRv"
-            "a2VuIGV4dHJhY3RlZCIpCgogICAgb3JkZXJlZCA9IHNvcnRlZChjYW5kaWRhdGVzLCBrZXk9bGFtYmRh"
-            "IGM6IHJhbmtfb2YoY1sic291cmNlIl0pKQogICAgcGljayA9IE5vbmUKICAgIGZvciBjIGluIG9yZGVy"
-            "ZWRbOjVdOgogICAgICAgIHN0ID0gcmVzdF9jaGVjayhjWyJ0b2tlbiJdKQogICAgICAgIGxvZygiTWFp"
-            "biIsIGYiUkVTVCAvdXNlciBmb3Ige2NbJ3NvdXJjZSddfToge3N0fSIpCiAgICAgICAgaWYgc3QgPT0g"
-            "MjAwOgogICAgICAgICAgICBwaWNrID0gYwogICAgICAgICAgICByZXN1bHRbInJlc3RTdGF0dXMiXSA9"
-            "IHN0CiAgICAgICAgICAgIGJyZWFrCiAgICAgICAgaWYgcmVzdWx0WyJyZXN0U3RhdHVzIl0gaXMgTm9u"
-            "ZToKICAgICAgICAgICAgcmVzdWx0WyJyZXN0U3RhdHVzIl0gPSBzdAoKICAgIGlmIHBpY2sgaXMgTm9u"
-            "ZToKICAgICAgICBwaWNrID0gb3JkZXJlZFswXQogICAgICAgIGxvZygiTWFpbiIsICJXQVJOSU5HOiBu"
-            "byBjYW5kaWRhdGUgcGFzc2VkIFJFU1QgY2hlY2sg4oCUIGtlZXBpbmcgYmVzdCIpCgogICAgcmVzdWx0"
-            "WyJ0b2tlbiJdICAgICAgID0gcGlja1sidG9rZW4iXQogICAgcmVzdWx0WyJ0b2tlblNvdXJjZSJdID0g"
-            "cGlja1sic291cmNlIl0KICAgIChPVVQgLyAidG9rZW4udHh0Iikud3JpdGVfdGV4dChwaWNrWyJ0b2tl"
-            "biJdICsgIlxuIiwgZW5jb2Rpbmc9InV0Zi04IikKCmFzeW5jIGRlZiBtYWluKCk6CiAgICBwcm9maWxl"
-            "X2lkID0gTm9uZQogICAgcmVzdWx0ID0gewogICAgICAgICJpbmRleCI6IGludChJRFgpLCAiZW1haWwi"
-            "OiBFTUFJTCwgInNpZ251cCI6IEZhbHNlLAogICAgICAgICJ0b2tlbiI6IE5vbmUsICJ0b2tlblNvdXJj"
-            "ZSI6IE5vbmUsICJyZXN0U3RhdHVzIjogTm9uZSwKICAgICAgICAicHJvZmlsZUlkIjogTm9uZSwgInBy"
-            "b2ZpbGVPUyI6IFBST0ZJTEVfT1MsCiAgICAgICAgInByb3h5VHlwZSI6IFBST1hZX1RZUEVfSU4sICJw"
-            "cm94eUNvdW50cnkiOiBQUk9YWV9DT1VOVFJZX0lOLAogICAgICAgICJlcnJvciI6IE5vbmUsICJmaW5p"
-            "c2hlZEF0IjogTm9uZSwKICAgIH0KICAgIHRyeToKICAgICAgICBpZiBub3QgRU1BSUwgb3Igbm90IFBB"
-            "U1NXT1JEOgogICAgICAgICAgICByYWlzZSBSdW50aW1lRXJyb3IoIkFDQ19FTUFJTCAvIEFDQ19QQVNT"
-            "V09SRCBlbXB0eSIpCiAgICAgICAgYmFubmVyKCJQaGFzZSAxIOKAlCBDcmVhdGUgR29Mb2dpbiBwcm9m"
-            "aWxlICsgcHJveHkiKQogICAgICAgIHByb2ZpbGVfaWQgPSBjcmVhdGVfcHJvZmlsZSgpCiAgICAgICAg"
-            "cmVzdWx0WyJwcm9maWxlSWQiXSA9IHByb2ZpbGVfaWQKICAgICAgICBhdHRhY2hfcHJveHkocHJvZmls"
-            "ZV9pZCkKICAgICAgICBhd2FpdCBhc3luY2lvLnNsZWVwKDMpCiAgICAgICAgYXdhaXQgcnVuX2Zsb3co"
-            "cHJvZmlsZV9pZCwgcmVzdWx0KQogICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOgogICAgICAgIHJlc3Vs"
-            "dFsiZXJyb3IiXSA9IHN0cihlKQogICAgICAgIHByaW50KGYiOjplcnJvcjo6RGV2aWNlIHtJRFh9ICh7"
-            "RU1BSUx9KToge2V9IiwgZmx1c2g9VHJ1ZSkKICAgICAgICB0cmFjZWJhY2sucHJpbnRfZXhjKCkKICAg"
-            "IGZpbmFsbHk6CiAgICAgICAgaWYgcHJvZmlsZV9pZDoKICAgICAgICAgICAgc3RvcF9jbG91ZF9wcm9m"
-            "aWxlKHByb2ZpbGVfaWQpCiAgICAgICAgICAgIGRlbGV0ZV9wcm9maWxlKHByb2ZpbGVfaWQpCiAgICAg"
-            "ICAgcmVzdWx0WyJmaW5pc2hlZEF0Il0gPSBkYXRldGltZS5kYXRldGltZS5ub3coZGF0ZXRpbWUudGlt"
-            "ZXpvbmUudXRjKS5pc29mb3JtYXQoKQogICAgICAgIChPVVQgLyAicmVzdWx0Lmpzb24iKS53cml0ZV90"
-            "ZXh0KGpzb24uZHVtcHMocmVzdWx0LCBpbmRlbnQ9MiksIGVuY29kaW5nPSJ1dGYtOCIpCiAgICAgICAg"
-            "cHJpbnQoIlxuIiArICI9Iio2MCkKICAgICAgICBwcmludCgiR09MT0dJTiBTSUdOVVAgUkVTVUxUIikK"
-            "ICAgICAgICBwcmludCgiPSIqNjApCiAgICAgICAgcHJpbnQoZiJkZXZpY2UgICAgOiB7SURYfSIpCiAg"
-            "ICAgICAgcHJpbnQoZiJlbWFpbCAgICAgOiB7RU1BSUx9IikKICAgICAgICBwcmludChmIm9zICAgICAg"
-            "ICA6IHtQUk9GSUxFX09TfSIpCiAgICAgICAgcHJpbnQoZiJwcm94eSAgICAgOiB7UFJPWFlfVFlQRV9J"
-            "Tn0gLyB7UFJPWFlfQ09VTlRSWV9JTn0iKQogICAgICAgIHByaW50KGYic2lnbnVwICAgIDogeydPSycg"
-            "aWYgcmVzdWx0WydzaWdudXAnXSBlbHNlICdGQUlMRUQnfSIpCiAgICAgICAgcHJpbnQoZiJSRVNUIC91"
-            "c2VyOiB7cmVzdWx0LmdldCgncmVzdFN0YXR1cycpIG9yICctJ30iKQogICAgICAgIHByaW50KGYic291"
-            "cmNlICAgIDoge3Jlc3VsdC5nZXQoJ3Rva2VuU291cmNlJykgb3IgJy0nfSIpCiAgICAgICAgcHJpbnQo"
-            "IlxuQVBJIEtFWToiKQogICAgICAgIHByaW50KHJlc3VsdC5nZXQoInRva2VuIikgb3IgIihub3QgY2Fw"
-            "dHVyZWQpIikKICAgICAgICBwcmludCgiPSIqNjAgKyAiXG4iKQogICAgICAgIGlmIHJlc3VsdC5nZXQo"
-            "InRva2VuIik6CiAgICAgICAgICAgIHByaW50KGYiOjpub3RpY2UgdGl0bGU9R29Mb2dpbiBBUEkga2V5"
-            "IChkZXZpY2Uge0lEWH0gLSB7RU1BSUx9KTo6e3Jlc3VsdFsndG9rZW4nXX0iLCBmbHVzaD1UcnVlKQog"
-            "ICAgICAgIHN1bW0gPSBvcy5lbnZpcm9uLmdldCgiR0lUSFVCX1NURVBfU1VNTUFSWSIpCiAgICAgICAg"
-            "aWYgc3VtbToKICAgICAgICAgICAgbWQgPSAiXG4iLmpvaW4oWwogICAgICAgICAgICAgICAgZiIjIyMg"
-            "RGV2aWNlIHtJRFh9OiB7RU1BSUx9IiwKICAgICAgICAgICAgICAgIGYiLSBPUzogKip7UFJPRklMRV9P"
-            "U30qKiB8IFByb3h5OiAqKntQUk9YWV9UWVBFX0lOfSAvIHtQUk9YWV9DT1VOVFJZX0lOfSoqIiwKICAg"
-            "ICAgICAgICAgICAgIGYiLSBTaWdudXA6ICoqeydPSyDinJMnIGlmIHJlc3VsdFsnc2lnbnVwJ10gZWxz"
-            "ZSAnRkFJTEVEIOKclyd9KioiLAogICAgICAgICAgICAgICAgZiItIEFQSSBrZXk6IGB7cmVzdWx0Lmdl"
-            "dCgndG9rZW4nKSBvciAnbm90IGNhcHR1cmVkJ31gIiwKICAgICAgICAgICAgICAgIGYiLSBTb3VyY2U6"
-            "IHtyZXN1bHQuZ2V0KCd0b2tlblNvdXJjZScpIG9yICctJ30gIHwgIFJFU1Q6IHtyZXN1bHQuZ2V0KCdy"
-            "ZXN0U3RhdHVzJykgb3IgJy0nfSIsCiAgICAgICAgICAgICAgICAoZiItIEVycm9yOiB7cmVzdWx0Wydl"
-            "cnJvciddfSIgaWYgcmVzdWx0LmdldCgiZXJyb3IiKSBlbHNlICIiKSwKICAgICAgICAgICAgICAgICIi"
-            "LAogICAgICAgICAgICBdKQogICAgICAgICAgICB3aXRoIG9wZW4oc3VtbSwgImEiLCBlbmNvZGluZz0i"
-            "dXRmLTgiKSBhcyBmaDoKICAgICAgICAgICAgICAgIGZoLndyaXRlKG1kICsgIlxuIikKICAgICAgICBp"
-            "ZiByZXN1bHQuZ2V0KCJlcnJvciIpOgogICAgICAgICAgICBzeXMuZXhpdCgxKQoKaWYgX19uYW1lX18g"
-            "PT0gIl9fbWFpbl9fIjoKICAgIGFzeW5jaW8ucnVuKG1haW4oKSkK"
+          cat > automation/signup.py << 'PYEOF'
+          """
+          GoLogin Cloud Browser Signup — robust 2026 (v4)
+          ===============================================
+          - POST /browser/quick only
+          - Turnstile: multi-strategy (mouse / frame click / keyboard Tab+Enter /
+            layout click) with 3 independent success signals
+          - Create-account retry loop
+          - Dashboard popups (Save-password, run-profiles modal)
+          - API control: wait 20s, then Copy token
+          """
+          import asyncio, datetime, io, json, os, pathlib, random, re, string, sys, time, traceback, urllib.request, urllib.error
+          import requests
+          from playwright.async_api import async_playwright
+
+          try:
+              from PIL import Image
+          except Exception:
+              Image = None
+
+          IDX = os.environ.get("ACC_INDEX", "1")
+          OUT = pathlib.Path(os.environ.get("OUT_DIR", "out")).resolve()
+          OUT.mkdir(parents=True, exist_ok=True)
+
+          def log(tag, msg):
+              print(f"[{time.strftime('%H:%M:%S')}][dev{IDX}][{tag}] {msg}", flush=True)
+
+          def banner(title):
+              print(f"\n{'='*60}\n[dev{IDX}] {title}\n{'='*60}", flush=True)
+
+          shot_n = [0]
+          async def shot(page, label):
+              try:
+                  shot_n[0] += 1
+                  await page.screenshot(path=str(OUT / f"{shot_n[0]:02d}-{label}.png"), full_page=True)
+              except Exception:
+                  pass
+
+          EMAIL = os.environ.get("ACC_EMAIL", "")
+          PASSWORD = os.environ.get("ACC_PASSWORD", "")
+          RAW_KEYS = os.environ.get("GL_API_KEYS", "").strip()
+          PROFILE_OS = os.environ.get("PROFILE_OS", "Windows 10")
+          PROXY_TYPE_IN = os.environ.get("PROXY_TYPE", "Residential")
+          PROXY_COUNTRY_IN = os.environ.get("PROXY_COUNTRY", "United States")
+
+          API_KEYS = [k.strip() for k in RAW_KEYS.split() if k.strip()]
+          if not API_KEYS:
+              raise RuntimeError("GL_API_KEYS is empty")
+          API_TOKEN = API_KEYS[(int(IDX) - 1) % len(API_KEYS)]
+          log("Config", f"API key: ...{API_TOKEN[-6:]}")
+
+          GL_BASE = "https://api.gologin.com"
+          CLOUD_WS = "wss://cloudbrowser.gologin.com/connect"
+          HEADERS = {"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"}
+          SIGNUP_URL = "https://app.gologin.com/sign_up"
+          PROFILELIST_URL = "https://app.gologin.com/profileList"
+
+          OS_QUICK_MAP = {
+              "Windows 10": {"os": "win", "osSpec": ""},
+              "Windows 11": {"os": "win", "osSpec": "win11"},
+              "Mac Intel": {"os": "mac", "osSpec": ""},
+              "Mac ARM (M1)": {"os": "mac", "osSpec": "M1"},
+              "Linux": {"os": "lin", "osSpec": ""},
+              "Android": {"os": "android", "osSpec": ""},
+          }
+          COUNTRY_CODE_MAP = {
+              "United States": "us", "United Kingdom": "gb", "Germany": "de",
+              "France": "fr", "Canada": "ca", "Australia": "au",
+              "Japan": "jp", "Brazil": "br", "India": "in", "Netherlands": "nl",
+          }
+          PROXY_TYPE_MAP = {
+              "Residential": {"isMobile": False, "isDC": False},
+              "Datacenter": {"isMobile": False, "isDC": True},
+              "Mobile": {"isMobile": True, "isDC": False},
+          }
+
+          os_params = OS_QUICK_MAP.get(PROFILE_OS, OS_QUICK_MAP["Windows 10"])
+          proxy_cc = COUNTRY_CODE_MAP.get(PROXY_COUNTRY_IN, "us")
+          proxy_flags = PROXY_TYPE_MAP.get(PROXY_TYPE_IN, PROXY_TYPE_MAP["Residential"])
+
+          def gl_req(method, path, payload=None, raise_on_error=True):
+              url = f"{GL_BASE}{path}"
+              r = requests.request(method, url, headers=HEADERS, json=payload, timeout=30)
+              if raise_on_error and not r.ok:
+                  log("REST", f"{method} {path} -> {r.status_code}: {r.text[:400]}")
+                  r.raise_for_status()
+              return r
+
+          def rand_name(n=6):
+              return "".join(random.choices(string.ascii_lowercase + string.digits, k=n))
+
+          def create_profile():
+              profile_name = f"signup-{IDX}-{rand_name()}"
+              body = {"os": os_params["os"], "name": profile_name}
+              if os_params.get("osSpec"):
+                  body["osSpec"] = os_params["osSpec"]
+              log("Profile", f"POST /browser/quick  body={body}")
+              r = gl_req("POST", "/browser/quick", body)
+              data = r.json()
+              profile_id = (data.get("id") or data.get("_id") or data.get("browserProfileId") or "")
+              if not profile_id and isinstance(data, dict):
+                  for v in data.values():
+                      if isinstance(v, str) and len(v) == 24:
+                          profile_id = v; break
+              if not profile_id:
+                  raise RuntimeError(f"No profile id in response: {data}")
+              log("Profile", f"Created id={profile_id}")
+              return profile_id
+
+          def attach_proxy(profile_id):
+              log("Proxy", f"Attaching {PROXY_TYPE_IN} / {PROXY_COUNTRY_IN} ({proxy_cc})")
+              try:
+                  body = {
+                      "countryCode": proxy_cc,
+                      "isMobile": proxy_flags["isMobile"],
+                      "isDC": proxy_flags["isDC"],
+                      "customName": f"s{IDX}-{rand_name(4)}",
+                      "profileIdToLink": profile_id,
+                  }
+                  r = requests.post(f"{GL_BASE}/users-proxies/mobile-proxy", headers=HEADERS, json=body, timeout=30)
+                  log("Proxy", f"mobile-proxy -> {r.status_code}")
+                  if r.status_code in (200, 201):
+                      return True
+              except Exception as e:
+                  log("Proxy", f"mobile-proxy error: {e}")
+              try:
+                  patch = {"proxyEnabled": True, "proxy": {"mode": "gologin", "autoProxyRegion": proxy_cc}}
+                  r = gl_req("PATCH", f"/browser/{profile_id}", patch, raise_on_error=False)
+                  if r.ok:
+                      log("Proxy", "Attached via PATCH")
+                      return True
+              except Exception as e:
+                  log("Proxy", f"PATCH error: {e}")
+              log("Proxy", "WARNING: continuing without proxy")
+              return False
+
+          def stop_cloud_profile(profile_id):
+              try:
+                  r = gl_req("DELETE", f"/browser/{profile_id}/web", raise_on_error=False)
+                  log("Profile", f"Stop cloud: {r.status_code}")
+              except Exception: pass
+
+          def delete_profile(profile_id):
+              try:
+                  r = gl_req("DELETE", f"/browser/{profile_id}", raise_on_error=False)
+                  log("Profile", f"Delete: {r.status_code}")
+              except Exception: pass
+
+          JWT = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
+          candidates = []
+
+          def rank_of(source):
+              s = (source or "").lower()
+              if "clipboard" in s or "copied" in s: return 0
+              if "input" in s: return 1
+              if "page" in s or "storage" in s: return 3
+              if "network" in s: return 4
+              return 5
+
+          def add_candidate(tok, source):
+              if not tok: return
+              for c in candidates:
+                  if c["token"] == tok:
+                      if rank_of(source) < rank_of(c["source"]):
+                          c["source"] = source
+                      return
+              candidates.append({"token": tok, "source": source})
+              log("Token", f"candidate from {source}: ...{tok[-8:]}")
+
+          async def scan_page(page, tag):
+              try:
+                  data = await page.evaluate("""() => {
+                      const out = {inputs:[], storage:[]};
+                      try { document.querySelectorAll('input,textarea').forEach(e=>{if(e.value)out.inputs.push(String(e.value));}); } catch(e){}
+                      try {
+                          for(const s of [window.localStorage,window.sessionStorage]){
+                              for(let i=0;i<s.length;i++)out.storage.push(String(s.getItem(s.key(i))));
+                          }
+                      } catch(e){}
+                      return out;
+                  }""")
+                  for kind, label in (("inputs","input"),("storage","storage")):
+                      for text in data.get(kind, []):
+                          for m in JWT.findall(text or ""):
+                              add_candidate(m, f"{label}:{tag}")
+              except Exception: pass
+              try:
+                  for m in JWT.findall(await page.content()):
+                      add_candidate(m, f"page:{tag}")
+              except Exception: pass
+
+          async def read_clipboard(page):
+              try:
+                  txt = await page.evaluate("() => navigator.clipboard.readText()")
+                  for m in JWT.findall(txt or ""):
+                      add_candidate(m, "clipboard")
+              except Exception: pass
+              await scan_page(page, "after-copy")
+
+          def rest_check(token):
+              try:
+                  req = urllib.request.Request(f"{GL_BASE}/user",
+                      headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      return r.status
+              except urllib.error.HTTPError as e:
+                  return e.code
+              except Exception as e:
+                  return f"error:{e}"
+
+          INIT_JS = """
+          (() => {
+            const rec = t => { try{(window.__copied=window.__copied||[]).push(String(t));}catch(e){} };
+            try {
+              const cb = navigator.clipboard;
+              if(cb && cb.writeText){
+                const orig=cb.writeText.bind(cb);
+                cb.writeText=t=>{rec(t);return orig(t).catch(()=>Promise.resolve());};
+              }
+            } catch(e){}
+            document.addEventListener('copy',()=>{try{rec(String(window.getSelection()));}catch(e){}},true);
+          })();
+          """
+
+          OVERLAY_RE = re.compile(r"^(\u00d7|\u2715|x|close|got it|accept( all)?( cookies)?|maybe later|no,? thanks|not now|dismiss)$", re.I)
+
+          async def find_visible(page, locators, timeout_ms=5000):
+              end = time.time() + timeout_ms / 1000.0
+              while True:
+                  for loc in locators:
+                      try:
+                          el = loc.first
+                          if await el.is_visible():
+                              return el
+                      except Exception: pass
+                  if time.time() >= end:
+                      return None
+                  await asyncio.sleep(0.3)
+
+          async def click_first(page, locators, timeout_ms=5000):
+              el = await find_visible(page, locators, timeout_ms)
+              if el is None: return False
+              try:
+                  await el.click(timeout=5000)
+                  return True
+              except Exception:
+                  try:
+                      await el.click(timeout=3000, force=True)
+                      return True
+                  except Exception:
+                      return False
+
+          async def wait_any(conditions, timeout_ms=90000):
+              end = time.time() + timeout_ms / 1000.0
+              while time.time() < end:
+                  for name, fn in conditions:
+                      try:
+                          if await fn():
+                              return name
+                      except Exception: pass
+                  await asyncio.sleep(0.6)
+              return None
+
+          async def type_human(locator, text):
+              await locator.click()
+              try: await locator.fill("")
+              except Exception: pass
+              await locator.press_sequentially(text, delay=random.randint(50, 120))
+              try:
+                  if await locator.input_value() != text:
+                      await locator.fill(text)
+              except Exception: pass
+
+          async def tick_tos(page):
+              ticked = 0
+              for sel_loc in (page.get_by_role("checkbox"), page.locator('input[type="checkbox"]')):
+                  try: n = await sel_loc.count()
+                  except Exception: continue
+                  for i in range(n):
+                      box = sel_loc.nth(i)
+                      try:
+                          if await box.is_checked(): continue
+                          try: await box.check(timeout=3000, force=True)
+                          except Exception: await box.click(timeout=3000, force=True)
+                          ticked += 1
+                      except Exception: pass
+                  if ticked: break
+              log("Main", f"ToS checkboxes ticked: {ticked}")
+              return ticked
+
+          async def dismiss_overlays(page, tries=6):
+              for _ in range(tries):
+                  closed = False
+                  for loc in (
+                      page.locator('[role="dialog"] [aria-label="Close" i]'),
+                      page.locator('[aria-label="Close" i]'),
+                      page.get_by_role("button", name=OVERLAY_RE),
+                  ):
+                      try:
+                          el = loc.first
+                          if await el.is_visible():
+                              await el.click(timeout=2000)
+                              closed = True
+                              await asyncio.sleep(0.7)
+                              break
+                      except Exception: pass
+                  if not closed: break
+
+          async def is_dashboard(page):
+              try:
+                  url = page.url.lower()
+                  if any(x in url for x in ("sign_up", "login", "download-installer", "verify")):
+                      return False
+                  if any(x in url for x in ("profilelist", "dashboard", "personalarea", "browser")):
+                      return True
+                  return await page.get_by_role("button", name="Run", exact=True).first.is_visible()
+              except Exception:
+                  return False
+
+          async def dump_page(page, label="dump"):
+              try:
+                  url = page.url
+                  text = await page.evaluate("() => document.body ? document.body.innerText.slice(0, 2500) : ''")
+                  log("DUMP", f"[{label}] URL={url}")
+                  log("DUMP", f"[{label}] TEXT=\n{text[:1500]}")
+                  await shot(page, f"fail-{label}")
+              except Exception as e:
+                  log("DUMP", f"dump failed: {e}")
+
+          # ══════════════════════════════════════════════════════════
+          #  CLOUDFLARE TURNSTILE  (multi-strategy)
+          # ══════════════════════════════════════════════════════════
+          CREATE_RE = re.compile(r"create an account|create account|sign up|get started", re.I)
+
+          TS_IFRAME_SELECTORS = [
+              'iframe[src*="challenges.cloudflare.com"]',
+              'iframe[src*="turnstile"]',
+              'iframe[title*="cloudflare" i]',
+              'iframe[title*="challenge" i]',
+              'iframe[title*="widget" i]',
           ]
-          data = base64.b64decode("".join(chunks))
-          pathlib.Path("automation/signup.py").write_bytes(data)
-          print("[Script] Written OK, size=", len(data))
-          # quick syntax check
-          compile(data, "signup.py", "exec")
-          print("[Script] Syntax OK")
-          ENDWRITE
+          TS_CONTAINER_SELECTORS = [
+              '.cf-turnstile', '[class*="turnstile" i]', '[id*="turnstile" i]', '[data-sitekey]',
+          ]
+          TS_INPUT_JS = """() => {
+              const e = document.querySelector("input[name='cf-turnstile-response'],textarea[name='cf-turnstile-response']");
+              return e ? {exists: true, value: e.value || ''} : {exists: false, value: ''};
+          }"""
+          ACTIVE_JS = """() => {
+              const a = document.activeElement;
+              if (!a) return '';
+              return (a.tagName || '') + '|' + (a.getAttribute('src') || '') + '|' + (a.getAttribute('title') || '');
+          }"""
+
+          async def ts_state(page):
+              try:
+                  return await page.evaluate(TS_INPUT_JS)
+              except Exception:
+                  return {"exists": False, "value": ""}
+
+          def ts_frame(page):
+              for f in page.frames:
+                  try:
+                      if "challenges.cloudflare.com" in (f.url or ""):
+                          return f
+                  except Exception: pass
+              return None
+
+          async def ts_diag(page, tag):
+              try:
+                  frames = [f.url[:90] for f in page.frames if f.url and f.url != "about:blank"]
+                  log("Turnstile", f"[{tag}] frames: {frames}")
+                  n = await page.locator("iframe").count()
+                  for i in range(min(n, 8)):
+                      el = page.locator("iframe").nth(i)
+                      box = await el.bounding_box()
+                      src = (await el.get_attribute("src")) or ""
+                      log("Turnstile", f"[{tag}] iframe#{i} src={src[:70]} box={box}")
+              except Exception as e:
+                  log("Turnstile", f"diag failed: {e}")
+
+          async def ts_locate(page, allow_layout=True):
+              """Find the Turnstile widget. Prefer iframe/container, then text, then layout."""
+              # 1) iframe / container
+              for sel in TS_IFRAME_SELECTORS + TS_CONTAINER_SELECTORS:
+                  try:
+                      loc = page.locator(sel)
+                      n = await loc.count()
+                      for i in range(n):
+                          el = loc.nth(i)
+                          try: await el.scroll_into_view_if_needed(timeout=2000)
+                          except Exception: pass
+                          box = await el.bounding_box()
+                          if box and box["width"] > 40 and box["height"] > 20:
+                              return {"box": box, "source": f"sel:{sel}"}
+                  except Exception: pass
+
+              # 2) visible text "Verify you are human" (most reliable from the real UI)
+              try:
+                  txt_loc = page.get_by_text(re.compile(r"verify you are human", re.I)).first
+                  if await txt_loc.is_visible():
+                      tbox = await txt_loc.bounding_box()
+                      if tbox:
+                          # The checkbox square sits to the LEFT of the text.
+                          # Typical widget height ~65, checkbox is ~24x24 near left edge.
+                          box = {
+                              "x": max(0, tbox["x"] - 40),
+                              "y": tbox["y"] - 8,
+                              "width": tbox["width"] + 80,
+                              "height": max(tbox["height"] + 16, 50),
+                          }
+                          return {"box": box, "source": "text:verify-you-are-human", "text_box": tbox}
+              except Exception: pass
+
+              # 3) layout relative to Create button
+              if allow_layout:
+                  try:
+                      st = await ts_state(page)
+                      html = (await page.content()).lower()
+                      if st["exists"] or "turnstile" in html or "challenges.cloudflare" in html or "verify you are human" in html:
+                          btn = page.get_by_role("button", name=CREATE_RE).first
+                          bb = await btn.bounding_box()
+                          if bb:
+                              box = {
+                                  "x": bb["x"] + bb["width"] / 2 - 150,
+                                  "y": bb["y"] - 22 - 65,
+                                  "width": 300,
+                                  "height": 65,
+                              }
+                              return {"box": box, "source": "layout"}
+                  except Exception: pass
+              return None
+
+          async def ts_green_ratio(page, box):
+              if Image is None or not box:
+                  return 0.0
+              try:
+                  png = await page.screenshot(clip={
+                      "x": max(box["x"], 0), "y": max(box["y"], 0),
+                      "width": box["width"], "height": box["height"]
+                  })
+                  im = Image.open(io.BytesIO(png)).convert("RGB")
+                  px = list(im.getdata())
+                  if not px: return 0.0
+                  g = sum(1 for (r, gg, b) in px if gg > 110 and gg - r > 45 and gg - b > 45)
+                  return g / len(px)
+              except Exception:
+                  return 0.0
+
+          async def ts_solved(page, info, baseline):
+              st = await ts_state(page)
+              if st["value"]:
+                  return f"token(len={len(st['value'])})"
+              f = ts_frame(page)
+              if f:
+                  try:
+                      if await f.locator("#success").first.is_visible():
+                          return "frame:#success"
+                  except Exception: pass
+                  try:
+                      txt = await f.evaluate("() => document.body ? document.body.innerText : ''")
+                      if txt and re.search(r"\\bsuccess\\b", txt, re.I):
+                          return "frame:text"
+                  except Exception: pass
+              if info:
+                  ratio = await ts_green_ratio(page, info["box"])
+                  if ratio > max(0.008, baseline + 0.006):
+                      return f"pixels(green={ratio:.3f})"
+              return ""
+
+          # ------------------------------------------------------------------
+          # AGGRESSIVE GUI MOUSE CLICK on the exact checkbox square
+          # ------------------------------------------------------------------
+          async def ts_gui_mouse_click_checkbox(page, info, attempt):
+              """
+              Human-like mouse movement + multiple precise clicks on the
+              LEFT side of the Turnstile widget (the actual checkbox square).
+              Also clicks the "Verify you are human" text as a secondary target.
+              """
+              box = info["box"]
+              text_box = info.get("text_box")
+
+              # Primary target: the checkbox square (left side of widget)
+              # Typical checkbox is ~22-28 px from left edge, vertically centered.
+              offsets = [
+                  (22, 0.50), (26, 0.48), (20, 0.52), (28, 0.50),
+                  (24, 0.45), (18, 0.55), (30, 0.50), (25, 0.47),
+              ]
+              # pick a few offsets for this attempt
+              chosen = offsets[attempt % len(offsets):(attempt % len(offsets)) + 3]
+              if len(chosen) < 3:
+                  chosen = offsets[:3]
+
+              try:
+                  await page.bring_to_front()
+              except Exception: pass
+
+              success_any = False
+              for i, (dx, dy_ratio) in enumerate(chosen):
+                  x = box["x"] + dx + random.uniform(-1.5, 1.5)
+                  y = box["y"] + box["height"] * dy_ratio + random.uniform(-2, 2)
+                  log("Turnstile", f"GUI mouse click #{i+1} at ({x:.0f},{y:.0f})  (checkbox area)")
+
+                  try:
+                      # move from a random nearby point with steps (human-like)
+                      await page.mouse.move(
+                          x - random.uniform(80, 160),
+                          y - random.uniform(30, 80),
+                          steps=random.randint(8, 14)
+                      )
+                      await asyncio.sleep(random.uniform(0.25, 0.55))
+                      await page.mouse.move(x, y, steps=random.randint(10, 16))
+                      await asyncio.sleep(random.uniform(0.20, 0.45))
+
+                      # down → small hold → up
+                      await page.mouse.down()
+                      await asyncio.sleep(random.uniform(0.08, 0.18))
+                      await page.mouse.up()
+                      success_any = True
+                      await asyncio.sleep(random.uniform(0.35, 0.70))
+                  except Exception as e:
+                      log("Turnstile", f"mouse click failed: {e}")
+
+              # Secondary: click the text label itself (sometimes activates the widget)
+              if text_box:
+                  try:
+                      tx = text_box["x"] + text_box["width"] * 0.35 + random.uniform(-4, 4)
+                      ty = text_box["y"] + text_box["height"] * 0.5 + random.uniform(-2, 2)
+                      log("Turnstile", f"GUI mouse click on text at ({tx:.0f},{ty:.0f})")
+                      await page.mouse.move(tx - 40, ty - 20, steps=8)
+                      await asyncio.sleep(0.25)
+                      await page.mouse.move(tx, ty, steps=10)
+                      await asyncio.sleep(0.2)
+                      await page.mouse.down()
+                      await asyncio.sleep(0.1)
+                      await page.mouse.up()
+                      success_any = True
+                  except Exception as e:
+                      log("Turnstile", f"text click failed: {e}")
+
+              # Tertiary: absolute click on the whole widget center-left (force)
+              try:
+                  cx = box["x"] + 28
+                  cy = box["y"] + box["height"] / 2
+                  await page.mouse.click(cx, cy, delay=80)
+                  success_any = True
+              except Exception: pass
+
+              return success_any
+
+          async def ts_act_framebody(page, info, k):
+              f = ts_frame(page)
+              if not f:
+                  return False
+              try:
+                  await f.locator("body").click(position={"x": 24 + k, "y": 32}, timeout=3000, force=True)
+                  log("Turnstile", "clicked inside Turnstile frame body")
+                  return True
+              except Exception as e:
+                  log("Turnstile", f"frame body click failed: {str(e)[:80]}")
+              try:
+                  await f.get_by_role("checkbox").first.click(timeout=2000, force=True)
+                  log("Turnstile", "clicked checkbox role in frame")
+                  return True
+              except Exception:
+                  return False
+
+          async def ts_focused_on_widget(page):
+              try:
+                  v = (await page.evaluate(ACTIVE_JS) or "").lower()
+              except Exception:
+                  return False
+              return v.startswith("iframe") and any(w in v for w in ("cloudflare", "turnstile", "challenge", "widget"))
+
+          async def ts_act_keyboard(page, info, k, key):
+              try:
+                  await page.bring_to_front()
+                  anchor = page.locator('input[type="password"]').last
+                  await anchor.click(timeout=3000)
+              except Exception: pass
+              await asyncio.sleep(0.5)
+
+              found = False
+              for i in range(16):
+                  await page.keyboard.press("Tab")
+                  await asyncio.sleep(0.30)
+                  if await ts_focused_on_widget(page):
+                      found = True
+                      log("Turnstile", f"widget focused after {i+1} Tab presses")
+                      break
+              if not found:
+                  for i in range(12):
+                      await page.keyboard.press("Shift+Tab")
+                      await asyncio.sleep(0.30)
+                      if await ts_focused_on_widget(page):
+                          found = True
+                          log("Turnstile", f"widget focused after {i+1} Shift+Tab presses")
+                          break
+              if not found:
+                  log("Turnstile", "keyboard: could not focus widget")
+                  return False
+
+              await asyncio.sleep(random.uniform(0.5, 0.9))
+              if k >= 3:
+                  await page.keyboard.press("Tab")
+                  await asyncio.sleep(0.4)
+              await page.keyboard.press(key)
+              log("Turnstile", f"keyboard: pressed {key} on focused widget")
+              return True
+
+          async def solve_turnstile(page, tag, min_wait=12, wait_per_try=18):
+              """
+              Robust Turnstile solver (v4):
+                1. Locate widget (iframe / text / layout)
+                2. Primary path = aggressive GUI mouse clicks on the checkbox square
+                3. Always wait min_wait (12–15 s) after clicks for the green check / token
+                4. Fallback keyboard + frame click
+              Returns True if solved (or no widget present).
+              """
+              await ts_diag(page, tag)
+
+              info = None
+              for _ in range(50):                      # up to ~25 s for widget to appear
+                  st = await ts_state(page)
+                  if st["value"]:
+                      log("Turnstile", f"[{tag}] already solved (token present)")
+                      return True
+                  info = await ts_locate(page, allow_layout=False)
+                  if info:
+                      break
+                  await asyncio.sleep(0.5)
+              if not info:
+                  info = await ts_locate(page, allow_layout=True)
+              if not info:
+                  log("Turnstile", f"[{tag}] no widget found — nothing to solve")
+                  return True
+
+              log("Turnstile", f"[{tag}] widget located via {info['source']} box={info['box']}")
+              await shot(page, f"turnstile-{tag}-found")
+              baseline = await ts_green_ratio(page, info["box"])
+
+              # Give managed / auto mode a short chance first
+              await asyncio.sleep(random.uniform(2.5, 4.0))
+              s = await ts_solved(page, info, baseline)
+              if s:
+                  log("Turnstile", f"[{tag}] auto-solved: {s}")
+                  await asyncio.sleep(2)
+                  return True
+
+              # ---------- MAIN STRATEGY LOOP ----------
+              # Prioritise aggressive GUI mouse clicks on the checkbox
+              strategies = [
+                  "gui-mouse", "gui-mouse", "gui-mouse",   # three solid mouse attempts
+                  "kb-space", "framebody", "gui-mouse",
+                  "kb-enter", "gui-mouse",
+              ]
+
+              for k, strat in enumerate(strategies):
+                  s = await ts_solved(page, info, baseline)
+                  if s:
+                      log("Turnstile", f"[{tag}] solved before strategy {strat}: {s}")
+                      await asyncio.sleep(2)
+                      return True
+
+                  info = (await ts_locate(page, allow_layout=True)) or info
+                  log("Turnstile", f"[{tag}] attempt {k+1}/{len(strategies)} strategy={strat}")
+
+                  if strat == "gui-mouse":
+                      ok = await ts_gui_mouse_click_checkbox(page, info, k)
+                  elif strat == "framebody":
+                      ok = await ts_act_framebody(page, info, k)
+                  elif strat == "kb-space":
+                      ok = await ts_act_keyboard(page, info, k, "Space")
+                  elif strat == "kb-enter":
+                      ok = await ts_act_keyboard(page, info, k, "Enter")
+                  else:
+                      ok = await ts_gui_mouse_click_checkbox(page, info, k)
+
+                  log("Turnstile", f"[{tag}] action performed: {ok}")
+                  await shot(page, f"turnstile-{tag}-try{k+1}-{strat}")
+
+                  if not ok:
+                      await asyncio.sleep(1.0)
+                      continue
+
+                  # CRITICAL: wait the full min_wait (12–15 s) for Cloudflare to finish
+                  wait_s = max(min_wait, 12) + random.uniform(0, 3)
+                  log("Turnstile", f"[{tag}] waiting {wait_s:.0f}s for success after {strat} ...")
+                  t0 = time.time()
+                  while time.time() - t0 < wait_s:
+                      await asyncio.sleep(1.2)
+                      s = await ts_solved(page, info, baseline)
+                      if s:
+                          log("Turnstile", f"[{tag}] SOLVED via {strat}: {s} (after {time.time()-t0:.0f}s)")
+                          await asyncio.sleep(random.uniform(1.5, 2.5))
+                          await shot(page, f"turnstile-{tag}-solved")
+                          return True
+                      if int(time.time() - t0) % 5 == 0:
+                          log("Turnstile", f"[{tag}] still waiting ({time.time()-t0:.0f}s)...")
+
+                  log("Turnstile", f"[{tag}] strategy {strat} did not confirm success — next")
+
+              log("Turnstile", f"[{tag}] WARNING: no strategy confirmed success")
+              await shot(page, f"turnstile-timeout-{tag}")
+              # Even if we could not confirm, still return True so the caller
+              # proceeds to click Create (sometimes the token is set late).
+              return True
+
+          # ══════════════════════════════════════════════════════════
+          #  DASHBOARD POPUPS
+          # ══════════════════════════════════════════════════════════
+          async def dismiss_save_password(page):
+              """
+              Chrome's "Save password?" bubble is native browser UI (not DOM), so this is
+              best effort: try a DOM "No thanks", then Escape. It does not block page clicks.
+              """
+              log("Popup", "Dismissing Save-password bubble (best effort)")
+              for loc in (
+                  page.get_by_role("button", name=re.compile(r"^no thanks$", re.I)),
+                  page.get_by_text(re.compile(r"^no thanks$", re.I)),
+                  page.locator('button:has-text("No thanks")'),
+              ):
+                  try:
+                      el = loc.first
+                      if await el.is_visible():
+                          await el.click(timeout=2000)
+                          log("Popup", 'Clicked "No thanks" via DOM')
+                          await asyncio.sleep(1.0)
+                          return True
+                  except Exception: pass
+              try:
+                  await page.keyboard.press("Escape")
+                  await asyncio.sleep(0.6)
+              except Exception: pass
+              return False
+
+          RUN_MODAL_RE = re.compile(r"how do you want to run profiles", re.I)
+
+          MODAL_RECT_JS = """() => {
+              const re = /how do you want to run profiles/i;
+              let target = null;
+              for (const el of document.querySelectorAll('h1,h2,h3,h4,h5,div,p,span')) {
+                  if (el.children.length === 0 && re.test(el.textContent || '')) { target = el; break; }
+              }
+              if (!target) return null;
+              let card = target;
+              while (card.parentElement) {
+                  const r = card.getBoundingClientRect();
+                  if (r.width >= 420 && r.height >= 320) break;
+                  card = card.parentElement;
+              }
+              const r = card.getBoundingClientRect();
+              if (r.width < 100 || r.height < 100) return null;
+              const pts = [];
+              card.querySelectorAll('button,[role="button"],svg,i,a,span,[class*="close" i]').forEach(e => {
+                  const b = e.getBoundingClientRect();
+                  const txt = (e.textContent || '').trim();
+                  if (b.width > 0 && b.width <= 48 && b.height > 0 && b.height <= 48 &&
+                      (b.top - r.top) < 70 && txt.length <= 2) {
+                      pts.push({x: b.left + b.width / 2, y: b.top + b.height / 2});
+                  }
+              });
+              return {x: r.left, y: r.top, w: r.width, h: r.height, pts: pts};
+          }"""
+
+          async def run_modal_info(page):
+              try:
+                  return await page.evaluate(MODAL_RECT_JS)
+              except Exception:
+                  return None
+
+          async def run_modal_visible(page):
+              try:
+                  if await page.get_by_text(RUN_MODAL_RE).first.is_visible():
+                      return True
+              except Exception: pass
+              return (await run_modal_info(page)) is not None
+
+          async def close_run_modal(page, wait_appear=12, attempts=4):
+              """Close the 'How do you want to run profiles?' modal via its small X."""
+              end = time.time() + wait_appear
+              seen = False
+              while time.time() < end:
+                  if await run_modal_visible(page):
+                      seen = True
+                      break
+                  await asyncio.sleep(0.5)
+              if not seen:
+                  log("Popup", "Run-profiles modal not present")
+                  return True
+
+              log("Popup", "Run-profiles modal detected — closing")
+              await shot(page, "run-modal-open")
+              await asyncio.sleep(random.uniform(0.8, 1.4))
+
+              for attempt in range(attempts):
+                  info = await run_modal_info(page)
+                  if not info:
+                      break
+
+                  for loc in (
+                      page.locator('[role="dialog"] [aria-label*="close" i]'),
+                      page.locator('[aria-label*="close" i]'),
+                      page.locator('button[class*="close" i]'),
+                  ):
+                      try:
+                          el = loc.first
+                          if await el.is_visible():
+                              await el.click(timeout=2000)
+                              log("Popup", "Clicked X via DOM selector")
+                              await asyncio.sleep(1.3)
+                              break
+                      except Exception: pass
+                  if not await run_modal_visible(page):
+                      break
+
+                  info = await run_modal_info(page)
+                  if not info:
+                      break
+                  pts = sorted(info.get("pts", []), key=lambda p: -p["x"])
+                  corners = [
+                      {"x": info["x"] + info["w"] - 24, "y": info["y"] + 24},   # top-right
+                      {"x": info["x"] + 24,             "y": info["y"] + 24},   # top-left
+                  ]
+                  for p in pts[:2] + corners:
+                      try:
+                          await page.mouse.move(p["x"] - 25, p["y"] + 15, steps=6)
+                          await asyncio.sleep(0.3)
+                          await page.mouse.move(p["x"], p["y"], steps=6)
+                          await asyncio.sleep(0.2)
+                          await page.mouse.click(p["x"], p["y"])
+                          log("Popup", f"Clicked ({p['x']:.0f},{p['y']:.0f})")
+                      except Exception as e:
+                          log("Popup", f"mouse click error: {e}")
+                      await asyncio.sleep(1.4)
+                      if not await run_modal_visible(page):
+                          break
+                  if not await run_modal_visible(page):
+                      break
+
+                  try:
+                      await page.keyboard.press("Escape")
+                      await asyncio.sleep(1.0)
+                  except Exception: pass
+                  if not await run_modal_visible(page):
+                      break
+                  log("Popup", f"Modal still open after attempt {attempt+1}")
+
+              gone = not await run_modal_visible(page)
+              log("Popup", f"Run-profiles modal closed: {gone}")
+              await shot(page, "run-modal-after")
+              return gone
+
+          async def clear_dashboard_popups(page):
+              await asyncio.sleep(random.uniform(2.0, 3.0))
+              await dismiss_save_password(page)
+              await asyncio.sleep(random.uniform(1.0, 1.8))
+              await close_run_modal(page)
+              await asyncio.sleep(random.uniform(0.8, 1.5))
+              await dismiss_save_password(page)
+              await dismiss_overlays(page, 4)
+              await asyncio.sleep(random.uniform(0.8, 1.2))
+              await shot(page, "dashboard-clean")
+
+          # ══════════════════════════════════════════════════════════
+          #  TOKEN VIA SETTINGS (last-resort fallback only)
+          # ══════════════════════════════════════════════════════════
+          async def token_via_settings(page):
+              await page.goto("https://app.gologin.com/#/personalArea/TokenApi", wait_until="domcontentloaded", timeout=30000)
+              await asyncio.sleep(3)
+              await close_run_modal(page, wait_appear=3)
+              await dismiss_overlays(page, 3)
+              new_btn = await find_visible(page, [
+                  page.get_by_role("button", name=re.compile(r"new token", re.I)),
+                  page.get_by_role("button", name=re.compile(r"(create|generate).{0,12}token", re.I)),
+              ], 8000)
+              if not new_btn:
+                  await click_first(page, [
+                      page.get_by_text(re.compile(r"API\s*(&|and)\s*MCP", re.I)),
+                      page.get_by_role("link", name=re.compile(r"^api", re.I)),
+                  ], 4000)
+                  await asyncio.sleep(2)
+                  new_btn = await find_visible(page, [page.get_by_role("button", name=re.compile(r"new token", re.I))], 8000)
+              await scan_page(page, "settings-existing")
+              await shot(page, "api-page")
+              if not new_btn:
+                  log("Token", "No New token button")
+                  return
+              await new_btn.click()
+              await asyncio.sleep(1.5)
+              try:
+                  name_input = page.locator('[role="dialog"] input[type="text"],[class*="modal" i] input[type="text"]').first
+                  if await name_input.is_visible():
+                      await name_input.fill(f"actions-{IDX}")
+              except Exception: pass
+              await click_first(page, [page.get_by_role("button", name=re.compile(r"^(create|generate|save|confirm|ok|done|continue)\b", re.I))], 3000)
+              await asyncio.sleep(2.5)
+              await scan_page(page, "settings-new")
+              await click_first(page, [
+                  page.get_by_role("button", name=re.compile(r"copy", re.I)),
+                  page.get_by_text(re.compile(r"^copy( token)?$", re.I)),
+              ], 2000)
+              await read_clipboard(page)
+              await shot(page, "settings-after-new-token")
+
+          # ══════════════════════════════════════════════════════════
+          #  API CONTROL: wait for it to load, then copy token
+          # ══════════════════════════════════════════════════════════
+          async def wait_and_copy_api_token(page, initial_wait=20, extra_wait=40):
+              """
+              After clicking "API control" the page needs time to start. Wait
+              `initial_wait` seconds (scanning for the token the whole time),
+              then wait up to `extra_wait` more seconds for "Copy token".
+              """
+              log("Main", f"Waiting {initial_wait}s for API control to load")
+              waited = 0
+              while waited < initial_wait:
+                  await asyncio.sleep(5)
+                  waited += 5
+                  await scan_page(page, f"api-wait-{waited}s")
+                  if waited in (10, 20):
+                      await shot(page, f"api-control-wait-{waited}s")
+
+              copy_locators = [
+                  page.get_by_role("button", name=re.compile(r"copy token", re.I)),
+                  page.get_by_text(re.compile(r"copy token", re.I)),
+                  page.get_by_role("button", name=re.compile(r"^copy$", re.I)),
+              ]
+              end = time.time() + extra_wait
+              copy_el = None
+              while time.time() < end:
+                  copy_el = await find_visible(page, copy_locators, 4000)
+                  if copy_el:
+                      break
+                  await scan_page(page, "api-wait-extra")
+                  await asyncio.sleep(2)
+
+              await shot(page, "api-control-page")
+              if not copy_el:
+                  log("Main", "Copy token not found after waiting")
+                  await scan_page(page, "api-control-final-scan")
+                  return False
+
+              await asyncio.sleep(random.uniform(0.8, 1.4))
+              try:
+                  await copy_el.click(timeout=5000)
+              except Exception:
+                  try: await copy_el.click(timeout=3000, force=True)
+                  except Exception as e: log("Main", f"copy click failed: {e}")
+              log("Main", "Clicked Copy token")
+              await asyncio.sleep(1.5)
+              await read_clipboard(page)
+              await shot(page, "after-copy-token")
+              # second read in case the clipboard was written late
+              await asyncio.sleep(1.5)
+              await read_clipboard(page)
+              return True
+
+          # ══════════════════════════════════════════════════════════
+          #  MAIN BROWSER FLOW
+          # ══════════════════════════════════════════════════════════
+          async def run_flow(profile_id, result):
+              ws_url = f"{CLOUD_WS}?token={API_TOKEN}&profile={profile_id}"
+              log("Cloud", f"Connecting profile={profile_id}")
+
+              import aiohttp
+              async with aiohttp.ClientSession() as session:
+                  check_url = ws_url.replace("wss://", "https://").replace("ws://", "http://")
+                  async with session.get(check_url) as resp:
+                      log("Cloud", f"Connection check: HTTP {resp.status}")
+                      if resp.status >= 400:
+                          raise RuntimeError(f"Cloud browser refused: {resp.reason}")
+
+              async with async_playwright() as pw:
+                  browser = await pw.chromium.connect_over_cdp(ws_url, timeout=60000)
+                  log("Cloud", "Playwright connected")
+                  context = browser.contexts[0] if browser.contexts else await browser.new_context()
+                  try:
+                      await context.grant_permissions(["clipboard-read", "clipboard-write"])
+                  except Exception: pass
+
+                  async def on_response(r):
+                      try:
+                          if "gologin.com" not in r.url or "token" not in r.url.lower(): return
+                          ct = r.headers.get("content-type", "")
+                          if "json" not in ct and "text" not in ct: return
+                          for m in JWT.findall(await r.text()):
+                              add_candidate(m, f"network:{r.url.split('?')[0][-40:]}")
+                      except Exception: pass
+
+                  context.on("response", on_response)
+                  await context.add_init_script(INIT_JS)
+
+                  pages = context.pages
+                  page = pages[0] if pages else await context.new_page()
+                  page.set_default_timeout(30000)
+                  try: await page.evaluate(INIT_JS)
+                  except Exception: pass
+
+                  # ── Phase 2: Sign-up ──────────────────────────
+                  banner("Phase 2 — Fill sign-up form")
+                  log("Main", f"Current URL: {page.url}")
+                  if "sign_up" not in page.url:
+                      await page.goto(SIGNUP_URL, wait_until="domcontentloaded", timeout=60000)
+
+                  email_field = await find_visible(page, [
+                      page.get_by_placeholder(re.compile(r"your email", re.I)),
+                      page.locator('input[type="email"]'),
+                      page.locator('input[name="email"]'),
+                      page.locator('input[placeholder*="email" i]'),
+                  ], 30000)
+
+                  if not email_field:
+                      await dump_page(page, "no-email-field")
+                      raise RuntimeError("Sign-up email field not found")
+
+                  await asyncio.sleep(random.uniform(1.5, 2.5))
+                  await shot(page, "signup-page")
+                  log("Main", f"Entering email: {EMAIL}")
+                  await type_human(email_field, EMAIL)
+                  await asyncio.sleep(random.uniform(1.5, 2.8))
+                  await shot(page, "email-entered")
+
+                  await tick_tos(page)
+                  await asyncio.sleep(random.uniform(0.8, 1.5))
+                  await shot(page, "tos-ticked")
+
+                  await click_first(page, [
+                      page.get_by_role("button", name=re.compile(r"try 7 days for free", re.I)),
+                      page.get_by_role("button", name=re.compile(r"try.*free", re.I)),
+                      page.get_by_role("button", name=re.compile(r"continue", re.I)),
+                      page.locator('button:has-text("Try 7 days")'),
+                  ], 12000)
+                  await asyncio.sleep(random.uniform(2.0, 3.5))
+
+                  # ── Phase 3: Password + Turnstile + Create ────
+                  banner("Phase 3 — Password, Turnstile, Create account")
+
+                  async def password_visible():
+                      return (await page.locator('input[type="password"]').first.is_visible()
+                              or await page.get_by_placeholder(re.compile(r"your password|password", re.I)).first.is_visible())
+
+                  stage1 = await wait_any([
+                      ["password", password_visible],
+                      ["error", lambda: page.get_by_text(re.compile(
+                          r"already (registered|exists|in use|taken)|invalid email|too many|something went wrong|try again", re.I
+                      )).first.is_visible()],
+                  ], 50000)
+
+                  await shot(page, "after-email-submit")
+                  if stage1 != "password":
+                      await dump_page(page, f"stage1-{stage1}")
+                      raise RuntimeError(f"Password step not reached (stage={stage1})")
+
+                  await asyncio.sleep(random.uniform(1.0, 2.0))
+
+                  pass_field = page.get_by_placeholder(re.compile(r"your password|password", re.I)).first
+                  confirm_field = page.get_by_placeholder(re.compile(r"confirm password", re.I)).first
+                  try:
+                      if not (await pass_field.is_visible() and await confirm_field.is_visible()):
+                          raise ValueError("placeholders missing")
+                  except Exception:
+                      pw_inputs = page.locator('input[type="password"]')
+                      pass_field = pw_inputs.nth(0)
+                      confirm_field = pw_inputs.nth(1) if await pw_inputs.count() > 1 else None
+
+                  await type_human(pass_field, PASSWORD)
+                  await asyncio.sleep(random.uniform(0.6, 1.1))
+                  if confirm_field is not None:
+                      await type_human(confirm_field, PASSWORD)
+                  await asyncio.sleep(random.uniform(0.8, 1.4))
+
+                  await tick_tos(page)
+                  await asyncio.sleep(random.uniform(0.8, 1.4))
+                  await shot(page, "password-filled")
+
+                  async def left_password_step():
+                      try:
+                          if not await page.locator('input[type="password"]').first.is_visible():
+                              return True
+                      except Exception:
+                          return True
+                      return False
+
+                  created = False
+                  for attempt in range(1, 4):
+                      # 1) Turnstile FIRST: click/keyboard-select it, wait for success
+                      ts_ok = await solve_turnstile(page, f"a{attempt}", min_wait=13)
+                      log("Main", f"Turnstile solved before create (attempt {attempt}): {ts_ok}")
+                      await asyncio.sleep(random.uniform(1.0, 2.0))
+                      await shot(page, f"before-create-account-{attempt}")
+
+                      # 2) THEN click "Create an account"
+                      clicked = await click_first(page, [
+                          page.get_by_role("button", name=CREATE_RE),
+                          page.locator('button:has-text("Create")'),
+                          page.locator('button[type="submit"]'),
+                      ], 8000)
+                      log("Main", f"Create click attempt {attempt}: {clicked}")
+                      await asyncio.sleep(random.uniform(2.0, 3.0))
+                      await shot(page, f"after-create-click-{attempt}")
+
+                      # 3) did we move on from the password page?
+                      moved = await wait_any([
+                          ["left", left_password_step],
+                          ["survey", lambda: page.get_by_text(re.compile(r"have you ever used|antidetect|what do you use", re.I)).first.is_visible()],
+                          ["verify", lambda: page.get_by_text(re.compile(r"check your (email|inbox)|verify your email|confirmation link|we sent", re.I)).first.is_visible()],
+                          ["dash", lambda: is_dashboard(page)],
+                      ], 25000)
+                      log("Main", f"After create click: moved={moved}")
+                      if moved:
+                          created = True
+                          break
+                      log("Main", "Still on password step — re-solving Turnstile and retrying")
+                      await asyncio.sleep(random.uniform(2.0, 3.5))
+
+                  if not created:
+                      await dump_page(page, "create-never-advanced")
+                      raise RuntimeError("Create account did not advance (Turnstile/Create failed)")
+
+                  async def text_visible(pat):
+                      return await page.get_by_text(re.compile(pat, re.I)).first.is_visible()
+
+                  stage2 = await wait_any([
+                      ["survey",     lambda: text_visible(r"have you ever used|antidetect|what do you use")],
+                      ["allset",     lambda: text_visible(r"all set|you.?re all set|welcome")],
+                      ["verify",     lambda: text_visible(r"check your (email|inbox)|verify your email|confirmation link|we sent")],
+                      ["dashboard",  lambda: is_dashboard(page)],
+                      ["installer",  lambda: "download-installer" in page.url.lower()],
+                      ["profilelist",lambda: "profilelist" in page.url.lower() or "browser" in page.url.lower()],
+                      ["error",      lambda: text_visible(r"already (registered|exists|in use|taken)|password is too|something went wrong|try again|invalid")],
+                  ], 100000)
+
+                  await shot(page, "after-create-account")
+                  log("Main", f"Post-create stage = {stage2}")
+
+                  if stage2 in ("error", None):
+                      await dump_page(page, f"stage2-{stage2}")
+                      raise RuntimeError(f"Account creation failed (stage={stage2})")
+
+                  result["signup"] = True
+                  log("Main", f"ACCOUNT CREATED (or pending verify): {EMAIL} (stage={stage2})")
+
+                  if stage2 == "verify":
+                      log("Main", "Email verification required — token extraction may be limited")
+
+                  # ── Phase 4: Onboarding + popups ──────────────
+                  banner("Phase 4 — Onboarding & popups")
+                  await asyncio.sleep(random.uniform(2.0, 3.0))
+
+                  for _ in range(4):
+                      skip = await find_visible(page, [
+                          page.get_by_text(re.compile(r"skip recommended setup|^skip$", re.I)),
+                          page.get_by_role("link", name=re.compile(r"skip", re.I)),
+                          page.get_by_role("button", name=re.compile(r"skip", re.I)),
+                      ], 2500)
+                      if skip:
+                          try:
+                              await skip.click()
+                              log("Main", "Clicked Skip")
+                          except Exception: pass
+                          await asyncio.sleep(1.5)
+                          break
+                      if "download-installer" in page.url:
+                          break
+                      await asyncio.sleep(0.5)
+
+                  if "profilelist" not in page.url.lower():
+                      log("Main", f"Navigating to profile list (was {page.url})")
+                      await page.goto(PROFILELIST_URL, wait_until="domcontentloaded", timeout=45000)
+                      await asyncio.sleep(random.uniform(3.0, 4.5))
+
+                  await shot(page, "dashboard-raw")
+                  await clear_dashboard_popups(page)
+
+                  if not await is_dashboard(page):
+                      await page.goto(PROFILELIST_URL, wait_until="domcontentloaded", timeout=30000)
+                      await asyncio.sleep(3)
+                      await clear_dashboard_popups(page)
+
+                  await shot(page, "dashboard")
+                  log("Main", "Reached dashboard area")
+
+                  # ── Phase 5: Extract API token ────────────────
+                  banner("Phase 5 — Extract API token")
+                  await asyncio.sleep(random.uniform(1.5, 2.5))
+                  run_btn = await find_visible(page, [page.get_by_role("button", name="Run", exact=True)], 20000)
+
+                  if not run_btn:
+                      log("Main", "No Run button — going to Settings API page")
+                      await token_via_settings(page)
+                  else:
+                      if await run_modal_visible(page):
+                          await close_run_modal(page, wait_appear=1)
+                      await run_btn.click()
+                      log("Main", "Clicked Run")
+                      await asyncio.sleep(random.uniform(1.5, 2.5))
+                      await shot(page, "run-menu")
+                      api_clicked = await click_first(page, [
+                          page.get_by_text(re.compile(r"api control", re.I)),
+                          page.get_by_role("menuitem", name=re.compile(r"api control", re.I)),
+                      ], 10000)
+                      if not api_clicked:
+                          log("Main", "API control not found — Settings")
+                          await token_via_settings(page)
+                      else:
+                          log("Main", 'Clicked "API control"')
+                          await wait_and_copy_api_token(page, initial_wait=20, extra_wait=40)
+
+                  if not [c for c in candidates if rank_of(c["source"]) <= 2]:
+                      if not candidates:
+                          log("Main", "Nothing captured at all — last-resort Settings page")
+                          await token_via_settings(page)
+                      else:
+                          log("Main", "Only low-confidence candidates captured — will REST-verify them")
+
+                  await browser.close()
+
+              if not candidates:
+                  raise RuntimeError("Signup succeeded but no API token extracted")
+
+              ordered = sorted(candidates, key=lambda c: rank_of(c["source"]))
+              pick = None
+              for c in ordered[:5]:
+                  st = rest_check(c["token"])
+                  log("Main", f"REST /user for {c['source']}: {st}")
+                  if st == 200:
+                      pick = c
+                      result["restStatus"] = st
+                      break
+                  if result["restStatus"] is None:
+                      result["restStatus"] = st
+
+              if pick is None:
+                  pick = ordered[0]
+                  log("Main", "WARNING: no candidate passed REST check — keeping best")
+
+              result["token"] = pick["token"]
+              result["tokenSource"] = pick["source"]
+              (OUT / "token.txt").write_text(pick["token"] + "\n", encoding="utf-8")
+
+          async def main():
+              profile_id = None
+              result = {
+                  "index": int(IDX), "email": EMAIL, "signup": False,
+                  "token": None, "tokenSource": None, "restStatus": None,
+                  "profileId": None, "profileOS": PROFILE_OS,
+                  "proxyType": PROXY_TYPE_IN, "proxyCountry": PROXY_COUNTRY_IN,
+                  "error": None, "finishedAt": None,
+              }
+              try:
+                  if not EMAIL or not PASSWORD:
+                      raise RuntimeError("ACC_EMAIL / ACC_PASSWORD empty")
+                  banner("Phase 1 — Create GoLogin profile + proxy")
+                  profile_id = create_profile()
+                  result["profileId"] = profile_id
+                  attach_proxy(profile_id)
+                  await asyncio.sleep(3)
+                  await run_flow(profile_id, result)
+              except Exception as e:
+                  result["error"] = str(e)
+                  print(f"::error::Device {IDX} ({EMAIL}): {e}", flush=True)
+                  traceback.print_exc()
+              finally:
+                  if profile_id:
+                      stop_cloud_profile(profile_id)
+                      delete_profile(profile_id)
+                  result["finishedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                  (OUT / "result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+                  print("\n" + "="*60)
+                  print("GOLOGIN SIGNUP RESULT")
+                  print("="*60)
+                  print(f"device    : {IDX}")
+                  print(f"email     : {EMAIL}")
+                  print(f"os        : {PROFILE_OS}")
+                  print(f"proxy     : {PROXY_TYPE_IN} / {PROXY_COUNTRY_IN}")
+                  print(f"signup    : {'OK' if result['signup'] else 'FAILED'}")
+                  print(f"REST /user: {result.get('restStatus') or '-'}")
+                  print(f"source    : {result.get('tokenSource') or '-'}")
+                  print("\nAPI KEY:")
+                  print(result.get("token") or "(not captured)")
+                  print("="*60 + "\n")
+                  if result.get("token"):
+                      print(f"::notice title=GoLogin API key (device {IDX} - {EMAIL})::{result['token']}", flush=True)
+                  summ = os.environ.get("GITHUB_STEP_SUMMARY")
+                  if summ:
+                      md = "\n".join([
+                          f"### Device {IDX}: {EMAIL}",
+                          f"- OS: **{PROFILE_OS}** | Proxy: **{PROXY_TYPE_IN} / {PROXY_COUNTRY_IN}**",
+                          f"- Signup: **{'OK ✓' if result['signup'] else 'FAILED ✗'}**",
+                          f"- API key: `{result.get('token') or 'not captured'}`",
+                          f"- Source: {result.get('tokenSource') or '-'}  |  REST: {result.get('restStatus') or '-'}",
+                          (f"- Error: {result['error']}" if result.get("error") else ""),
+                          "",
+                      ])
+                      with open(summ, "a", encoding="utf-8") as fh:
+                          fh.write(md + "\n")
+                  if result.get("error"):
+                      sys.exit(1)
+
+          if __name__ == "__main__":
+              asyncio.run(main())
+          PYEOF
+          echo "[Script] Written OK"
+
       - name: "[3/5] Runner info"
         run: |
           echo "Runner: $RUNNER_OS $RUNNER_ARCH"
