@@ -1,4 +1,4 @@
-name: Parallel mx10.14FA
+name: Parallel mx10.15FA
 
 on:
   workflow_dispatch:
@@ -57,7 +57,7 @@ on:
           - '10 minutes'
           - '11 minutes'
           - '12 minutes'
-        default: '10 minutes'
+        default: '9 minutes'
       num_installs:
         description: 'Installs'
         required: true
@@ -77,7 +77,7 @@ on:
         description: 'Scroll (scroll up/down on the opened page - click path; also surf path if Surf is off)'
         required: true
         type: boolean
-        default: true
+        default: false
       enable_surf:
         description: 'Surf (full surfing inside the locked domain - surf path; also click path if Scroll is off)'
         required: true
@@ -140,7 +140,7 @@ on:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmZkOWQ0YzRjMzkyZWFkMzk5N2QzZiIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZmQ5ZDRjNGMzOTJlYWQzOTk3Y2Y1In0.ZLywxP7jr1jkB_MEC-kiHltjp2TyRwHMv9PsX7o1zuY'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmQ3NjI1Nzk4OGZjZTE2MjdkMjYyZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZDc2MjQ3OTg4ZmNlMTYyN2QyNWM2In0.vk5CtR7hfgWW7LC7LJpkb7Thp0ULWHZe2uz6WP7N6Os'
       use_without_proxy:
         description: 'Use Without Proxy'
         required: true
@@ -188,7 +188,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Canada'
+        default: 'Australia'
       proxy_type:
         description: 'Proxy Type (Residential / Datacenter / Mobile)'
         required: true
@@ -215,7 +215,7 @@ on:
           - '30%'
           - '40%'
           - '50%'
-        default: '5%'
+        default: '10%'
 
 permissions:
   actions: write
@@ -260,7 +260,7 @@ jobs:
         run: |
           import os, re, glob
 
-          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.14FA")
+          workflow_name = os.getenv("GITHUB_WORKFLOW_NAME", "Parallel mx10.15FA")
           workflow_dir = ".github/workflows"
           target_file = None
 
@@ -1086,39 +1086,62 @@ jobs:
           # Validation (HTTP only - the device Edge launcher consumes http://host:port)
           # ----------------------------------------------------------------------------
           def validate_proxy(pinfo):
-              auth = f"{pinfo['username']}:{pinfo['password']}@" if pinfo.get("username") else ""
-              url = f"http://{auth}{pinfo['host']}:{pinfo['port']}"
-              cfg = {"http": url, "https": url}
+              """Validate proxy and detect which scheme Edge can use (http vs socks5).
+              Mobile/residential providers often expose SOCKS5; forcing http:// causes ERR_NO_SUPPORTED_PROXIES in Edge."""
               endpoints = [
                   ("http://ip-api.com/json/", "ip-api.com"),
                   ("https://ipinfo.io/json", "ipinfo.io"),
                   ("http://ipwho.is/", "ipwho.is"),
                   ("https://api.myip.com", "myip.com"),
               ]
-              for ep, name in endpoints:
-                  t0 = time.time()
-                  try:
-                      r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
-                      if r.status_code != 200:
-                          say(f"      - {name}: HTTP {r.status_code}")
-                          continue
-                      d = r.json()
-                      cc = tz = city = region = ""
-                      ip = None
-                      if name == "ip-api.com" and d.get("status") == "success":
-                          cc, tz, ip, city, region = d.get("countryCode"), d.get("timezone"), d.get("query"), d.get("city"), d.get("regionName")
-                      elif name == "ipinfo.io" and "ip" in d:
-                          cc, tz, ip, city, region = d.get("country"), d.get("timezone"), d.get("ip"), d.get("city"), d.get("region")
-                      elif name == "ipwho.is" and d.get("success"):
-                          cc, tz, ip, city, region = d.get("country_code"), (d.get("timezone") or {}).get("id"), d.get("ip"), d.get("city"), d.get("region")
-                      elif name == "myip.com" and "ip" in d:
-                          cc, ip = d.get("cc"), d.get("ip")
-                      if ip:
-                          say(f"      - validated via {name} in {int((time.time() - t0) * 1000)} ms -> IP {ip} ({cc})")
-                          return {"ip": ip, "cc": (cc or "US").upper(), "tz": tz or "UTC", "city": city or "",
-                                  "region": region or "", "latency_ms": int((time.time() - t0) * 1000)}
-                  except Exception as e:
-                      say(f"      - {name} failed: {type(e).__name__}")
+              auth = f"{pinfo['username']}:{pinfo['password']}@" if pinfo.get("username") else ""
+              host, port = pinfo["host"], pinfo["port"]
+              # Prefer scheme hint from provider if present
+              hinted = (pinfo.get("scheme") or pinfo.get("mode") or pinfo.get("protocol") or "").lower()
+              schemes = []
+              if "sock" in hinted:
+                  schemes = ["socks5", "http"]
+              elif hinted in ("http", "https"):
+                  schemes = ["http", "socks5"]
+              else:
+                  # Mobile proxies: try socks5 first; residential/dc: http first
+                  if mobile:
+                      schemes = ["socks5", "http"]
+                  else:
+                      schemes = ["http", "socks5"]
+
+              for scheme in schemes:
+                  if scheme == "socks5":
+                      proxy_url = f"socks5://{auth}{host}:{port}"
+                  else:
+                      proxy_url = f"http://{auth}{host}:{port}"
+                  cfg = {"http": proxy_url, "https": proxy_url}
+                  say(f"      - probing scheme={scheme} via {host}:{port}")
+                  for ep, name in endpoints:
+                      t0 = time.time()
+                      try:
+                          r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
+                          if r.status_code != 200:
+                              say(f"      - {name} ({scheme}): HTTP {r.status_code}")
+                              continue
+                          d = r.json()
+                          cc = tz = city = region = ""
+                          ip = None
+                          if name == "ip-api.com" and d.get("status") == "success":
+                              cc, tz, ip, city, region = d.get("countryCode"), d.get("timezone"), d.get("query"), d.get("city"), d.get("regionName")
+                          elif name == "ipinfo.io" and "ip" in d:
+                              cc, tz, ip, city, region = d.get("country"), d.get("timezone"), d.get("ip"), d.get("city"), d.get("region")
+                          elif name == "ipwho.is" and d.get("success"):
+                              cc, tz, ip, city, region = d.get("country_code"), (d.get("timezone") or {}).get("id"), d.get("ip"), d.get("city"), d.get("region")
+                          elif name == "myip.com" and "ip" in d:
+                              cc, ip = d.get("cc"), d.get("ip")
+                          if ip:
+                              say(f"      - validated via {name} scheme={scheme} in {int((time.time() - t0) * 1000)} ms -> IP {ip} ({cc})")
+                              return {"ip": ip, "cc": (cc or "US").upper(), "tz": tz or "UTC", "city": city or "",
+                                      "region": region or "", "latency_ms": int((time.time() - t0) * 1000),
+                                      "scheme": scheme}
+                      except Exception as e:
+                          say(f"      - {name} ({scheme}) failed: {type(e).__name__}")
               return None
 
 
@@ -1200,12 +1223,18 @@ jobs:
                       g = gr.json()
                       # Prefer the structured proxy object
                       px = g.get("proxy") or {}
+                      gologin_scheme = ""
                       if isinstance(px, dict) and px.get("host"):
                           host = px.get("host")
                           port = px.get("port") or 80
                           user = px.get("username") or px.get("user") or ""
                           pwd  = px.get("password") or px.get("pass") or ""
                           pid  = px.get("id") or px.get("_id") or ""
+                          _mode = str(px.get("mode") or px.get("protocol") or px.get("type") or "").lower()
+                          if "sock" in _mode:
+                              gologin_scheme = "socks5"
+                          elif _mode in ("http", "https"):
+                              gologin_scheme = "http"
                       # Fallback: autoProxy* fields used by Gologin built-in proxies
                       if not host:
                           auto = g.get("autoProxyServer") or ""
@@ -1255,12 +1284,17 @@ jobs:
               except Exception:
                   port = 8080
 
-              say(f"      - PROFILE-PROXY READY '{name}' (profile={profile_id}, proxy_id={pid or 'n/a'}) -> {host}:{port}")
+              # Prefer explicit mode from API; Mobile defaults toward socks5 if unknown
+              _sch = locals().get("gologin_scheme") or ""
+              if not _sch:
+                  _sch = "socks5" if mobile else "http"
+              say(f"      - PROFILE-PROXY READY '{name}' (profile={profile_id}, proxy_id={pid or 'n/a'}) -> {_sch}://{host}:{port}")
               return {
                   "username": user or "",
                   "password": pwd or "",
                   "host": host,
                   "port": port,
+                  "scheme": _sch,
                   "gologin_id": pid or "",
                   "gologin_profile_id": profile_id,
               }, ""
@@ -1353,12 +1387,15 @@ jobs:
                   if pinfo and res:
                       if len(pinfo.get("password", "")) >= 8:
                           print(f"::add-mask::{pinfo['password']}", flush=True)
+                      scheme = res.get("scheme") or pinfo.get("scheme") or "http"
                       rec = {
                           "seq": seq, "name": name, "gologin_id": pinfo.get("gologin_id", ""), "source": label,
                           "host": pinfo["host"], "port": pinfo["port"],
                           "username": pinfo.get("username", ""), "password": pinfo.get("password", ""),
+                          "scheme": scheme,
                           "server": f"{pinfo['host']}:{pinfo['port']}",
-                          "server_with_proto": f"http://{pinfo['host']}:{pinfo['port']}",
+                          # NEVER embed user:pass here — Edge --proxy-server rejects credentials and throws ERR_NO_SUPPORTED_PROXIES
+                          "server_with_proto": f"{scheme}://{pinfo['host']}:{pinfo['port']}",
                           "proxy_type_label": label, "working": True,
                           "country_code": res["cc"], "country_name": res["cc"], "ip": res["ip"],
                           "city": res["city"], "region": res["region"],
@@ -1802,39 +1839,62 @@ jobs:
           # Validation (HTTP only - the device Edge launcher consumes http://host:port)
           # ----------------------------------------------------------------------------
           def validate_proxy(pinfo):
-              auth = f"{pinfo['username']}:{pinfo['password']}@" if pinfo.get("username") else ""
-              url = f"http://{auth}{pinfo['host']}:{pinfo['port']}"
-              cfg = {"http": url, "https": url}
+              """Validate proxy and detect which scheme Edge can use (http vs socks5).
+              Mobile/residential providers often expose SOCKS5; forcing http:// causes ERR_NO_SUPPORTED_PROXIES in Edge."""
               endpoints = [
                   ("http://ip-api.com/json/", "ip-api.com"),
                   ("https://ipinfo.io/json", "ipinfo.io"),
                   ("http://ipwho.is/", "ipwho.is"),
                   ("https://api.myip.com", "myip.com"),
               ]
-              for ep, name in endpoints:
-                  t0 = time.time()
-                  try:
-                      r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
-                      if r.status_code != 200:
-                          say(f"      - {name}: HTTP {r.status_code}")
-                          continue
-                      d = r.json()
-                      cc = tz = city = region = ""
-                      ip = None
-                      if name == "ip-api.com" and d.get("status") == "success":
-                          cc, tz, ip, city, region = d.get("countryCode"), d.get("timezone"), d.get("query"), d.get("city"), d.get("regionName")
-                      elif name == "ipinfo.io" and "ip" in d:
-                          cc, tz, ip, city, region = d.get("country"), d.get("timezone"), d.get("ip"), d.get("city"), d.get("region")
-                      elif name == "ipwho.is" and d.get("success"):
-                          cc, tz, ip, city, region = d.get("country_code"), (d.get("timezone") or {}).get("id"), d.get("ip"), d.get("city"), d.get("region")
-                      elif name == "myip.com" and "ip" in d:
-                          cc, ip = d.get("cc"), d.get("ip")
-                      if ip:
-                          say(f"      - validated via {name} in {int((time.time() - t0) * 1000)} ms -> IP {ip} ({cc})")
-                          return {"ip": ip, "cc": (cc or "US").upper(), "tz": tz or "UTC", "city": city or "",
-                                  "region": region or "", "latency_ms": int((time.time() - t0) * 1000)}
-                  except Exception as e:
-                      say(f"      - {name} failed: {type(e).__name__}")
+              auth = f"{pinfo['username']}:{pinfo['password']}@" if pinfo.get("username") else ""
+              host, port = pinfo["host"], pinfo["port"]
+              # Prefer scheme hint from provider if present
+              hinted = (pinfo.get("scheme") or pinfo.get("mode") or pinfo.get("protocol") or "").lower()
+              schemes = []
+              if "sock" in hinted:
+                  schemes = ["socks5", "http"]
+              elif hinted in ("http", "https"):
+                  schemes = ["http", "socks5"]
+              else:
+                  # Mobile proxies: try socks5 first; residential/dc: http first
+                  if mobile:
+                      schemes = ["socks5", "http"]
+                  else:
+                      schemes = ["http", "socks5"]
+
+              for scheme in schemes:
+                  if scheme == "socks5":
+                      proxy_url = f"socks5://{auth}{host}:{port}"
+                  else:
+                      proxy_url = f"http://{auth}{host}:{port}"
+                  cfg = {"http": proxy_url, "https": proxy_url}
+                  say(f"      - probing scheme={scheme} via {host}:{port}")
+                  for ep, name in endpoints:
+                      t0 = time.time()
+                      try:
+                          r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
+                          if r.status_code != 200:
+                              say(f"      - {name} ({scheme}): HTTP {r.status_code}")
+                              continue
+                          d = r.json()
+                          cc = tz = city = region = ""
+                          ip = None
+                          if name == "ip-api.com" and d.get("status") == "success":
+                              cc, tz, ip, city, region = d.get("countryCode"), d.get("timezone"), d.get("query"), d.get("city"), d.get("regionName")
+                          elif name == "ipinfo.io" and "ip" in d:
+                              cc, tz, ip, city, region = d.get("country"), d.get("timezone"), d.get("ip"), d.get("city"), d.get("region")
+                          elif name == "ipwho.is" and d.get("success"):
+                              cc, tz, ip, city, region = d.get("country_code"), (d.get("timezone") or {}).get("id"), d.get("ip"), d.get("city"), d.get("region")
+                          elif name == "myip.com" and "ip" in d:
+                              cc, ip = d.get("cc"), d.get("ip")
+                          if ip:
+                              say(f"      - validated via {name} scheme={scheme} in {int((time.time() - t0) * 1000)} ms -> IP {ip} ({cc})")
+                              return {"ip": ip, "cc": (cc or "US").upper(), "tz": tz or "UTC", "city": city or "",
+                                      "region": region or "", "latency_ms": int((time.time() - t0) * 1000),
+                                      "scheme": scheme}
+                      except Exception as e:
+                          say(f"      - {name} ({scheme}) failed: {type(e).__name__}")
               return None
 
 
@@ -1916,12 +1976,18 @@ jobs:
                       g = gr.json()
                       # Prefer the structured proxy object
                       px = g.get("proxy") or {}
+                      gologin_scheme = ""
                       if isinstance(px, dict) and px.get("host"):
                           host = px.get("host")
                           port = px.get("port") or 80
                           user = px.get("username") or px.get("user") or ""
                           pwd  = px.get("password") or px.get("pass") or ""
                           pid  = px.get("id") or px.get("_id") or ""
+                          _mode = str(px.get("mode") or px.get("protocol") or px.get("type") or "").lower()
+                          if "sock" in _mode:
+                              gologin_scheme = "socks5"
+                          elif _mode in ("http", "https"):
+                              gologin_scheme = "http"
                       # Fallback: autoProxy* fields used by Gologin built-in proxies
                       if not host:
                           auto = g.get("autoProxyServer") or ""
@@ -1971,12 +2037,17 @@ jobs:
               except Exception:
                   port = 8080
 
-              say(f"      - PROFILE-PROXY READY '{name}' (profile={profile_id}, proxy_id={pid or 'n/a'}) -> {host}:{port}")
+              # Prefer explicit mode from API; Mobile defaults toward socks5 if unknown
+              _sch = locals().get("gologin_scheme") or ""
+              if not _sch:
+                  _sch = "socks5" if mobile else "http"
+              say(f"      - PROFILE-PROXY READY '{name}' (profile={profile_id}, proxy_id={pid or 'n/a'}) -> {_sch}://{host}:{port}")
               return {
                   "username": user or "",
                   "password": pwd or "",
                   "host": host,
                   "port": port,
+                  "scheme": _sch,
                   "gologin_id": pid or "",
                   "gologin_profile_id": profile_id,
               }, ""
@@ -2069,12 +2140,15 @@ jobs:
                   if pinfo and res:
                       if len(pinfo.get("password", "")) >= 8:
                           print(f"::add-mask::{pinfo['password']}", flush=True)
+                      scheme = res.get("scheme") or pinfo.get("scheme") or "http"
                       rec = {
                           "seq": seq, "name": name, "gologin_id": pinfo.get("gologin_id", ""), "source": label,
                           "host": pinfo["host"], "port": pinfo["port"],
                           "username": pinfo.get("username", ""), "password": pinfo.get("password", ""),
+                          "scheme": scheme,
                           "server": f"{pinfo['host']}:{pinfo['port']}",
-                          "server_with_proto": f"http://{pinfo['host']}:{pinfo['port']}",
+                          # NEVER embed user:pass here — Edge --proxy-server rejects credentials and throws ERR_NO_SUPPORTED_PROXIES
+                          "server_with_proto": f"{scheme}://{pinfo['host']}:{pinfo['port']}",
                           "proxy_type_label": label, "working": True,
                           "country_code": res["cc"], "country_name": res["cc"], "ip": res["ip"],
                           "city": res["city"], "region": res["region"],
@@ -3838,42 +3912,56 @@ jobs:
               return "error"
 
           def probe_proxy(p):
+              """Device-time proxy probe. Tries http and socks5; records working scheme for Edge."""
               try:
                   import requests, urllib3
               except ImportError:
-                  subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "urllib3", "--quiet"])
+                  subprocess.check_call([sys.executable, "-m", "pip", "install", "requests[socks]", "urllib3", "--quiet"])
                   import requests, urllib3
               urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
               auth = f"{p['username']}:{p['password']}@" if p.get("username") else ""
-              url = f"http://{auth}{p['host']}:{p['port']}"
-              cfg = {"http": url, "https": url}
+              host, port = p.get("host"), p.get("port")
+              if not host or not port:
+                  return None
+              hinted = (p.get("scheme") or "").lower()
+              if "sock" in hinted:
+                  schemes = ["socks5", "http"]
+              elif hinted in ("http", "https"):
+                  schemes = ["http", "socks5"]
+              else:
+                  schemes = ["http", "socks5"]
               eps = [
                   ("http://ip-api.com/json/", "ip-api"),
                   ("https://ipinfo.io/json", "ipinfo"),
                   ("http://ipwho.is/", "ipwho"),
                   ("https://api.myip.com", "myip"),
               ]
-              for attempt in range(2):
-                  for ep, nm in eps:
-                      try:
-                          r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
-                          if r.status_code != 200:
-                              continue
-                          d = r.json()
-                          ip = cc = tz = city = region = None
-                          if nm == "ip-api" and d.get("status") == "success":
-                              ip, cc, tz, city, region = d.get("query"), d.get("countryCode"), d.get("timezone"), d.get("city"), d.get("regionName")
-                          elif nm == "ipinfo" and d.get("ip"):
-                              ip, cc, tz, city, region = d.get("ip"), d.get("country"), d.get("timezone"), d.get("city"), d.get("region")
-                          elif nm == "ipwho" and d.get("success"):
-                              ip, cc, tz, city, region = d.get("ip"), d.get("country_code"), (d.get("timezone") or {}).get("id"), d.get("city"), d.get("region")
-                          elif nm == "myip" and d.get("ip"):
-                              ip, cc = d.get("ip"), d.get("cc")
-                          if ip:
-                              return {"ip": str(ip), "cc": (cc or "").upper(), "tz": tz or "", "city": city or "", "region": region or ""}
-                      except Exception:
-                          pass
-                  time.sleep(2)
+              for scheme in schemes:
+                  proxy_url = f"{scheme}://{auth}{host}:{port}" if scheme != "http" else f"http://{auth}{host}:{port}"
+                  if scheme == "socks5":
+                      proxy_url = f"socks5://{auth}{host}:{port}"
+                  cfg = {"http": proxy_url, "https": proxy_url}
+                  for attempt in range(2):
+                      for ep, nm in eps:
+                          try:
+                              r = requests.get(ep, proxies=cfg, timeout=15, verify=False)
+                              if r.status_code != 200:
+                                  continue
+                              d = r.json()
+                              ip = cc = tz = city = region = None
+                              if nm == "ip-api" and d.get("status") == "success":
+                                  ip, cc, tz, city, region = d.get("query"), d.get("countryCode"), d.get("timezone"), d.get("city"), d.get("regionName")
+                              elif nm == "ipinfo" and d.get("ip"):
+                                  ip, cc, tz, city, region = d.get("ip"), d.get("country"), d.get("timezone"), d.get("city"), d.get("region")
+                              elif nm == "ipwho" and d.get("success"):
+                                  ip, cc, tz, city, region = d.get("ip"), d.get("country_code"), (d.get("timezone") or {}).get("id"), d.get("city"), d.get("region")
+                              elif nm == "myip" and d.get("ip"):
+                                  ip, cc = d.get("ip"), d.get("cc")
+                              if ip:
+                                  return {"ip": str(ip), "cc": (cc or "").upper(), "tz": tz or "", "city": city or "", "region": region or "", "scheme": scheme}
+                          except Exception:
+                              pass
+                      time.sleep(1)
               return None
 
           def try_candidate(p, origin, idx, total):
@@ -3907,16 +3995,23 @@ jobs:
               rec["city"] = info.get("city") or p.get("city") or ""
               rec["region"] = info.get("region") or p.get("region") or ""
               rec["ip_claim"] = claim
+              if info.get("scheme"):
+                  rec["scheme"] = info["scheme"]
               # Ensure server fields for downstream
               host = p.get("host") or ""
               port = p.get("port") or 80
-              user = p.get("username") or ""
-              pwd = p.get("password") or ""
-              if user:
-                  rec["server_with_proto"] = f"http://{user}:{pwd}@{host}:{port}"
+              # Prefer scheme validated on device if we probed socks vs http
+              sch = (p.get("scheme") or rec.get("scheme") or "http").lower()
+              if "sock" in sch:
+                  sch = "socks5"
               else:
-                  rec["server_with_proto"] = f"http://{host}:{port}"
+                  sch = "http"
+              rec["scheme"] = sch
+              # Edge-safe: never put user:pass into server_with_proto
+              rec["server_with_proto"] = f"{sch}://{host}:{port}"
               rec["server"] = f"{host}:{port}"
+              rec["host"] = host
+              rec["port"] = port
               return rec
 
           # ------------------------------------------------------------------
@@ -4092,9 +4187,31 @@ jobs:
               try:
                   with open(pool_file, "r", encoding="utf-8") as fh:
                       p = json.load(fh)
+                  _sch = (p.get("scheme") or "").lower()
+                  _host = p.get("host") or ""
+                  _port = p.get("port") or ""
+                  _swp = p.get("server_with_proto") or p.get("server") or ""
+                  if not _sch:
+                      if str(_swp).startswith("socks"):
+                          _sch = "socks5"
+                      else:
+                          _sch = "http"
+                  if _host and _port:
+                      _swp = f"{_sch}://{_host}:{_port}"
+                  # strip any accidental credentials from server string
+                  if "@" in str(_swp):
+                      if "://" in _swp:
+                          _sch2, rest = _swp.split("://", 1)
+                          rest = rest.rsplit("@", 1)[-1]
+                          _swp = f"{_sch2}://{rest}"
+                      else:
+                          _swp = _swp.rsplit("@", 1)[-1]
                   active_proxy = {
-                      'server': (p.get("server_with_proto") or p.get("server") or "").replace("http://", "").replace("https://", ""),
-                      'server_with_proto': p.get("server_with_proto") or p.get("server") or "",
+                      'server': f"{_host}:{_port}" if _host and _port else str(_swp).replace("http://", "").replace("https://", "").replace("socks5://", "").replace("socks://", ""),
+                      'server_with_proto': _swp,
+                      'host': _host,
+                      'port': _port,
+                      'scheme': _sch,
                       'username': p.get("username") or "",
                       'password': p.get("password") or "",
                       'proxy_type_label': p.get("proxy_type_label") or "pool",
@@ -4916,9 +5033,34 @@ jobs:
 
           env_file = os.environ.get('GITHUB_ENV')
           with open(env_file, 'a', encoding='utf-8') as f:
-              f.write(f"PROXY_SERVER={active_proxy.get('server_with_proto', active_proxy.get('server', ''))}\n")
+              # Edge-safe proxy server string: scheme://host:port — NEVER user:pass@
+              _srv = (active_proxy.get("server_with_proto") or active_proxy.get("server") or "").strip()
+              _sch = (active_proxy.get("scheme") or "").lower()
+              _host = (active_proxy.get("host") or "").strip()
+              _port = active_proxy.get("port")
+              if _host and _port:
+                  if not _sch:
+                      if str(_srv).startswith("socks5://") or str(_srv).startswith("socks://"):
+                          _sch = "socks5"
+                      else:
+                          _sch = "http"
+                  _srv = f"{_sch}://{_host}:{_port}"
+              else:
+                  raw = _srv
+                  if "://" in raw:
+                      _sch2, rest = raw.split("://", 1)
+                      if "@" in rest:
+                          rest = rest.rsplit("@", 1)[-1]
+                      _sch = "socks5" if "sock" in _sch2.lower() else "http"
+                      _srv = f"{_sch}://{rest}"
+                  elif "@" in raw:
+                      _srv = "http://" + raw.rsplit("@", 1)[-1]
+                  elif raw and not raw.startswith("http") and not raw.startswith("socks"):
+                      _srv = "http://" + raw
+              f.write(f"PROXY_SERVER={_srv}\n")
               f.write(f"PROXY_USER={active_proxy.get('username', '')}\n")
               f.write(f"PROXY_PASS={active_proxy.get('password', '')}\n")
+              f.write(f"PROXY_SCHEME={_sch or 'http'}\n")
               f.write(f"PROXY_TYPE={active_proxy.get('proxy_type_label', 'none')}\n")
               f.write(f"USE_PROXY={'true' if use_proxy else 'false'}\n")
               f.write(f"PROXY_COUNTRY_CODE={cc_final}\n")
@@ -5434,11 +5576,31 @@ jobs:
                   log_msg("EdgeLaunch", f"MASKING -> lang={resolved_lang} | accept-lang={resolved_accept} | OS timezone={tz_iana} (set earlier via tzutil, not a launch flag)")
 
               if use_proxy and proxy_server and proxy_server.strip():
-                  if "://" in proxy_server:
-                      cmd_parts.append(f'--proxy-server="{proxy_server}"')
+                  # Chromium/Edge --proxy-server does NOT accept embedded credentials.
+                  # user:pass@host causes ERR_NO_SUPPORTED_PROXIES. Auth is handled via UI inject.
+                  raw = proxy_server.strip().strip('"').strip("'")
+                  scheme = "http"
+                  hostport = raw
+                  if "://" in raw:
+                      scheme, hostport = raw.split("://", 1)
+                      scheme = scheme.lower().strip()
+                  if "@" in hostport:
+                      # strip credentials if any leaked into PROXY_SERVER
+                      hostport = hostport.rsplit("@", 1)[-1]
+                  hostport = hostport.strip().strip("/")
+                  if scheme in ("socks5", "socks", "socks5h"):
+                      scheme = "socks5"
+                      proxy_arg = f"socks5://{hostport}"
+                  elif scheme in ("http", "https"):
+                      scheme = "http"
+                      proxy_arg = f"http://{hostport}"
                   else:
-                      cmd_parts.append(f'--proxy-server="http://{proxy_server}"')
-                  log_msg("EdgeLaunch", f"Attempt {attempt_num}: Proxy injected -> {proxy_server}")
+                      # bare host:port
+                      proxy_arg = f"http://{hostport}"
+                  cmd_parts.append(f'--proxy-server={proxy_arg}')
+                  # Also disable QUIC which can bypass proxies and cause odd failures
+                  cmd_parts.append("--disable-quic")
+                  log_msg("EdgeLaunch", f"Attempt {attempt_num}: Proxy injected -> {proxy_arg} (auth via dialog if needed; credentials never in flag)")
               else:
                   log_msg("EdgeLaunch", f"Attempt {attempt_num}: Direct mode (no proxy)")
 
