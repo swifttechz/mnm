@@ -1,14 +1,6 @@
 # ============================================================
-# GoLogin Cloud Browser Signup — robust 2026 version
+# GoLogin Cloud Browser Signup — Robust 2026 (Turnstile + Popups fixed)
 # ============================================================
-# Fixes:
-#   - POST /browser/quick only (no more 400)
-#   - Proper proxy attachment
-#   - Much stronger post-create stage detection
-#   - Longer Turnstile waits + multiple Create clicks
-#   - Rich failure diagnostics (URL + text dump)
-# ============================================================
-
 name: GoLogin Cloud Browser Signup
 
 run-name: "GL signup | os=${{ inputs.profile_os }} | proxy=${{ inputs.proxy_type }}/${{ inputs.proxy_country }} | n=${{ inputs.account_count }}"
@@ -46,25 +38,25 @@ on:
         description: "Profile OS"
         required: true
         type: choice
-        default: Windows 11
+        default: 'Windows 10'
         options: ['Windows 10','Windows 11','Mac Intel','Mac ARM (M1)','Linux','Android']
       proxy_type:
         description: "GoLogin proxy type"
         required: true
         type: choice
-        default: Residential
+        default: 'Residential'
         options: ['Residential','Datacenter','Mobile']
       proxy_country:
         description: "Proxy country"
         required: true
         type: choice
-        default: United States
+        default: 'United States'
         options: ['United States','United Kingdom','Germany','France','Canada','Australia','Japan','Brazil','India','Netherlands']
       keep_alive_minutes:
         description: "Extra minutes to keep job alive (0-60)"
         required: false
         type: string
-        default: '1'
+        default: '0'
 
 permissions:
   actions: write
@@ -236,12 +228,14 @@ jobs:
           mkdir -p automation/out
           cat > automation/signup.py << 'PYEOF'
           """
-          GoLogin Cloud Browser Signup — robust 2026
+          GoLogin Cloud Browser Signup — Robust 2026
           ==========================================
-          - POST /browser/quick only
-          - Stronger post-create detection
-          - Longer Turnstile waits
-          - Full page dump on failure
+          Key fixes in this version:
+          1. Explicitly clicks Cloudflare Turnstile "Verify you are human" checkbox
+          2. Waits for Turnstile success before clicking Create an account
+          3. Dismisses browser "Save password?" → No thanks
+          4. Dismisses "How do you want to run profiles?" modal (X button)
+          5. Robust delays + retries throughout
           """
           import asyncio, datetime, json, os, pathlib, random, re, string, sys, time, traceback, urllib.request, urllib.error
           import requests
@@ -555,25 +549,90 @@ jobs:
               except Exception as e:
                   log("DUMP", f"dump failed: {e}")
 
-          async def solve_turnstile(page, tag, timeout_ms=70000):
-              widget = 'iframe[src*="challenges.cloudflare.com"],[class*="cf-turnstile"],input[name="cf-turnstile-response"]'
-              try:
-                  if await page.locator(widget).count() == 0:
-                      return True
-              except Exception:
+          # ──────────────────────────────────────────────────────────────
+          # NEW: Explicit Cloudflare Turnstile handling
+          # ──────────────────────────────────────────────────────────────
+          async def solve_turnstile_checkbox(page, tag="main"):
+              """
+              Finds the visible Cloudflare Turnstile checkbox ("Verify you are human"),
+              clicks it, then waits for success.
+              """
+              log("Turnstile", f"[{tag}] Looking for Turnstile checkbox...")
+
+              # Possible selectors for the checkbox / widget
+              candidates = [
+                  page.locator('input[type="checkbox"]').filter(has_text=re.compile(r"verify you are human", re.I)),
+                  page.get_by_text(re.compile(r"verify you are human", re.I)),
+                  page.locator('[class*="cf-turnstile"]'),
+                  page.locator('iframe[src*="challenges.cloudflare.com"]'),
+                  page.locator('div:has-text("Verify you are human")'),
+                  page.locator('label:has-text("Verify you are human")'),
+              ]
+
+              widget = None
+              for loc in candidates:
+                  try:
+                      if await loc.count() > 0 and await loc.first.is_visible():
+                          widget = loc.first
+                          break
+                  except Exception:
+                      continue
+
+              if widget is None:
+                  # Also try finding any unchecked checkbox near the Create button
+                  try:
+                      boxes = page.locator('input[type="checkbox"]')
+                      n = await boxes.count()
+                      for i in range(n):
+                          box = boxes.nth(i)
+                          if await box.is_visible() and not await box.is_checked():
+                              # Prefer the one that is not the ToS checkbox
+                              parent_text = await box.evaluate("el => el.closest('label,div')?.innerText || ''")
+                              if "terms" in parent_text.lower() or "service" in parent_text.lower():
+                                  continue
+                              widget = box
+                              break
+                  except Exception:
+                      pass
+
+              if widget is None:
+                  log("Turnstile", f"[{tag}] No Turnstile checkbox found — assuming already solved or not present")
                   return True
-              log("Turnstile", f"[{tag}] present — waiting up to {timeout_ms//1000}s")
-              end = time.time() + timeout_ms / 1000.0
+
+              log("Turnstile", f"[{tag}] Found Turnstile — clicking checkbox")
+              try:
+                  await widget.click(timeout=5000, force=True)
+              except Exception:
+                  try:
+                      await widget.click(timeout=3000)
+                  except Exception as e:
+                      log("Turnstile", f"[{tag}] Click failed: {e}")
+                      return False
+
+              # Wait for success (checkbox becomes checked or success indicator appears)
+              log("Turnstile", f"[{tag}] Waiting for success (up to 25s)...")
+              end = time.time() + 25
               while time.time() < end:
                   try:
-                      tok = await page.evaluate(
-                          "()=>{const e=document.querySelector(\"input[name='cf-turnstile-response']\");return e?e.value:'';}")
+                      # Success signals
+                      tok = await page.evaluate("""() => {
+                          const e = document.querySelector("input[name='cf-turnstile-response']");
+                          return e && e.value ? e.value : null;
+                      }""")
                       if tok:
-                          log("Turnstile", f"[{tag}] solved")
+                          log("Turnstile", f"[{tag}] SUCCESS — token present")
                           return True
-                  except Exception: pass
-                  await asyncio.sleep(1.2)
-              log("Turnstile", f"[{tag}] WARNING: timeout")
+
+                      # Visual success (checkbox checked)
+                      if await widget.is_checked():
+                          log("Turnstile", f"[{tag}] SUCCESS — checkbox checked")
+                          await asyncio.sleep(1.5)  # small extra safety
+                          return True
+                  except Exception:
+                      pass
+                  await asyncio.sleep(1.0)
+
+              log("Turnstile", f"[{tag}] WARNING: timeout waiting for success")
               await shot(page, f"turnstile-timeout-{tag}")
               return False
 
@@ -688,8 +747,8 @@ jobs:
                   ], 12000)
                   await asyncio.sleep(random.uniform(2.0, 3.5))
 
-                  # ── Phase 3: Password ─────────────────────────
-                  banner("Phase 3 — Password")
+                  # ── Phase 3: Password + Turnstile ─────────────
+                  banner("Phase 3 — Password + Cloudflare Turnstile")
 
                   async def password_visible():
                       return (await page.locator('input[type="password"]').first.is_visible()
@@ -707,6 +766,7 @@ jobs:
                       await dump_page(page, f"stage1-{stage1}")
                       raise RuntimeError(f"Password step not reached (stage={stage1})")
 
+                  # Fill password fields
                   pass_field = page.get_by_placeholder(re.compile(r"your password|password", re.I)).first
                   confirm_field = page.get_by_placeholder(re.compile(r"confirm password", re.I)).first
                   try:
@@ -724,35 +784,54 @@ jobs:
                   await asyncio.sleep(random.uniform(0.7, 1.3))
                   await shot(page, "password-filled")
 
-                  await solve_turnstile(page, "before-create", timeout_ms=70000)
-                  await shot(page, "before-create-account")
+                  # Make sure ToS is still checked on this screen
+                  await tick_tos(page)
+                  await asyncio.sleep(0.8)
 
+                  # ── CRITICAL: Solve Cloudflare Turnstile ──────
+                  turnstile_ok = await solve_turnstile_checkbox(page, tag="before-create")
+                  if not turnstile_ok:
+                      log("Turnstile", "First attempt failed — retrying once more")
+                      await asyncio.sleep(2)
+                      turnstile_ok = await solve_turnstile_checkbox(page, tag="retry")
+
+                  await shot(page, "after-turnstile")
+
+                  # Now click Create an account
                   create_re = re.compile(r"create an account|create account|sign up|continue|get started", re.I)
-                  for attempt in range(3):
+                  clicked = False
+                  for attempt in range(4):
                       clicked = await click_first(page, [
                           page.get_by_role("button", name=create_re),
+                          page.locator('button:has-text("Create an account")'),
                           page.locator('button:has-text("Create")'),
                           page.locator('button[type="submit"]'),
                       ], 8000)
                       log("Main", f"Create click attempt {attempt+1}: {clicked}")
-                      await asyncio.sleep(random.uniform(1.5, 2.5))
-                      await solve_turnstile(page, f"after-create-{attempt}", timeout_ms=45000)
                       if clicked:
                           break
+                      await asyncio.sleep(1.5)
+
+                  if not clicked:
+                      await dump_page(page, "create-button-not-found")
+                      raise RuntimeError("Could not click Create an account button")
+
+                  await asyncio.sleep(random.uniform(2.0, 3.5))
 
                   # ── Expanded success / failure detection ──────
                   async def text_visible(pat):
                       return await page.get_by_text(re.compile(pat, re.I)).first.is_visible()
 
                   stage2 = await wait_any([
-                      ["survey",     lambda: text_visible(r"have you ever used|antidetect|what do you use")],
-                      ["allset",     lambda: text_visible(r"all set|you.?re all set|welcome")],
-                      ["verify",     lambda: text_visible(r"check your (email|inbox)|verify your email|confirmation link|we sent")],
-                      ["dashboard",  lambda: is_dashboard(page)],
-                      ["installer",  lambda: "download-installer" in page.url.lower()],
-                      ["profilelist",lambda: "profilelist" in page.url.lower() or "browser" in page.url.lower()],
-                      ["error",      lambda: text_visible(r"already (registered|exists|in use|taken)|password is too|something went wrong|try again|invalid")],
-                  ], 100000)
+                      ["survey",      lambda: text_visible(r"have you ever used|antidetect|what do you use")],
+                      ["allset",      lambda: text_visible(r"all set|you.?re all set|welcome")],
+                      ["verify",      lambda: text_visible(r"check your (email|inbox)|verify your email|confirmation link|we sent")],
+                      ["dashboard",   lambda: is_dashboard(page)],
+                      ["installer",   lambda: "download-installer" in page.url.lower()],
+                      ["profilelist", lambda: "profilelist" in page.url.lower() or "browser" in page.url.lower()],
+                      ["run-modal",   lambda: text_visible(r"how do you want to run profiles")],
+                      ["error",       lambda: text_visible(r"already (registered|exists|in use|taken)|password is too|something went wrong|try again|invalid")],
+                  ], 110000)
 
                   await shot(page, "after-create-account")
                   log("Main", f"Post-create stage = {stage2}")
@@ -761,58 +840,74 @@ jobs:
                       await dump_page(page, f"stage2-{stage2}")
                       raise RuntimeError(f"Account creation failed (stage={stage2})")
 
-                  # Even if we landed on "verify email", treat it as partial success
-                  # (the account was created; user just needs to confirm)
                   result["signup"] = True
-                  log("Main", f"ACCOUNT CREATED (or pending verify): {EMAIL} (stage={stage2})")
+                  log("Main", f"ACCOUNT CREATED: {EMAIL} (stage={stage2})")
 
-                  if stage2 == "verify":
-                      log("Main", "Email verification required — token extraction may be limited")
-                      # still try to proceed / extract whatever is possible
+                  # ── Phase 4: Dismiss post-signup popups ───────
+                  banner("Phase 4 — Dismiss post-signup popups")
 
-                  # ── Phase 4: Onboarding ───────────────────────
-                  banner("Phase 4 — Onboarding")
+                  # 1. Browser "Save password?" dialog → No thanks
+                  for _ in range(5):
+                      no_thanks = await find_visible(page, [
+                          page.get_by_role("button", name=re.compile(r"no thanks|never|not now", re.I)),
+                          page.get_by_text(re.compile(r"^no thanks$", re.I)),
+                          page.locator('button:has-text("No thanks")'),
+                          page.locator('button:has-text("Never")'),
+                      ], 3000)
+                      if no_thanks:
+                          try:
+                              await no_thanks.click()
+                              log("Main", "Clicked 'No thanks' on Save password dialog")
+                              await asyncio.sleep(1.5)
+                          except Exception as e:
+                              log("Main", f"No thanks click error: {e}")
+                          break
+                      await asyncio.sleep(0.8)
+
+                  # 2. "How do you want to run profiles?" modal → click X
                   for _ in range(6):
+                      # Look for the close button on the modal
                       close_btn = await find_visible(page, [
-                          page.locator('[aria-label="Close" i]'),
-                          page.locator('button.close, button[class*="close" i]'),
-                          page.get_by_role("button", name=re.compile(r"^\u00d7$|^close$", re.I)),
+                          page.locator('div[role="dialog"] button[aria-label="Close" i]'),
+                          page.locator('div[role="dialog"] button:has-text("×")'),
+                          page.locator('div[role="dialog"] button:has-text("✕")'),
+                          page.locator('[class*="modal"] button[aria-label*="close" i]'),
+                          page.locator('button[aria-label="Close" i]'),
+                          page.locator('div:has-text("How do you want to run profiles") >> button').first,
                       ], 2500)
+
                       if close_btn:
                           try:
                               await close_btn.click()
-                              log("Main", "Closed modal")
-                          except Exception: pass
-                          await asyncio.sleep(1.0)
-                          break
-                      if "download-installer" in page.url:
-                          await page.goto("https://app.gologin.com/profileList", wait_until="domcontentloaded", timeout=30000)
-                          await asyncio.sleep(2)
-                          break
-                      await asyncio.sleep(0.7)
+                              log("Main", "Closed 'How do you want to run profiles?' modal")
+                              await asyncio.sleep(1.5)
+                              break
+                          except Exception as e:
+                              log("Main", f"Close modal error: {e}")
 
-                  for _ in range(4):
-                      skip = await find_visible(page, [
-                          page.get_by_text(re.compile(r"skip recommended setup|skip", re.I)),
-                          page.get_by_role("link", name=re.compile(r"skip", re.I)),
-                          page.get_by_role("button", name=re.compile(r"skip", re.I)),
-                      ], 2500)
-                      if skip:
-                          try:
-                              await skip.click()
-                              log("Main", "Clicked Skip")
-                          except Exception: pass
-                          await asyncio.sleep(1.2)
-                          break
-                      await asyncio.sleep(0.5)
+                      # Alternative: click the X that is usually top-right of the white card
+                      try:
+                          x_btn = page.locator('button').filter(has_text=re.compile(r"^[×✕x]$")).first
+                          if await x_btn.is_visible():
+                              await x_btn.click()
+                              log("Main", "Clicked X on modal")
+                              await asyncio.sleep(1.5)
+                              break
+                      except Exception:
+                          pass
 
-                  await dismiss_overlays(page, 8)
-                  await shot(page, "after-onboarding")
+                      await asyncio.sleep(0.8)
 
+                  # Extra general overlay dismiss
+                  await dismiss_overlays(page, 5)
+                  await asyncio.sleep(1.5)
+                  await shot(page, "after-popups-dismissed")
+
+                  # Navigate to profile list if needed
                   if not await is_dashboard(page):
                       await page.goto("https://app.gologin.com/profileList", wait_until="domcontentloaded", timeout=30000)
                       await asyncio.sleep(3)
-                      await dismiss_overlays(page, 5)
+                      await dismiss_overlays(page, 4)
 
                   await shot(page, "dashboard")
                   log("Main", "Reached dashboard area")
@@ -827,7 +922,7 @@ jobs:
                   else:
                       await run_btn.click()
                       log("Main", "Clicked Run")
-                      await asyncio.sleep(random.uniform(1.0, 1.8))
+                      await asyncio.sleep(random.uniform(1.2, 2.0))
                       await shot(page, "run-menu")
                       api_clicked = await click_first(page, [
                           page.get_by_text(re.compile(r"api control", re.I)),
