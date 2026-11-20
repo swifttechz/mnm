@@ -1,6 +1,20 @@
 # ============================================================
-# GoLogin Cloud Browser Signup — Robust 2026 (Turnstile + Popups fixed)
+# GoLogin Cloud Browser Signup — robust 2026 version (v2)
 # ============================================================
+# Fixes in this version:
+#   1. Cloudflare Turnstile: locates the widget iframe, scrolls it into view,
+#      clicks the checkbox by coordinates (the checkbox lives in a closed
+#      shadow root, so normal selectors cannot reach it), waits >=10s,
+#      verifies the cf-turnstile-response token, retries the click if needed,
+#      and ONLY THEN clicks "Create an account".
+#   2. Create-account loop re-solves Turnstile and retries if the page is
+#      still on the password step.
+#   3. Dashboard: dismisses Chrome "Save password?" -> "No thanks" (best effort,
+#      see note in script), then closes the "How do you want to run profiles?"
+#      modal with the small X, verifying it is really gone.
+#   4. Then Run -> API control -> Copy token (unchanged, with more delays).
+# ============================================================
+
 name: GoLogin Cloud Browser Signup
 
 run-name: "GL signup | os=${{ inputs.profile_os }} | proxy=${{ inputs.proxy_type }}/${{ inputs.proxy_country }} | n=${{ inputs.account_count }}"
@@ -38,7 +52,7 @@ on:
         description: "Profile OS"
         required: true
         type: choice
-        default: Windows 10
+        default: Windows 11
         options: ['Windows 10','Windows 11','Mac Intel','Mac ARM (M1)','Linux','Android']
       proxy_type:
         description: "GoLogin proxy type"
@@ -56,7 +70,7 @@ on:
         description: "Extra minutes to keep job alive (0-60)"
         required: false
         type: string
-        default: '0'
+        default: '1'
 
 permissions:
   actions: write
@@ -228,14 +242,13 @@ jobs:
           mkdir -p automation/out
           cat > automation/signup.py << 'PYEOF'
           """
-          GoLogin Cloud Browser Signup — Robust 2026
-          ==========================================
-          Key fixes in this version:
-          1. Explicitly clicks Cloudflare Turnstile "Verify you are human" checkbox
-          2. Waits for Turnstile success before clicking Create an account
-          3. Dismisses browser "Save password?" → No thanks
-          4. Dismisses "How do you want to run profiles?" modal (X button)
-          5. Robust delays + retries throughout
+          GoLogin Cloud Browser Signup — robust 2026 (v2)
+          ===============================================
+          - POST /browser/quick only
+          - Turnstile: coordinate click on the checkbox + >=10s wait + token check
+          - Create-account retry loop (re-solves Turnstile each time)
+          - Dashboard: Save-password bubble -> No thanks, "run profiles" modal -> X
+          - Full page dump on failure
           """
           import asyncio, datetime, json, os, pathlib, random, re, string, sys, time, traceback, urllib.request, urllib.error
           import requests
@@ -276,6 +289,7 @@ jobs:
           CLOUD_WS = "wss://cloudbrowser.gologin.com/connect"
           HEADERS = {"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"}
           SIGNUP_URL = "https://app.gologin.com/sign_up"
+          PROFILELIST_URL = "https://app.gologin.com/profileList"
 
           OS_QUICK_MAP = {
               "Windows 10": {"os": "win", "osSpec": ""},
@@ -304,7 +318,7 @@ jobs:
               url = f"{GL_BASE}{path}"
               r = requests.request(method, url, headers=HEADERS, json=payload, timeout=30)
               if raise_on_error and not r.ok:
-                  log("REST", f"{method} {path} → {r.status_code}: {r.text[:400]}")
+                  log("REST", f"{method} {path} -> {r.status_code}: {r.text[:400]}")
                   r.raise_for_status()
               return r
 
@@ -340,7 +354,7 @@ jobs:
                       "profileIdToLink": profile_id,
                   }
                   r = requests.post(f"{GL_BASE}/users-proxies/mobile-proxy", headers=HEADERS, json=body, timeout=30)
-                  log("Proxy", f"mobile-proxy → {r.status_code}")
+                  log("Proxy", f"mobile-proxy -> {r.status_code}")
                   if r.status_code in (200, 201):
                       return True
               except Exception as e:
@@ -549,96 +563,303 @@ jobs:
               except Exception as e:
                   log("DUMP", f"dump failed: {e}")
 
-          # ──────────────────────────────────────────────────────────────
-          # NEW: Explicit Cloudflare Turnstile handling
-          # ──────────────────────────────────────────────────────────────
-          async def solve_turnstile_checkbox(page, tag="main"):
+          # ══════════════════════════════════════════════════════════
+          #  CLOUDFLARE TURNSTILE
+          # ══════════════════════════════════════════════════════════
+          # The checkbox is rendered inside a cross-origin iframe within a
+          # CLOSED shadow root, so selectors cannot see it. We locate the
+          # iframe element itself and click where the checkbox sits
+          # (left side, vertically centred). Success is detected through the
+          # hidden cf-turnstile-response input that Turnstile fills in.
+          TS_IFRAME = 'iframe[src*="challenges.cloudflare.com"]'
+          TS_INPUT_JS = """() => {
+              const e = document.querySelector("input[name='cf-turnstile-response'],textarea[name='cf-turnstile-response']");
+              return e ? {exists: true, value: e.value || ''} : {exists: false, value: ''};
+          }"""
+
+          async def ts_state(page):
+              try:
+                  return await page.evaluate(TS_INPUT_JS)
+              except Exception:
+                  return {"exists": False, "value": ""}
+
+          async def ts_iframe_box(page):
+              """Return (locator, bbox) of the visible Turnstile iframe, or (None, None)."""
+              try:
+                  loc = page.locator(TS_IFRAME)
+                  n = await loc.count()
+                  for i in range(n):
+                      el = loc.nth(i)
+                      try:
+                          await el.scroll_into_view_if_needed(timeout=3000)
+                      except Exception: pass
+                      box = await el.bounding_box()
+                      if box and box["width"] > 40 and box["height"] > 20:
+                          return el, box
+              except Exception: pass
+              return None, None
+
+          async def ts_click_checkbox(page, attempt):
+              el, box = await ts_iframe_box(page)
+              if not box:
+                  return False
+              # Checkbox centre is ~22px from the left edge of the 300x65 widget.
+              # Slightly vary the offset per attempt.
+              dx = [24, 30, 20, 27][attempt % 4] + random.uniform(-2, 2)
+              x = box["x"] + dx
+              y = box["y"] + box["height"] / 2 + random.uniform(-3, 3)
+              log("Turnstile", f"clicking checkbox at ({x:.0f},{y:.0f}) iframe={box['width']:.0f}x{box['height']:.0f}")
+              try:
+                  await page.mouse.move(x - random.uniform(40, 120), y - random.uniform(20, 60), steps=8)
+                  await asyncio.sleep(random.uniform(0.3, 0.7))
+                  await page.mouse.move(x, y, steps=12)
+                  await asyncio.sleep(random.uniform(0.2, 0.5))
+                  await page.mouse.down()
+                  await asyncio.sleep(random.uniform(0.06, 0.15))
+                  await page.mouse.up()
+                  return True
+              except Exception as e:
+                  log("Turnstile", f"mouse click failed: {e}")
+                  return False
+
+          async def solve_turnstile(page, tag, min_wait=10, timeout_ms=100000, max_clicks=4):
               """
-              Finds the visible Cloudflare Turnstile checkbox ("Verify you are human"),
-              clicks it, then waits for success.
+              1. wait for the widget to appear
+              2. click its checkbox
+              3. wait at least `min_wait` seconds for the green success state
+              4. confirm via the response token (retry click if not solved)
+              Returns True when solved (or when there is no widget at all).
               """
-              log("Turnstile", f"[{tag}] Looking for Turnstile checkbox...")
-
-              # Possible selectors for the checkbox / widget
-              candidates = [
-                  page.locator('input[type="checkbox"]').filter(has_text=re.compile(r"verify you are human", re.I)),
-                  page.get_by_text(re.compile(r"verify you are human", re.I)),
-                  page.locator('[class*="cf-turnstile"]'),
-                  page.locator('iframe[src*="challenges.cloudflare.com"]'),
-                  page.locator('div:has-text("Verify you are human")'),
-                  page.locator('label:has-text("Verify you are human")'),
-              ]
-
-              widget = None
-              for loc in candidates:
-                  try:
-                      if await loc.count() > 0 and await loc.first.is_visible():
-                          widget = loc.first
-                          break
-                  except Exception:
-                      continue
-
-              if widget is None:
-                  # Also try finding any unchecked checkbox near the Create button
-                  try:
-                      boxes = page.locator('input[type="checkbox"]')
-                      n = await boxes.count()
-                      for i in range(n):
-                          box = boxes.nth(i)
-                          if await box.is_visible() and not await box.is_checked():
-                              # Prefer the one that is not the ToS checkbox
-                              parent_text = await box.evaluate("el => el.closest('label,div')?.innerText || ''")
-                              if "terms" in parent_text.lower() or "service" in parent_text.lower():
-                                  continue
-                              widget = box
-                              break
-                  except Exception:
-                      pass
-
-              if widget is None:
-                  log("Turnstile", f"[{tag}] No Turnstile checkbox found — assuming already solved or not present")
+              # 1. wait for the widget (up to 20s)
+              appeared = False
+              for _ in range(40):
+                  st = await ts_state(page)
+                  if st["value"]:
+                      log("Turnstile", f"[{tag}] already solved")
+                      return True
+                  _, box = await ts_iframe_box(page)
+                  if box:
+                      appeared = True
+                      break
+                  await asyncio.sleep(0.5)
+              if not appeared:
+                  log("Turnstile", f"[{tag}] no widget found — nothing to solve")
                   return True
 
-              log("Turnstile", f"[{tag}] Found Turnstile — clicking checkbox")
-              try:
-                  await widget.click(timeout=5000, force=True)
-              except Exception:
-                  try:
-                      await widget.click(timeout=3000)
-                  except Exception as e:
-                      log("Turnstile", f"[{tag}] Click failed: {e}")
-                      return False
+              log("Turnstile", f"[{tag}] widget present")
+              await shot(page, f"turnstile-{tag}-found")
+              await asyncio.sleep(random.uniform(1.5, 2.5))  # let it finish auto-check / render
 
-              # Wait for success (checkbox becomes checked or success indicator appears)
-              log("Turnstile", f"[{tag}] Waiting for success (up to 25s)...")
-              end = time.time() + 25
+              end = time.time() + timeout_ms / 1000.0
+              clicks = 0
+              last_click = 0.0
               while time.time() < end:
-                  try:
-                      # Success signals
-                      tok = await page.evaluate("""() => {
-                          const e = document.querySelector("input[name='cf-turnstile-response']");
-                          return e && e.value ? e.value : null;
-                      }""")
-                      if tok:
-                          log("Turnstile", f"[{tag}] SUCCESS — token present")
-                          return True
+                  st = await ts_state(page)
+                  if st["value"]:
+                      log("Turnstile", f"[{tag}] SOLVED (token len={len(st['value'])})")
+                      await asyncio.sleep(random.uniform(1.5, 2.5))
+                      await shot(page, f"turnstile-{tag}-solved")
+                      return True
 
-                      # Visual success (checkbox checked)
-                      if await widget.is_checked():
-                          log("Turnstile", f"[{tag}] SUCCESS — checkbox checked")
-                          await asyncio.sleep(1.5)  # small extra safety
-                          return True
-                  except Exception:
-                      pass
+                  # no response input in DOM at all -> cannot verify; give the
+                  # widget generous time after the click and then proceed
+                  if clicks >= 1 and not st["exists"] and time.time() - last_click > min_wait + 6:
+                      log("Turnstile", f"[{tag}] no response input to verify — assuming solved after wait")
+                      return True
+
+                  if clicks < max_clicks and time.time() - last_click > (min_wait + 6):
+                      clicks += 1
+                      ok = await ts_click_checkbox(page, clicks - 1)
+                      last_click = time.time()
+                      log("Turnstile", f"[{tag}] click #{clicks}: {ok}")
+                      await shot(page, f"turnstile-{tag}-click{clicks}")
+                      # mandatory wait for the spinner -> green check
+                      for s in range(min_wait):
+                          await asyncio.sleep(1)
+                          st2 = await ts_state(page)
+                          if st2["value"] and s >= 3:
+                              break
+                      continue
+
                   await asyncio.sleep(1.0)
 
-              log("Turnstile", f"[{tag}] WARNING: timeout waiting for success")
+              log("Turnstile", f"[{tag}] WARNING: not confirmed solved within timeout")
               await shot(page, f"turnstile-timeout-{tag}")
               return False
 
+          # ══════════════════════════════════════════════════════════
+          #  DASHBOARD POPUPS
+          # ══════════════════════════════════════════════════════════
+          async def dismiss_save_password(page):
+              """
+              Chrome's "Save password?" bubble is NATIVE browser UI, not part of
+              the page DOM, so Playwright usually cannot click it. It also does
+              not block Playwright's page clicks (those are dispatched straight
+              to the page). We still try, in order:
+                1. DOM lookup for a "No thanks" button (works if the cloud
+                   browser streams it as page content)
+                2. Escape key
+              """
+              log("Popup", "Dismissing Save-password bubble (best effort)")
+              for loc in (
+                  page.get_by_role("button", name=re.compile(r"^no thanks$", re.I)),
+                  page.get_by_text(re.compile(r"^no thanks$", re.I)),
+                  page.locator('button:has-text("No thanks")'),
+              ):
+                  try:
+                      el = loc.first
+                      if await el.is_visible():
+                          await el.click(timeout=2000)
+                          log("Popup", 'Clicked "No thanks" via DOM')
+                          await asyncio.sleep(1.0)
+                          return True
+                  except Exception: pass
+              try:
+                  await page.keyboard.press("Escape")
+                  await asyncio.sleep(0.6)
+              except Exception: pass
+              return False
+
+          RUN_MODAL_RE = re.compile(r"how do you want to run profiles", re.I)
+
+          MODAL_RECT_JS = """() => {
+              const re = /how do you want to run profiles/i;
+              let target = null;
+              for (const el of document.querySelectorAll('h1,h2,h3,h4,h5,div,p,span')) {
+                  if (el.children.length === 0 && re.test(el.textContent || '')) { target = el; break; }
+              }
+              if (!target) return null;
+              let card = target;
+              while (card.parentElement) {
+                  const r = card.getBoundingClientRect();
+                  if (r.width >= 420 && r.height >= 320) break;
+                  card = card.parentElement;
+              }
+              const r = card.getBoundingClientRect();
+              if (r.width < 100 || r.height < 100) return null;
+              const pts = [];
+              card.querySelectorAll('button,[role="button"],svg,i,a,span,[class*="close" i]').forEach(e => {
+                  const b = e.getBoundingClientRect();
+                  const txt = (e.textContent || '').trim();
+                  if (b.width > 0 && b.width <= 48 && b.height > 0 && b.height <= 48 &&
+                      (b.top - r.top) < 70 && txt.length <= 2) {
+                      pts.push({x: b.left + b.width / 2, y: b.top + b.height / 2});
+                  }
+              });
+              return {x: r.left, y: r.top, w: r.width, h: r.height, pts: pts};
+          }"""
+
+          async def run_modal_info(page):
+              try:
+                  return await page.evaluate(MODAL_RECT_JS)
+              except Exception:
+                  return None
+
+          async def run_modal_visible(page):
+              try:
+                  if await page.get_by_text(RUN_MODAL_RE).first.is_visible():
+                      return True
+              except Exception: pass
+              return (await run_modal_info(page)) is not None
+
+          async def close_run_modal(page, wait_appear=12, attempts=4):
+              """Close the 'How do you want to run profiles?' modal via its small X."""
+              # the modal can pop in a bit late — wait for it first
+              end = time.time() + wait_appear
+              seen = False
+              while time.time() < end:
+                  if await run_modal_visible(page):
+                      seen = True
+                      break
+                  await asyncio.sleep(0.5)
+              if not seen:
+                  log("Popup", "Run-profiles modal not present")
+                  return True
+
+              log("Popup", "Run-profiles modal detected — closing")
+              await shot(page, "run-modal-open")
+              await asyncio.sleep(random.uniform(0.8, 1.4))
+
+              for attempt in range(attempts):
+                  info = await run_modal_info(page)
+                  if not info:
+                      break
+
+                  # strategy 1: DOM aria-label close buttons
+                  for loc in (
+                      page.locator('[role="dialog"] [aria-label*="close" i]'),
+                      page.locator('[aria-label*="close" i]'),
+                      page.locator('button[class*="close" i]'),
+                  ):
+                      try:
+                          el = loc.first
+                          if await el.is_visible():
+                              await el.click(timeout=2000)
+                              log("Popup", "Clicked X via DOM selector")
+                              await asyncio.sleep(1.3)
+                              break
+                      except Exception: pass
+                  if not await run_modal_visible(page):
+                      break
+
+                  # strategy 2: coordinate clicks (X sits in a top corner of the card)
+                  info = await run_modal_info(page)
+                  if not info:
+                      break
+                  pts = sorted(info.get("pts", []), key=lambda p: -p["x"])
+                  corners = [
+                      {"x": info["x"] + info["w"] - 24, "y": info["y"] + 24},   # top-right
+                      {"x": info["x"] + 24,             "y": info["y"] + 24},   # top-left
+                  ]
+                  for p in pts[:2] + corners:
+                      try:
+                          await page.mouse.move(p["x"] - 25, p["y"] + 15, steps=6)
+                          await asyncio.sleep(0.3)
+                          await page.mouse.move(p["x"], p["y"], steps=6)
+                          await asyncio.sleep(0.2)
+                          await page.mouse.click(p["x"], p["y"])
+                          log("Popup", f"Clicked ({p['x']:.0f},{p['y']:.0f})")
+                      except Exception as e:
+                          log("Popup", f"mouse click error: {e}")
+                      await asyncio.sleep(1.4)
+                      if not await run_modal_visible(page):
+                          break
+                  if not await run_modal_visible(page):
+                      break
+
+                  # strategy 3: Escape
+                  try:
+                      await page.keyboard.press("Escape")
+                      await asyncio.sleep(1.0)
+                  except Exception: pass
+                  if not await run_modal_visible(page):
+                      break
+                  log("Popup", f"Modal still open after attempt {attempt+1}")
+
+              gone = not await run_modal_visible(page)
+              log("Popup", f"Run-profiles modal closed: {gone}")
+              await shot(page, "run-modal-after")
+              return gone
+
+          async def clear_dashboard_popups(page):
+              """Save-password bubble first, then the modal, then any leftovers."""
+              await asyncio.sleep(random.uniform(2.0, 3.0))
+              await dismiss_save_password(page)
+              await asyncio.sleep(random.uniform(1.0, 1.8))
+              await close_run_modal(page)
+              await asyncio.sleep(random.uniform(0.8, 1.5))
+              await dismiss_save_password(page)   # bubble may reappear after modal
+              await dismiss_overlays(page, 4)
+              await asyncio.sleep(random.uniform(0.8, 1.2))
+              await shot(page, "dashboard-clean")
+
+          # ══════════════════════════════════════════════════════════
+          #  TOKEN VIA SETTINGS (fallback)
+          # ══════════════════════════════════════════════════════════
           async def token_via_settings(page):
               await page.goto("https://app.gologin.com/#/personalArea/TokenApi", wait_until="domcontentloaded", timeout=30000)
               await asyncio.sleep(3)
+              await close_run_modal(page, wait_appear=3)
               await dismiss_overlays(page, 3)
               new_btn = await find_visible(page, [
                   page.get_by_role("button", name=re.compile(r"new token", re.I)),
@@ -673,6 +894,9 @@ jobs:
               await read_clipboard(page)
               await shot(page, "settings-after-new-token")
 
+          # ══════════════════════════════════════════════════════════
+          #  MAIN BROWSER FLOW
+          # ══════════════════════════════════════════════════════════
           async def run_flow(profile_id, result):
               ws_url = f"{CLOUD_WS}?token={API_TOKEN}&profile={profile_id}"
               log("Cloud", f"Connecting profile={profile_id}")
@@ -728,7 +952,7 @@ jobs:
                       await dump_page(page, "no-email-field")
                       raise RuntimeError("Sign-up email field not found")
 
-                  await asyncio.sleep(random.uniform(1.2, 2.2))
+                  await asyncio.sleep(random.uniform(1.5, 2.5))
                   await shot(page, "signup-page")
                   log("Main", f"Entering email: {EMAIL}")
                   await type_human(email_field, EMAIL)
@@ -747,8 +971,8 @@ jobs:
                   ], 12000)
                   await asyncio.sleep(random.uniform(2.0, 3.5))
 
-                  # ── Phase 3: Password + Turnstile ─────────────
-                  banner("Phase 3 — Password + Cloudflare Turnstile")
+                  # ── Phase 3: Password + Turnstile + Create ────
+                  banner("Phase 3 — Password, Turnstile, Create account")
 
                   async def password_visible():
                       return (await page.locator('input[type="password"]').first.is_visible()
@@ -766,7 +990,8 @@ jobs:
                       await dump_page(page, f"stage1-{stage1}")
                       raise RuntimeError(f"Password step not reached (stage={stage1})")
 
-                  # Fill password fields
+                  await asyncio.sleep(random.uniform(1.0, 2.0))
+
                   pass_field = page.get_by_placeholder(re.compile(r"your password|password", re.I)).first
                   confirm_field = page.get_by_placeholder(re.compile(r"confirm password", re.I)).first
                   try:
@@ -778,60 +1003,75 @@ jobs:
                       confirm_field = pw_inputs.nth(1) if await pw_inputs.count() > 1 else None
 
                   await type_human(pass_field, PASSWORD)
-                  await asyncio.sleep(random.uniform(0.5, 0.9))
+                  await asyncio.sleep(random.uniform(0.6, 1.1))
                   if confirm_field is not None:
                       await type_human(confirm_field, PASSWORD)
-                  await asyncio.sleep(random.uniform(0.7, 1.3))
+                  await asyncio.sleep(random.uniform(0.8, 1.4))
+
+                  # Make sure the ToS checkbox on THIS page is ticked as well
+                  await tick_tos(page)
+                  await asyncio.sleep(random.uniform(0.8, 1.4))
                   await shot(page, "password-filled")
 
-                  # Make sure ToS is still checked on this screen
-                  await tick_tos(page)
-                  await asyncio.sleep(0.8)
+                  create_re = re.compile(r"create an account|create account|sign up|get started", re.I)
 
-                  # ── CRITICAL: Solve Cloudflare Turnstile ──────
-                  turnstile_ok = await solve_turnstile_checkbox(page, tag="before-create")
-                  if not turnstile_ok:
-                      log("Turnstile", "First attempt failed — retrying once more")
-                      await asyncio.sleep(2)
-                      turnstile_ok = await solve_turnstile_checkbox(page, tag="retry")
+                  async def left_password_step():
+                      try:
+                          if not await page.locator('input[type="password"]').first.is_visible():
+                              return True
+                      except Exception:
+                          return True
+                      return False
 
-                  await shot(page, "after-turnstile")
+                  created = False
+                  for attempt in range(1, 5):
+                      # 1) Turnstile FIRST: click checkbox, wait >=10s for success
+                      ts_ok = await solve_turnstile(page, f"a{attempt}", min_wait=10)
+                      log("Main", f"Turnstile solved before create (attempt {attempt}): {ts_ok}")
+                      await asyncio.sleep(random.uniform(1.0, 2.0))
+                      await shot(page, f"before-create-account-{attempt}")
 
-                  # Now click Create an account
-                  create_re = re.compile(r"create an account|create account|sign up|continue|get started", re.I)
-                  clicked = False
-                  for attempt in range(4):
+                      # 2) THEN click "Create an account"
                       clicked = await click_first(page, [
                           page.get_by_role("button", name=create_re),
-                          page.locator('button:has-text("Create an account")'),
                           page.locator('button:has-text("Create")'),
                           page.locator('button[type="submit"]'),
                       ], 8000)
-                      log("Main", f"Create click attempt {attempt+1}: {clicked}")
-                      if clicked:
+                      log("Main", f"Create click attempt {attempt}: {clicked}")
+                      await asyncio.sleep(random.uniform(2.0, 3.0))
+                      await shot(page, f"after-create-click-{attempt}")
+
+                      # 3) did we move on from the password page?
+                      moved = await wait_any([
+                          ["left", left_password_step],
+                          ["survey", lambda: page.get_by_text(re.compile(r"have you ever used|antidetect|what do you use", re.I)).first.is_visible()],
+                          ["verify", lambda: page.get_by_text(re.compile(r"check your (email|inbox)|verify your email|confirmation link|we sent", re.I)).first.is_visible()],
+                          ["dash", lambda: is_dashboard(page)],
+                      ], 25000)
+                      log("Main", f"After create click: moved={moved}")
+                      if moved:
+                          created = True
                           break
-                      await asyncio.sleep(1.5)
+                      log("Main", "Still on password step — re-solving Turnstile and retrying")
+                      await asyncio.sleep(random.uniform(2.0, 3.5))
 
-                  if not clicked:
-                      await dump_page(page, "create-button-not-found")
-                      raise RuntimeError("Could not click Create an account button")
-
-                  await asyncio.sleep(random.uniform(2.0, 3.5))
+                  if not created:
+                      await dump_page(page, "create-never-advanced")
+                      raise RuntimeError("Create account did not advance (Turnstile/Create failed)")
 
                   # ── Expanded success / failure detection ──────
                   async def text_visible(pat):
                       return await page.get_by_text(re.compile(pat, re.I)).first.is_visible()
 
                   stage2 = await wait_any([
-                      ["survey",      lambda: text_visible(r"have you ever used|antidetect|what do you use")],
-                      ["allset",      lambda: text_visible(r"all set|you.?re all set|welcome")],
-                      ["verify",      lambda: text_visible(r"check your (email|inbox)|verify your email|confirmation link|we sent")],
-                      ["dashboard",   lambda: is_dashboard(page)],
-                      ["installer",   lambda: "download-installer" in page.url.lower()],
-                      ["profilelist", lambda: "profilelist" in page.url.lower() or "browser" in page.url.lower()],
-                      ["run-modal",   lambda: text_visible(r"how do you want to run profiles")],
-                      ["error",       lambda: text_visible(r"already (registered|exists|in use|taken)|password is too|something went wrong|try again|invalid")],
-                  ], 110000)
+                      ["survey",     lambda: text_visible(r"have you ever used|antidetect|what do you use")],
+                      ["allset",     lambda: text_visible(r"all set|you.?re all set|welcome")],
+                      ["verify",     lambda: text_visible(r"check your (email|inbox)|verify your email|confirmation link|we sent")],
+                      ["dashboard",  lambda: is_dashboard(page)],
+                      ["installer",  lambda: "download-installer" in page.url.lower()],
+                      ["profilelist",lambda: "profilelist" in page.url.lower() or "browser" in page.url.lower()],
+                      ["error",      lambda: text_visible(r"already (registered|exists|in use|taken)|password is too|something went wrong|try again|invalid")],
+                  ], 100000)
 
                   await shot(page, "after-create-account")
                   log("Main", f"Post-create stage = {stage2}")
@@ -841,88 +1081,66 @@ jobs:
                       raise RuntimeError(f"Account creation failed (stage={stage2})")
 
                   result["signup"] = True
-                  log("Main", f"ACCOUNT CREATED: {EMAIL} (stage={stage2})")
+                  log("Main", f"ACCOUNT CREATED (or pending verify): {EMAIL} (stage={stage2})")
 
-                  # ── Phase 4: Dismiss post-signup popups ───────
-                  banner("Phase 4 — Dismiss post-signup popups")
+                  if stage2 == "verify":
+                      log("Main", "Email verification required — token extraction may be limited")
 
-                  # 1. Browser "Save password?" dialog → No thanks
-                  for _ in range(5):
-                      no_thanks = await find_visible(page, [
-                          page.get_by_role("button", name=re.compile(r"no thanks|never|not now", re.I)),
-                          page.get_by_text(re.compile(r"^no thanks$", re.I)),
-                          page.locator('button:has-text("No thanks")'),
-                          page.locator('button:has-text("Never")'),
-                      ], 3000)
-                      if no_thanks:
-                          try:
-                              await no_thanks.click()
-                              log("Main", "Clicked 'No thanks' on Save password dialog")
-                              await asyncio.sleep(1.5)
-                          except Exception as e:
-                              log("Main", f"No thanks click error: {e}")
-                          break
-                      await asyncio.sleep(0.8)
+                  # ── Phase 4: Onboarding + popups ──────────────
+                  banner("Phase 4 — Onboarding & popups")
+                  await asyncio.sleep(random.uniform(2.0, 3.0))
 
-                  # 2. "How do you want to run profiles?" modal → click X
-                  for _ in range(6):
-                      # Look for the close button on the modal
-                      close_btn = await find_visible(page, [
-                          page.locator('div[role="dialog"] button[aria-label="Close" i]'),
-                          page.locator('div[role="dialog"] button:has-text("×")'),
-                          page.locator('div[role="dialog"] button:has-text("✕")'),
-                          page.locator('[class*="modal"] button[aria-label*="close" i]'),
-                          page.locator('button[aria-label="Close" i]'),
-                          page.locator('div:has-text("How do you want to run profiles") >> button').first,
+                  # skip survey / installer pages if present
+                  for _ in range(4):
+                      skip = await find_visible(page, [
+                          page.get_by_text(re.compile(r"skip recommended setup|^skip$", re.I)),
+                          page.get_by_role("link", name=re.compile(r"skip", re.I)),
+                          page.get_by_role("button", name=re.compile(r"skip", re.I)),
                       ], 2500)
-
-                      if close_btn:
+                      if skip:
                           try:
-                              await close_btn.click()
-                              log("Main", "Closed 'How do you want to run profiles?' modal")
-                              await asyncio.sleep(1.5)
-                              break
-                          except Exception as e:
-                              log("Main", f"Close modal error: {e}")
+                              await skip.click()
+                              log("Main", "Clicked Skip")
+                          except Exception: pass
+                          await asyncio.sleep(1.5)
+                          break
+                      if "download-installer" in page.url:
+                          break
+                      await asyncio.sleep(0.5)
 
-                      # Alternative: click the X that is usually top-right of the white card
-                      try:
-                          x_btn = page.locator('button').filter(has_text=re.compile(r"^[×✕x]$")).first
-                          if await x_btn.is_visible():
-                              await x_btn.click()
-                              log("Main", "Clicked X on modal")
-                              await asyncio.sleep(1.5)
-                              break
-                      except Exception:
-                          pass
+                  if "profilelist" not in page.url.lower():
+                      log("Main", f"Navigating to profile list (was {page.url})")
+                      await page.goto(PROFILELIST_URL, wait_until="domcontentloaded", timeout=45000)
+                      await asyncio.sleep(random.uniform(3.0, 4.5))
 
-                      await asyncio.sleep(0.8)
+                  await shot(page, "dashboard-raw")
 
-                  # Extra general overlay dismiss
-                  await dismiss_overlays(page, 5)
-                  await asyncio.sleep(1.5)
-                  await shot(page, "after-popups-dismissed")
+                  # Save-password bubble -> No thanks, then the run-profiles modal -> X
+                  await clear_dashboard_popups(page)
 
-                  # Navigate to profile list if needed
                   if not await is_dashboard(page):
-                      await page.goto("https://app.gologin.com/profileList", wait_until="domcontentloaded", timeout=30000)
+                      await page.goto(PROFILELIST_URL, wait_until="domcontentloaded", timeout=30000)
                       await asyncio.sleep(3)
-                      await dismiss_overlays(page, 4)
+                      await clear_dashboard_popups(page)
 
                   await shot(page, "dashboard")
                   log("Main", "Reached dashboard area")
 
                   # ── Phase 5: Extract API token ────────────────
                   banner("Phase 5 — Extract API token")
-                  run_btn = await find_visible(page, [page.get_by_role("button", name="Run", exact=True)], 15000)
+                  await asyncio.sleep(random.uniform(1.5, 2.5))
+                  run_btn = await find_visible(page, [page.get_by_role("button", name="Run", exact=True)], 20000)
 
                   if not run_btn:
                       log("Main", "No Run button — going to Settings API page")
                       await token_via_settings(page)
                   else:
+                      # one more safety check: modal must be gone or Run click is intercepted
+                      if await run_modal_visible(page):
+                          await close_run_modal(page, wait_appear=1)
                       await run_btn.click()
                       log("Main", "Clicked Run")
-                      await asyncio.sleep(random.uniform(1.2, 2.0))
+                      await asyncio.sleep(random.uniform(1.5, 2.5))
                       await shot(page, "run-menu")
                       api_clicked = await click_first(page, [
                           page.get_by_text(re.compile(r"api control", re.I)),
@@ -933,7 +1151,7 @@ jobs:
                           await token_via_settings(page)
                       else:
                           log("Main", 'Clicked "API control"')
-                          await asyncio.sleep(random.uniform(2.0, 3.5))
+                          await asyncio.sleep(random.uniform(2.5, 4.0))
                           await shot(page, "api-control-page")
                           await scan_page(page, "cloud-api-control")
                           copy_el = await find_visible(page, [
@@ -941,9 +1159,10 @@ jobs:
                               page.get_by_role("button", name=re.compile(r"copy token", re.I)),
                           ], 20000)
                           if copy_el:
+                              await asyncio.sleep(random.uniform(0.8, 1.4))
                               await copy_el.click()
                               log("Main", "Clicked Copy token")
-                              await asyncio.sleep(1.2)
+                              await asyncio.sleep(1.5)
                               await read_clipboard(page)
                               await shot(page, "after-copy-token")
                           else:
