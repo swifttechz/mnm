@@ -1,23 +1,17 @@
 # ============================================================
-# GoLogin Cloud Browser Signup — robust 2026 version (v3)
+# GoLogin Cloud Browser Signup — robust 2026 (v3)
 # ============================================================
-# Changes in v3:
-#   1. Cloudflare Turnstile solver rewritten as a multi-strategy loop:
-#        - robust widget locator (iframe selectors -> container selectors ->
-#          layout fallback relative to the "Create an account" button)
-#        - strategy A: real mouse click at the checkbox
-#        - strategy B: click inside the Turnstile frame itself
-#        - strategy C: keyboard  (Tab until the Turnstile iframe has focus,
-#          confirm via document.activeElement, then Space / Enter)
-#        - strategy D: layout-relative mouse click
-#      After every attempt it waits and checks for success using THREE
-#      independent signals: cf-turnstile-response token, frame "success"
-#      state, and green-pixel detection of the success check mark.
-#      "Create an account" is only clicked after success is detected.
-#   2. API step: after "API control" the script now waits 20 seconds (scanning
-#      the page for the token while it waits), then looks for "Copy token".
-#      No Settings detour unless nothing at all was captured.
-#   3. Dashboard popup handling from v2 retained (Save-password / run modal).
+# Key improvements in this version:
+#   1. Cloudflare Turnstile — multi-strategy solver:
+#        • Strategy A: mouse coordinate click on the iframe checkbox
+#        • Strategy B: keyboard Tab navigation to focus the widget + Space/Enter
+#        • Strategy C: click the outer widget container / label
+#        • Always waits ≥10s after each click and verifies cf-turnstile-response
+#        • Retries up to 5 times with different offsets / methods
+#   2. Create-account loop re-solves Turnstile every attempt
+#   3. Dashboard popups: Save-password → No thanks, run-profiles modal → X
+#   4. API Control: after click, wait 20 seconds for the page to fully load
+#      before looking for "Copy token" (this is the reliable path)
 # ============================================================
 
 name: GoLogin Cloud Browser Signup
@@ -57,7 +51,7 @@ on:
         description: "Profile OS"
         required: true
         type: choice
-        default: Mac ARM (M1)
+        default: Windows 11
         options: ['Windows 10','Windows 11','Mac Intel','Mac ARM (M1)','Linux','Android']
       proxy_type:
         description: "GoLogin proxy type"
@@ -75,7 +69,7 @@ on:
         description: "Extra minutes to keep job alive (0-60)"
         required: false
         type: string
-        default: '0'
+        default: '1'
 
 permissions:
   actions: write
@@ -238,7 +232,7 @@ jobs:
     steps:
       - name: "[1/5] Install Python dependencies"
         run: |
-          pip install --quiet playwright requests aiohttp pillow
+          pip install --quiet playwright requests aiohttp
           playwright install chromium --with-deps
           echo "[Deps] OK"
 
@@ -249,21 +243,16 @@ jobs:
           """
           GoLogin Cloud Browser Signup — robust 2026 (v3)
           ===============================================
-          - POST /browser/quick only
-          - Turnstile: multi-strategy (mouse / frame click / keyboard Tab+Enter /
-            layout click) with 3 independent success signals
-          - Create-account retry loop
-          - Dashboard popups (Save-password, run-profiles modal)
-          - API control: wait 20s, then Copy token
+          Turnstile multi-strategy:
+            A) mouse coordinate click on iframe checkbox (left side)
+            B) keyboard Tab focus + Space/Enter
+            C) click outer widget container / "Verify you are human" text
+          After each click wait ≥10s and check cf-turnstile-response.
+          API Control path: wait 20s after click before looking for Copy token.
           """
-          import asyncio, datetime, io, json, os, pathlib, random, re, string, sys, time, traceback, urllib.request, urllib.error
+          import asyncio, datetime, json, os, pathlib, random, re, string, sys, time, traceback, urllib.request, urllib.error
           import requests
           from playwright.async_api import async_playwright
-
-          try:
-              from PIL import Image
-          except Exception:
-              Image = None
 
           IDX = os.environ.get("ACC_INDEX", "1")
           OUT = pathlib.Path(os.environ.get("OUT_DIR", "out")).resolve()
@@ -575,28 +564,19 @@ jobs:
                   log("DUMP", f"dump failed: {e}")
 
           # ══════════════════════════════════════════════════════════
-          #  CLOUDFLARE TURNSTILE  (multi-strategy)
+          #  CLOUDFLARE TURNSTILE — multi-strategy robust solver
           # ══════════════════════════════════════════════════════════
-          CREATE_RE = re.compile(r"create an account|create account|sign up|get started", re.I)
+          # The real checkbox lives inside a cross-origin iframe + closed
+          # shadow root. Normal selectors cannot reach it.
+          # Strategy A: mouse click at calculated checkbox coordinates
+          # Strategy B: Tab-focus the widget then Space / Enter
+          # Strategy C: click the outer container / visible text
+          # After every attempt we wait ≥10 s and check the response token.
 
-          TS_IFRAME_SELECTORS = [
-              'iframe[src*="challenges.cloudflare.com"]',
-              'iframe[src*="turnstile"]',
-              'iframe[title*="cloudflare" i]',
-              'iframe[title*="challenge" i]',
-              'iframe[title*="widget" i]',
-          ]
-          TS_CONTAINER_SELECTORS = [
-              '.cf-turnstile', '[class*="turnstile" i]', '[id*="turnstile" i]', '[data-sitekey]',
-          ]
+          TS_IFRAME = 'iframe[src*="challenges.cloudflare.com"]'
           TS_INPUT_JS = """() => {
               const e = document.querySelector("input[name='cf-turnstile-response'],textarea[name='cf-turnstile-response']");
               return e ? {exists: true, value: e.value || ''} : {exists: false, value: ''};
-          }"""
-          ACTIVE_JS = """() => {
-              const a = document.activeElement;
-              if (!a) return '';
-              return (a.tagName || '') + '|' + (a.getAttribute('src') || '') + '|' + (a.getAttribute('title') || '');
           }"""
 
           async def ts_state(page):
@@ -605,457 +585,324 @@ jobs:
               except Exception:
                   return {"exists": False, "value": ""}
 
-          def ts_frame(page):
-              for f in page.frames:
-                  try:
-                      if "challenges.cloudflare.com" in (f.url or ""):
-                          return f
-                  except Exception: pass
-              return None
-
-          async def ts_diag(page, tag):
+          async def ts_iframe_box(page):
+              """Return (locator, bbox) of the visible Turnstile iframe."""
               try:
-                  frames = [f.url[:90] for f in page.frames if f.url and f.url != "about:blank"]
-                  log("Turnstile", f"[{tag}] frames: {frames}")
-                  n = await page.locator("iframe").count()
-                  for i in range(min(n, 8)):
-                      el = page.locator("iframe").nth(i)
+                  loc = page.locator(TS_IFRAME)
+                  n = await loc.count()
+                  for i in range(n):
+                      el = loc.nth(i)
+                      try:
+                          await el.scroll_into_view_if_needed(timeout=3000)
+                      except Exception:
+                          pass
                       box = await el.bounding_box()
-                      src = (await el.get_attribute("src")) or ""
-                      log("Turnstile", f"[{tag}] iframe#{i} src={src[:70]} box={box}")
-              except Exception as e:
-                  log("Turnstile", f"diag failed: {e}")
-
-          async def ts_locate(page, allow_layout=True):
-              """Find the Turnstile widget. Returns {'box':..., 'source':...} or None."""
-              for sel in TS_IFRAME_SELECTORS:
-                  try:
-                      loc = page.locator(sel)
-                      n = await loc.count()
-                      for i in range(n):
-                          el = loc.nth(i)
-                          try: await el.scroll_into_view_if_needed(timeout=2000)
-                          except Exception: pass
-                          box = await el.bounding_box()
-                          if box and box["width"] > 40 and box["height"] > 20:
-                              return {"box": box, "source": f"iframe:{sel}"}
-                  except Exception: pass
-              for sel in TS_CONTAINER_SELECTORS:
-                  try:
-                      loc = page.locator(sel)
-                      n = await loc.count()
-                      for i in range(n):
-                          el = loc.nth(i)
-                          try: await el.scroll_into_view_if_needed(timeout=2000)
-                          except Exception: pass
-                          box = await el.bounding_box()
-                          if box and box["width"] > 40 and box["height"] > 20:
-                              return {"box": box, "source": f"container:{sel}"}
-                  except Exception: pass
-              if allow_layout:
-                  # Layout fallback: the widget (300x65) sits ~22px above the Create button, centred.
-                  try:
-                      st = await ts_state(page)
-                      html = (await page.content()).lower()
-                      if st["exists"] or "turnstile" in html or "challenges.cloudflare" in html:
-                          btn = page.get_by_role("button", name=CREATE_RE).first
-                          bb = await btn.bounding_box()
-                          if bb:
-                              box = {"x": bb["x"] + bb["width"] / 2 - 150, "y": bb["y"] - 22 - 65,
-                                     "width": 300, "height": 65}
-                              return {"box": box, "source": "layout"}
-                  except Exception: pass
-              return None
-
-          async def ts_green_ratio(page, box):
-              """Fraction of green pixels in the widget area (the success check mark is green)."""
-              if Image is None or not box:
-                  return 0.0
-              try:
-                  png = await page.screenshot(clip={"x": max(box["x"], 0), "y": max(box["y"], 0),
-                                                    "width": box["width"], "height": box["height"]})
-                  im = Image.open(io.BytesIO(png)).convert("RGB")
-                  px = list(im.getdata())
-                  if not px: return 0.0
-                  g = sum(1 for (r, gg, b) in px if gg > 110 and gg - r > 45 and gg - b > 45)
-                  return g / len(px)
+                      if box and box["width"] > 40 and box["height"] > 20:
+                          return el, box
               except Exception:
-                  return 0.0
+                  pass
+              return None, None
 
-          async def ts_solved(page, info, baseline):
-              """Return a string naming the success signal, or ''."""
-              st = await ts_state(page)
-              if st["value"]:
-                  return f"token(len={len(st['value'])})"
-              f = ts_frame(page)
-              if f:
+          async def ts_widget_box(page):
+              """Also try the outer cf-turnstile container or the text label."""
+              selectors = [
+                  '[class*="cf-turnstile"]',
+                  'div:has-text("Verify you are human")',
+                  'label:has-text("Verify you are human")',
+                  'div:has(iframe[src*="challenges.cloudflare.com"])',
+              ]
+              for sel in selectors:
                   try:
-                      if await f.locator("#success").first.is_visible():
-                          return "frame:#success"
-                  except Exception: pass
-                  try:
-                      txt = await f.evaluate("() => document.body ? document.body.innerText : ''")
-                      if txt and re.search(r"\bsuccess\b", txt, re.I):
-                          return "frame:text"
-                  except Exception: pass
-              if info:
-                  ratio = await ts_green_ratio(page, info["box"])
-                  if ratio > max(0.008, baseline + 0.006):
-                      return f"pixels(green={ratio:.3f})"
-              return ""
+                      loc = page.locator(sel)
+                      if await loc.count() == 0:
+                          continue
+                      el = loc.first
+                      try:
+                          await el.scroll_into_view_if_needed(timeout=2000)
+                      except Exception:
+                          pass
+                      box = await el.bounding_box()
+                      if box and box["width"] > 40 and box["height"] > 15:
+                          return el, box
+                  except Exception:
+                      continue
+              return None, None
 
-          # ---- strategies ------------------------------------------------
-          async def ts_act_mouse(page, info, k):
-              box = info["box"]
-              dx = [24, 30, 20, 27][k % 4] + random.uniform(-2, 2)
+          async def ts_click_mouse(page, attempt):
+              """Strategy A — mouse coordinate click on the checkbox (left side of widget)."""
+              el, box = await ts_iframe_box(page)
+              if not box:
+                  el, box = await ts_widget_box(page)
+              if not box:
+                  return False
+
+              # Checkbox is on the left side of the 300×65-ish widget
+              offsets = [22, 28, 18, 32, 25]
+              dx = offsets[attempt % len(offsets)] + random.uniform(-3, 3)
               x = box["x"] + dx
-              y = box["y"] + box["height"] / 2 + random.uniform(-3, 3)
-              log("Turnstile", f"mouse click at ({x:.0f},{y:.0f}) src={info['source']}")
+              y = box["y"] + box["height"] / 2 + random.uniform(-4, 4)
+
+              log("Turnstile", f"[mouse] click at ({x:.0f},{y:.0f}) size={box['width']:.0f}x{box['height']:.0f}")
               try:
-                  await page.bring_to_front()
-                  await page.mouse.move(x - random.uniform(60, 140), y - random.uniform(25, 70), steps=10)
-                  await asyncio.sleep(random.uniform(0.3, 0.7))
+                  # natural mouse movement
+                  await page.mouse.move(x - random.uniform(60, 140), y + random.uniform(-30, 30), steps=10)
+                  await asyncio.sleep(random.uniform(0.25, 0.55))
                   await page.mouse.move(x, y, steps=14)
-                  await asyncio.sleep(random.uniform(0.25, 0.6))
+                  await asyncio.sleep(random.uniform(0.18, 0.4))
                   await page.mouse.down()
                   await asyncio.sleep(random.uniform(0.07, 0.16))
                   await page.mouse.up()
                   return True
               except Exception as e:
-                  log("Turnstile", f"mouse click failed: {e}")
+                  log("Turnstile", f"[mouse] failed: {e}")
                   return False
 
-          async def ts_act_framebody(page, info, k):
-              f = ts_frame(page)
-              if not f:
-                  log("Turnstile", "no Turnstile frame object available")
+          async def ts_click_keyboard(page, attempt):
+              """
+              Strategy B — keyboard navigation.
+              Tab until focus is near the Turnstile area, then Space / Enter.
+              """
+              log("Turnstile", f"[keyboard] attempt {attempt+1} — Tab + Space/Enter")
+              try:
+                  # First make sure the page has focus
+                  await page.bring_to_front()
+                  await page.keyboard.press("Home")  # start from top
+                  await asyncio.sleep(0.3)
+
+                  # Tab through focusable elements (max ~25 tabs should reach the widget)
+                  for i in range(1, 28):
+                      await page.keyboard.press("Tab")
+                      await asyncio.sleep(0.12 + random.uniform(0, 0.08))
+
+                      # After some tabs, try Space / Enter
+                      if i >= 6 and (i % 3 == 0 or i > 12):
+                          await page.keyboard.press("Space")
+                          await asyncio.sleep(0.4)
+                          st = await ts_state(page)
+                          if st["value"]:
+                              log("Turnstile", f"[keyboard] solved after Tab×{i} + Space")
+                              return True
+                          await page.keyboard.press("Enter")
+                          await asyncio.sleep(0.4)
+                          st = await ts_state(page)
+                          if st["value"]:
+                              log("Turnstile", f"[keyboard] solved after Tab×{i} + Enter")
+                              return True
+
+                  # Final Space + Enter just in case
+                  await page.keyboard.press("Space")
+                  await asyncio.sleep(0.5)
+                  await page.keyboard.press("Enter")
+                  return True
+              except Exception as e:
+                  log("Turnstile", f"[keyboard] failed: {e}")
                   return False
+
+          async def ts_click_container(page, attempt):
+              """Strategy C — click the visible 'Verify you are human' text / container."""
+              log("Turnstile", f"[container] attempt {attempt+1}")
               try:
-                  await f.locator("body").click(position={"x": 24 + k, "y": 32}, timeout=3000, force=True)
-                  log("Turnstile", "clicked inside Turnstile frame body")
-                  return True
+                  # Prefer the text itself
+                  for loc in (
+                      page.get_by_text(re.compile(r"verify you are human", re.I)),
+                      page.locator('[class*="cf-turnstile"]'),
+                      page.locator('div:has-text("Verify you are human")'),
+                  ):
+                      try:
+                          if await loc.count() > 0 and await loc.first.is_visible():
+                              box = await loc.first.bounding_box()
+                              if box:
+                                  # Click slightly left of centre (where the checkbox is)
+                                  x = box["x"] + min(30, box["width"] * 0.15)
+                                  y = box["y"] + box["height"] / 2
+                                  await page.mouse.click(x, y)
+                                  log("Turnstile", f"[container] clicked at ({x:.0f},{y:.0f})")
+                                  return True
+                              await loc.first.click(force=True, timeout=3000)
+                              return True
+                      except Exception:
+                          continue
               except Exception as e:
-                  log("Turnstile", f"frame body click failed: {str(e)[:80]}")
-              try:
-                  await f.get_by_role("checkbox").first.click(timeout=2000, force=True)
-                  log("Turnstile", "clicked checkbox role in frame")
-                  return True
-              except Exception as e:
-                  log("Turnstile", f"frame checkbox click failed: {str(e)[:80]}")
+                  log("Turnstile", f"[container] failed: {e}")
               return False
 
-          async def ts_focused_on_widget(page):
-              try:
-                  v = (await page.evaluate(ACTIVE_JS) or "").lower()
-              except Exception:
-                  return False
-              return v.startswith("iframe") and any(w in v for w in ("cloudflare", "turnstile", "challenge", "widget"))
-
-          async def ts_act_keyboard(page, info, k, key):
-              """Tab until the Turnstile iframe has focus (verified), then press Space/Enter."""
-              try:
-                  await page.bring_to_front()
-                  anchor = page.locator('input[type="password"]').last
-                  await anchor.click(timeout=3000)
-              except Exception: pass
-              await asyncio.sleep(0.5)
-
-              found = False
-              for i in range(14):
-                  await page.keyboard.press("Tab")
-                  await asyncio.sleep(0.35)
-                  if await ts_focused_on_widget(page):
-                      found = True
-                      log("Turnstile", f"widget focused after {i+1} Tab presses")
-                      break
-              if not found:
-                  for i in range(14):
-                      await page.keyboard.press("Shift+Tab")
-                      await asyncio.sleep(0.35)
-                      if await ts_focused_on_widget(page):
-                          found = True
-                          log("Turnstile", f"widget focused after {i+1} Shift+Tab presses")
-                          break
-              if not found:
-                  log("Turnstile", "keyboard: could not focus widget")
-                  return False
-
-              await shot(page, "turnstile-focused")
-              await asyncio.sleep(random.uniform(0.6, 1.0))
-              if k >= 4:
-                  # some builds need one more Tab to enter the iframe document
-                  await page.keyboard.press("Tab")
-                  await asyncio.sleep(0.5)
-              await page.keyboard.press(key)
-              log("Turnstile", f"keyboard: pressed {key} on focused widget")
-              return True
-
-          async def ts_act_layout(page, info, k):
-              try:
-                  btn = page.get_by_role("button", name=CREATE_RE).first
-                  bb = await btn.bounding_box()
-                  if not bb:
-                      return False
-                  x = bb["x"] + bb["width"] / 2 - 150 + 24 + random.uniform(-2, 2)
-                  y = bb["y"] - 22 - 32.5 + random.uniform(-3, 3)
-                  log("Turnstile", f"layout click at ({x:.0f},{y:.0f}) (relative to Create button)")
-                  await page.mouse.move(x - 80, y - 30, steps=10)
-                  await asyncio.sleep(0.4)
-                  await page.mouse.move(x, y, steps=12)
-                  await asyncio.sleep(0.3)
-                  await page.mouse.down()
-                  await asyncio.sleep(0.1)
-                  await page.mouse.up()
+          async def solve_turnstile(page, tag, min_wait=10, timeout_ms=120000, max_attempts=5):
+              """
+              Multi-strategy Turnstile solver.
+              Returns True when the response token appears (or no widget exists).
+              """
+              # 1. Already solved?
+              st = await ts_state(page)
+              if st["value"]:
+                  log("Turnstile", f"[{tag}] already solved (token present)")
                   return True
-              except Exception as e:
-                  log("Turnstile", f"layout click failed: {e}")
-                  return False
 
-          async def solve_turnstile(page, tag, min_wait=10, wait_per_try=22):
-              """
-              Locate widget -> try strategies one after another. After EACH attempt wait
-              (>= min_wait seconds, up to wait_per_try) for a success signal. Return True
-              once solved, or True when no widget exists. False if nothing worked.
-              """
-              await ts_diag(page, tag)
-
-              info = None
-              for _ in range(40):                      # up to ~20s for the widget to render
+              # 2. Wait for widget to appear (up to 25 s)
+              appeared = False
+              for _ in range(50):
                   st = await ts_state(page)
                   if st["value"]:
-                      log("Turnstile", f"[{tag}] already solved (token present)")
+                      log("Turnstile", f"[{tag}] already solved while waiting")
                       return True
-                  info = await ts_locate(page, allow_layout=False)
-                  if info: break
+                  _, box = await ts_iframe_box(page)
+                  if not box:
+                      _, box = await ts_widget_box(page)
+                  if box:
+                      appeared = True
+                      break
                   await asyncio.sleep(0.5)
-              if not info:
-                  info = await ts_locate(page, allow_layout=True)
-              if not info:
-                  log("Turnstile", f"[{tag}] no widget found — nothing to solve")
+
+              if not appeared:
+                  log("Turnstile", f"[{tag}] no widget found — treating as not required")
                   return True
 
-              log("Turnstile", f"[{tag}] widget located via {info['source']} box={info['box']}")
+              log("Turnstile", f"[{tag}] widget present — starting multi-strategy solve")
               await shot(page, f"turnstile-{tag}-found")
-              baseline = await ts_green_ratio(page, info["box"])
+              await asyncio.sleep(random.uniform(1.2, 2.0))
 
-              # managed mode sometimes auto-solves; give it a few seconds first
-              await asyncio.sleep(random.uniform(3.5, 5.0))
-              s = await ts_solved(page, info, baseline)
-              if s:
-                  log("Turnstile", f"[{tag}] auto-solved: {s}")
-                  await asyncio.sleep(2)
-                  return True
+              end = time.time() + timeout_ms / 1000.0
+              attempt = 0
 
-              strategies = ["mouse", "framebody", "kb-space", "layout", "kb-enter",
-                            "mouse", "kb-space-tab", "framebody", "kb-enter"]
-              for k, strat in enumerate(strategies):
-                  s = await ts_solved(page, info, baseline)
-                  if s:
-                      log("Turnstile", f"[{tag}] solved before strategy {strat}: {s}")
-                      await asyncio.sleep(2)
-                      return True
+              while time.time() < end and attempt < max_attempts:
+                  attempt += 1
+                  log("Turnstile", f"[{tag}] === attempt {attempt}/{max_attempts} ===")
 
-                  info = (await ts_locate(page, allow_layout=True)) or info
-                  log("Turnstile", f"[{tag}] attempt {k+1}/{len(strategies)} strategy={strat}")
-                  if strat == "mouse":
-                      ok = await ts_act_mouse(page, info, k)
-                  elif strat == "framebody":
-                      ok = await ts_act_framebody(page, info, k)
-                  elif strat == "kb-space":
-                      ok = await ts_act_keyboard(page, info, k, "Space")
-                  elif strat == "kb-enter":
-                      ok = await ts_act_keyboard(page, info, k, "Enter")
-                  elif strat == "kb-space-tab":
-                      ok = await ts_act_keyboard(page, info, 4, "Space")
+                  # Rotate strategies
+                  strategy = (attempt - 1) % 3
+                  if strategy == 0:
+                      ok = await ts_click_mouse(page, attempt - 1)
+                  elif strategy == 1:
+                      ok = await ts_click_keyboard(page, attempt - 1)
                   else:
-                      ok = await ts_act_layout(page, info, k)
-                  log("Turnstile", f"[{tag}] action performed: {ok}")
-                  await shot(page, f"turnstile-{tag}-try{k+1}-{strat}")
-                  if not ok:
-                      await asyncio.sleep(1.0)
-                      continue
+                      ok = await ts_click_container(page, attempt - 1)
 
-                  # wait for the spinner -> green check (>= min_wait seconds before giving up)
-                  t0 = time.time()
-                  while time.time() - t0 < wait_per_try:
-                      await asyncio.sleep(1.0)
-                      s = await ts_solved(page, info, baseline)
-                      if s:
-                          log("Turnstile", f"[{tag}] SOLVED via {strat}: {s} (after {time.time()-t0:.0f}s)")
-                          await asyncio.sleep(random.uniform(1.5, 2.5))
+                  log("Turnstile", f"[{tag}] strategy result: {ok}")
+                  await shot(page, f"turnstile-{tag}-click{attempt}")
+
+                  # Mandatory wait after click (userstile needs time to spin → success)
+                  log("Turnstile", f"[{tag}] waiting {min_wait}s for success…")
+                  for s in range(min_wait):
+                      await asyncio.sleep(1)
+                      st = await ts_state(page)
+                      if st["value"]:
+                          log("Turnstile", f"[{tag}] SOLVED after {s+1}s (token len={len(st['value'])})")
+                          await asyncio.sleep(random.uniform(1.0, 1.8))
                           await shot(page, f"turnstile-{tag}-solved")
                           return True
-                      if time.time() - t0 >= min_wait and (time.time() - t0) % 5 < 1.0:
-                          log("Turnstile", f"[{tag}] still waiting ({time.time()-t0:.0f}s)...")
-                  log("Turnstile", f"[{tag}] strategy {strat} did not confirm success — next")
 
-              log("Turnstile", f"[{tag}] WARNING: no strategy confirmed success")
+                  # Extra grace period check
+                  st = await ts_state(page)
+                  if st["value"]:
+                      log("Turnstile", f"[{tag}] SOLVED (late token)")
+                      return True
+
+                  # If response input never appears in DOM at all after a couple of clicks,
+                  # the widget may be in a different form — still give it more time
+                  if attempt >= 2 and not st["exists"]:
+                      log("Turnstile", f"[{tag}] response input not in DOM — giving extra 8s")
+                      await asyncio.sleep(8)
+                      st = await ts_state(page)
+                      if st["value"]:
+                          return True
+
+                  await asyncio.sleep(random.uniform(1.5, 2.5))
+
+              log("Turnstile", f"[{tag}] WARNING: not confirmed solved within timeout")
               await shot(page, f"turnstile-timeout-{tag}")
-              return False
+              # Last-chance check
+              st = await ts_state(page)
+              return bool(st["value"])
 
           # ══════════════════════════════════════════════════════════
           #  DASHBOARD POPUPS
           # ══════════════════════════════════════════════════════════
           async def dismiss_save_password(page):
-              """
-              Chrome's "Save password?" bubble is native browser UI (not DOM), so this is
-              best effort: try a DOM "No thanks", then Escape. It does not block page clicks.
-              """
               log("Popup", "Dismissing Save-password bubble (best effort)")
               for loc in (
                   page.get_by_role("button", name=re.compile(r"^no thanks$", re.I)),
                   page.get_by_text(re.compile(r"^no thanks$", re.I)),
                   page.locator('button:has-text("No thanks")'),
+                  page.locator('button:has-text("Never")'),
               ):
                   try:
                       el = loc.first
                       if await el.is_visible():
                           await el.click(timeout=2000)
-                          log("Popup", 'Clicked "No thanks" via DOM')
+                          log("Popup", 'Clicked "No thanks"')
                           await asyncio.sleep(1.0)
                           return True
-                  except Exception: pass
+                  except Exception:
+                      pass
               try:
                   await page.keyboard.press("Escape")
                   await asyncio.sleep(0.6)
-              except Exception: pass
+              except Exception:
+                  pass
               return False
 
           RUN_MODAL_RE = re.compile(r"how do you want to run profiles", re.I)
 
-          MODAL_RECT_JS = """() => {
-              const re = /how do you want to run profiles/i;
-              let target = null;
-              for (const el of document.querySelectorAll('h1,h2,h3,h4,h5,div,p,span')) {
-                  if (el.children.length === 0 && re.test(el.textContent || '')) { target = el; break; }
-              }
-              if (!target) return null;
-              let card = target;
-              while (card.parentElement) {
-                  const r = card.getBoundingClientRect();
-                  if (r.width >= 420 && r.height >= 320) break;
-                  card = card.parentElement;
-              }
-              const r = card.getBoundingClientRect();
-              if (r.width < 100 || r.height < 100) return null;
-              const pts = [];
-              card.querySelectorAll('button,[role="button"],svg,i,a,span,[class*="close" i]').forEach(e => {
-                  const b = e.getBoundingClientRect();
-                  const txt = (e.textContent || '').trim();
-                  if (b.width > 0 && b.width <= 48 && b.height > 0 && b.height <= 48 &&
-                      (b.top - r.top) < 70 && txt.length <= 2) {
-                      pts.push({x: b.left + b.width / 2, y: b.top + b.height / 2});
-                  }
-              });
-              return {x: r.left, y: r.top, w: r.width, h: r.height, pts: pts};
-          }"""
-
-          async def run_modal_info(page):
-              try:
-                  return await page.evaluate(MODAL_RECT_JS)
-              except Exception:
-                  return None
-
           async def run_modal_visible(page):
               try:
-                  if await page.get_by_text(RUN_MODAL_RE).first.is_visible():
-                      return True
-              except Exception: pass
-              return (await run_modal_info(page)) is not None
+                  return await page.get_by_text(RUN_MODAL_RE).first.is_visible()
+              except Exception:
+                  return False
 
-          async def close_run_modal(page, wait_appear=12, attempts=4):
-              """Close the 'How do you want to run profiles?' modal via its small X."""
-              end = time.time() + wait_appear
-              seen = False
-              while time.time() < end:
+          async def close_run_modal(page, wait_appear=8, attempts=5):
+              log("Popup", "Closing 'How do you want to run profiles?' modal")
+              # wait a bit for it to appear
+              for _ in range(wait_appear):
                   if await run_modal_visible(page):
-                      seen = True
                       break
-                  await asyncio.sleep(0.5)
-              if not seen:
-                  log("Popup", "Run-profiles modal not present")
-                  return True
+                  await asyncio.sleep(0.6)
 
-              log("Popup", "Run-profiles modal detected — closing")
-              await shot(page, "run-modal-open")
-              await asyncio.sleep(random.uniform(0.8, 1.4))
+              for a in range(attempts):
+                  if not await run_modal_visible(page):
+                      log("Popup", "Modal already gone")
+                      return True
 
-              for attempt in range(attempts):
-                  info = await run_modal_info(page)
-                  if not info:
-                      break
-
+                  # Prefer the X button
+                  closed = False
                   for loc in (
-                      page.locator('[role="dialog"] [aria-label*="close" i]'),
-                      page.locator('[aria-label*="close" i]'),
-                      page.locator('button[class*="close" i]'),
+                      page.locator('div[role="dialog"] button[aria-label="Close" i]'),
+                      page.locator('button[aria-label="Close" i]'),
+                      page.locator('div:has-text("How do you want to run profiles") >> button').first,
+                      page.locator('button').filter(has_text=re.compile(r"^[×✕x]$")),
                   ):
                       try:
                           el = loc.first
                           if await el.is_visible():
-                              await el.click(timeout=2000)
-                              log("Popup", "Clicked X via DOM selector")
-                              await asyncio.sleep(1.3)
+                              await el.click(timeout=2500)
+                              closed = True
+                              log("Popup", f"Clicked close (attempt {a+1})")
                               break
-                      except Exception: pass
-                  if not await run_modal_visible(page):
-                      break
+                      except Exception:
+                          continue
 
-                  info = await run_modal_info(page)
-                  if not info:
-                      break
-                  pts = sorted(info.get("pts", []), key=lambda p: -p["x"])
-                  corners = [
-                      {"x": info["x"] + info["w"] - 24, "y": info["y"] + 24},   # top-right
-                      {"x": info["x"] + 24,             "y": info["y"] + 24},   # top-left
-                  ]
-                  for p in pts[:2] + corners:
+                  if not closed:
+                      # fallback: Escape
                       try:
-                          await page.mouse.move(p["x"] - 25, p["y"] + 15, steps=6)
-                          await asyncio.sleep(0.3)
-                          await page.mouse.move(p["x"], p["y"], steps=6)
-                          await asyncio.sleep(0.2)
-                          await page.mouse.click(p["x"], p["y"])
-                          log("Popup", f"Clicked ({p['x']:.0f},{p['y']:.0f})")
-                      except Exception as e:
-                          log("Popup", f"mouse click error: {e}")
-                      await asyncio.sleep(1.4)
-                      if not await run_modal_visible(page):
-                          break
-                  if not await run_modal_visible(page):
-                      break
+                          await page.keyboard.press("Escape")
+                          log("Popup", "Sent Escape")
+                      except Exception:
+                          pass
 
-                  try:
-                      await page.keyboard.press("Escape")
-                      await asyncio.sleep(1.0)
-                  except Exception: pass
+                  await asyncio.sleep(1.2)
                   if not await run_modal_visible(page):
-                      break
-                  log("Popup", f"Modal still open after attempt {attempt+1}")
+                      return True
 
-              gone = not await run_modal_visible(page)
-              log("Popup", f"Run-profiles modal closed: {gone}")
-              await shot(page, "run-modal-after")
-              return gone
+              return not await run_modal_visible(page)
 
           async def clear_dashboard_popups(page):
-              await asyncio.sleep(random.uniform(2.0, 3.0))
               await dismiss_save_password(page)
-              await asyncio.sleep(random.uniform(1.0, 1.8))
+              await asyncio.sleep(0.8)
               await close_run_modal(page)
-              await asyncio.sleep(random.uniform(0.8, 1.5))
-              await dismiss_save_password(page)
+              await asyncio.sleep(0.8)
               await dismiss_overlays(page, 4)
-              await asyncio.sleep(random.uniform(0.8, 1.2))
-              await shot(page, "dashboard-clean")
 
-          # ══════════════════════════════════════════════════════════
-          #  TOKEN VIA SETTINGS (last-resort fallback only)
-          # ══════════════════════════════════════════════════════════
           async def token_via_settings(page):
               await page.goto("https://app.gologin.com/#/personalArea/TokenApi", wait_until="domcontentloaded", timeout=30000)
               await asyncio.sleep(3)
-              await close_run_modal(page, wait_appear=3)
               await dismiss_overlays(page, 3)
               new_btn = await find_visible(page, [
                   page.get_by_role("button", name=re.compile(r"new token", re.I)),
@@ -1079,7 +926,8 @@ jobs:
                   name_input = page.locator('[role="dialog"] input[type="text"],[class*="modal" i] input[type="text"]').first
                   if await name_input.is_visible():
                       await name_input.fill(f"actions-{IDX}")
-              except Exception: pass
+              except Exception:
+                  pass
               await click_first(page, [page.get_by_role("button", name=re.compile(r"^(create|generate|save|confirm|ok|done|continue)\b", re.I))], 3000)
               await asyncio.sleep(2.5)
               await scan_page(page, "settings-new")
@@ -1089,59 +937,6 @@ jobs:
               ], 2000)
               await read_clipboard(page)
               await shot(page, "settings-after-new-token")
-
-          # ══════════════════════════════════════════════════════════
-          #  API CONTROL: wait for it to load, then copy token
-          # ══════════════════════════════════════════════════════════
-          async def wait_and_copy_api_token(page, initial_wait=20, extra_wait=40):
-              """
-              After clicking "API control" the page needs time to start. Wait
-              `initial_wait` seconds (scanning for the token the whole time),
-              then wait up to `extra_wait` more seconds for "Copy token".
-              """
-              log("Main", f"Waiting {initial_wait}s for API control to load")
-              waited = 0
-              while waited < initial_wait:
-                  await asyncio.sleep(5)
-                  waited += 5
-                  await scan_page(page, f"api-wait-{waited}s")
-                  if waited in (10, 20):
-                      await shot(page, f"api-control-wait-{waited}s")
-
-              copy_locators = [
-                  page.get_by_role("button", name=re.compile(r"copy token", re.I)),
-                  page.get_by_text(re.compile(r"copy token", re.I)),
-                  page.get_by_role("button", name=re.compile(r"^copy$", re.I)),
-              ]
-              end = time.time() + extra_wait
-              copy_el = None
-              while time.time() < end:
-                  copy_el = await find_visible(page, copy_locators, 4000)
-                  if copy_el:
-                      break
-                  await scan_page(page, "api-wait-extra")
-                  await asyncio.sleep(2)
-
-              await shot(page, "api-control-page")
-              if not copy_el:
-                  log("Main", "Copy token not found after waiting")
-                  await scan_page(page, "api-control-final-scan")
-                  return False
-
-              await asyncio.sleep(random.uniform(0.8, 1.4))
-              try:
-                  await copy_el.click(timeout=5000)
-              except Exception:
-                  try: await copy_el.click(timeout=3000, force=True)
-                  except Exception as e: log("Main", f"copy click failed: {e}")
-              log("Main", "Clicked Copy token")
-              await asyncio.sleep(1.5)
-              await read_clipboard(page)
-              await shot(page, "after-copy-token")
-              # second read in case the clipboard was written late
-              await asyncio.sleep(1.5)
-              await read_clipboard(page)
-              return True
 
           # ══════════════════════════════════════════════════════════
           #  MAIN BROWSER FLOW
@@ -1164,16 +959,20 @@ jobs:
                   context = browser.contexts[0] if browser.contexts else await browser.new_context()
                   try:
                       await context.grant_permissions(["clipboard-read", "clipboard-write"])
-                  except Exception: pass
+                  except Exception:
+                      pass
 
                   async def on_response(r):
                       try:
-                          if "gologin.com" not in r.url or "token" not in r.url.lower(): return
+                          if "gologin.com" not in r.url or "token" not in r.url.lower():
+                              return
                           ct = r.headers.get("content-type", "")
-                          if "json" not in ct and "text" not in ct: return
+                          if "json" not in ct and "text" not in ct:
+                              return
                           for m in JWT.findall(await r.text()):
                               add_candidate(m, f"network:{r.url.split('?')[0][-40:]}")
-                      except Exception: pass
+                      except Exception:
+                          pass
 
                   context.on("response", on_response)
                   await context.add_init_script(INIT_JS)
@@ -1181,8 +980,10 @@ jobs:
                   pages = context.pages
                   page = pages[0] if pages else await context.new_page()
                   page.set_default_timeout(30000)
-                  try: await page.evaluate(INIT_JS)
-                  except Exception: pass
+                  try:
+                      await page.evaluate(INIT_JS)
+                  except Exception:
+                      pass
 
                   # ── Phase 2: Sign-up ──────────────────────────
                   banner("Phase 2 — Fill sign-up form")
@@ -1261,6 +1062,8 @@ jobs:
                   await asyncio.sleep(random.uniform(0.8, 1.4))
                   await shot(page, "password-filled")
 
+                  create_re = re.compile(r"create an account|create account|sign up|get started", re.I)
+
                   async def left_password_step():
                       try:
                           if not await page.locator('input[type="password"]').first.is_visible():
@@ -1270,52 +1073,54 @@ jobs:
                       return False
 
                   created = False
-                  for attempt in range(1, 4):
-                      # 1) Turnstile FIRST: click/keyboard-select it, wait for success
+                  for attempt in range(1, 6):
+                      # 1) Turnstile FIRST
                       ts_ok = await solve_turnstile(page, f"a{attempt}", min_wait=10)
                       log("Main", f"Turnstile solved before create (attempt {attempt}): {ts_ok}")
                       await asyncio.sleep(random.uniform(1.0, 2.0))
                       await shot(page, f"before-create-account-{attempt}")
 
-                      # 2) THEN click "Create an account"
+                      # 2) THEN click Create
                       clicked = await click_first(page, [
-                          page.get_by_role("button", name=CREATE_RE),
+                          page.get_by_role("button", name=create_re),
+                          page.locator('button:has-text("Create an account")'),
                           page.locator('button:has-text("Create")'),
                           page.locator('button[type="submit"]'),
                       ], 8000)
                       log("Main", f"Create click attempt {attempt}: {clicked}")
-                      await asyncio.sleep(random.uniform(2.0, 3.0))
+                      await asyncio.sleep(random.uniform(2.5, 3.5))
                       await shot(page, f"after-create-click-{attempt}")
 
-                      # 3) did we move on from the password page?
+                      # 3) Did we leave the password page?
                       moved = await wait_any([
                           ["left", left_password_step],
                           ["survey", lambda: page.get_by_text(re.compile(r"have you ever used|antidetect|what do you use", re.I)).first.is_visible()],
                           ["verify", lambda: page.get_by_text(re.compile(r"check your (email|inbox)|verify your email|confirmation link|we sent", re.I)).first.is_visible()],
                           ["dash", lambda: is_dashboard(page)],
-                      ], 25000)
+                      ], 28000)
                       log("Main", f"After create click: moved={moved}")
                       if moved:
                           created = True
                           break
-                      log("Main", "Still on password step — re-solving Turnstile and retrying")
+                      log("Main", "Still on password step — will re-solve Turnstile and retry")
                       await asyncio.sleep(random.uniform(2.0, 3.5))
 
                   if not created:
                       await dump_page(page, "create-never-advanced")
                       raise RuntimeError("Create account did not advance (Turnstile/Create failed)")
 
+                  # Expanded success detection
                   async def text_visible(pat):
                       return await page.get_by_text(re.compile(pat, re.I)).first.is_visible()
 
                   stage2 = await wait_any([
-                      ["survey",     lambda: text_visible(r"have you ever used|antidetect|what do you use")],
-                      ["allset",     lambda: text_visible(r"all set|you.?re all set|welcome")],
-                      ["verify",     lambda: text_visible(r"check your (email|inbox)|verify your email|confirmation link|we sent")],
-                      ["dashboard",  lambda: is_dashboard(page)],
-                      ["installer",  lambda: "download-installer" in page.url.lower()],
-                      ["profilelist",lambda: "profilelist" in page.url.lower() or "browser" in page.url.lower()],
-                      ["error",      lambda: text_visible(r"already (registered|exists|in use|taken)|password is too|something went wrong|try again|invalid")],
+                      ["survey",      lambda: text_visible(r"have you ever used|antidetect|what do you use")],
+                      ["allset",      lambda: text_visible(r"all set|you.?re all set|welcome")],
+                      ["verify",      lambda: text_visible(r"check your (email|inbox)|verify your email|confirmation link|we sent")],
+                      ["dashboard",   lambda: is_dashboard(page)],
+                      ["installer",   lambda: "download-installer" in page.url.lower()],
+                      ["profilelist", lambda: "profilelist" in page.url.lower() or "browser" in page.url.lower()],
+                      ["error",       lambda: text_visible(r"already (registered|exists|in use|taken)|password is too|something went wrong|try again|invalid")],
                   ], 100000)
 
                   await shot(page, "after-create-account")
@@ -1326,7 +1131,7 @@ jobs:
                       raise RuntimeError(f"Account creation failed (stage={stage2})")
 
                   result["signup"] = True
-                  log("Main", f"ACCOUNT CREATED (or pending verify): {EMAIL} (stage={stage2})")
+                  log("Main", f"ACCOUNT CREATED: {EMAIL} (stage={stage2})")
 
                   if stage2 == "verify":
                       log("Main", "Email verification required — token extraction may be limited")
@@ -1345,7 +1150,8 @@ jobs:
                           try:
                               await skip.click()
                               log("Main", "Clicked Skip")
-                          except Exception: pass
+                          except Exception:
+                              pass
                           await asyncio.sleep(1.5)
                           break
                       if "download-installer" in page.url:
@@ -1383,23 +1189,42 @@ jobs:
                       log("Main", "Clicked Run")
                       await asyncio.sleep(random.uniform(1.5, 2.5))
                       await shot(page, "run-menu")
+
                       api_clicked = await click_first(page, [
                           page.get_by_text(re.compile(r"api control", re.I)),
                           page.get_by_role("menuitem", name=re.compile(r"api control", re.I)),
                       ], 10000)
+
                       if not api_clicked:
                           log("Main", "API control not found — Settings")
                           await token_via_settings(page)
                       else:
-                          log("Main", 'Clicked "API control"')
-                          await wait_and_copy_api_token(page, initial_wait=20, extra_wait=40)
+                          log("Main", 'Clicked "API control" — waiting 20s for page to fully load')
+                          # ★ CRITICAL: wait 20 seconds so the API Control view finishes loading
+                          await asyncio.sleep(20)
+                          await shot(page, "api-control-page")
+                          await scan_page(page, "cloud-api-control")
+
+                          copy_el = await find_visible(page, [
+                              page.get_by_text(re.compile(r"copy token", re.I)),
+                              page.get_by_role("button", name=re.compile(r"copy token", re.I)),
+                              page.get_by_text(re.compile(r"^copy$", re.I)),
+                          ], 15000)
+
+                          if copy_el:
+                              await asyncio.sleep(random.uniform(0.8, 1.4))
+                              await copy_el.click()
+                              log("Main", "Clicked Copy token")
+                              await asyncio.sleep(1.5)
+                              await read_clipboard(page)
+                              await shot(page, "after-copy-token")
+                          else:
+                              log("Main", "Copy token not found after 20s wait — scanning page")
+                              await scan_page(page, "cloud-api-control-scan")
 
                   if not [c for c in candidates if rank_of(c["source"]) <= 2]:
-                      if not candidates:
-                          log("Main", "Nothing captured at all — last-resort Settings page")
-                          await token_via_settings(page)
-                      else:
-                          log("Main", "Only low-confidence candidates captured — will REST-verify them")
+                      log("Main", "No high-confidence token — trying Settings as fallback")
+                      await token_via_settings(page)
 
                   await browser.close()
 
