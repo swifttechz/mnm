@@ -59,7 +59,7 @@ on:
         description: "Profile OS fingerprint"
         required: true
         type: choice
-        default: 'Windows 10'
+        default: Windows 10
         options:
           - 'Windows 10'
           - 'Windows 11'
@@ -72,7 +72,7 @@ on:
         description: "GoLogin built-in proxy type"
         required: true
         type: choice
-        default: 'Residential'
+        default: Residential
         options:
           - 'Residential'
           - 'Datacenter'
@@ -82,7 +82,7 @@ on:
         description: "Proxy country"
         required: true
         type: choice
-        default: 'United States'
+        default: United States
         options:
           - 'United States'
           - 'United Kingdom'
@@ -99,7 +99,7 @@ on:
         description: "Keep job alive N extra minutes after finish (0-60)"
         required: false
         type: string
-        default: '0'
+        default: '1'
 
 permissions:
   actions: write
