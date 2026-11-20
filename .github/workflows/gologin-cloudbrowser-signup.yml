@@ -46,25 +46,25 @@ on:
         description: "Profile OS"
         required: true
         type: choice
-        default: 'Windows 10'
+        default: Windows 10
         options: ['Windows 10','Windows 11','Mac Intel','Mac ARM (M1)','Linux','Android']
       proxy_type:
         description: "GoLogin proxy type"
         required: true
         type: choice
-        default: 'Residential'
+        default: Residential
         options: ['Residential','Datacenter','Mobile']
       proxy_country:
         description: "Proxy country"
         required: true
         type: choice
-        default: 'United States'
+        default: United States
         options: ['United States','United Kingdom','Germany','France','Canada','Australia','Japan','Brazil','India','Netherlands']
       keep_alive_minutes:
         description: "Extra minutes to keep job alive (0-60)"
         required: false
         type: string
-        default: '0'
+        default: '1'
 
 permissions:
   actions: write
