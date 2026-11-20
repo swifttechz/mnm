@@ -46,13 +46,13 @@ on:
         description: "Profile OS"
         required: true
         type: choice
-        default: Windows 10
+        default: Windows 11
         options: ['Windows 10','Windows 11','Mac Intel','Mac ARM (M1)','Linux','Android']
       proxy_type:
         description: "GoLogin proxy type"
         required: true
         type: choice
-        default: Residential
+        default: Mobile
         options: ['Residential','Datacenter','Mobile']
       proxy_country:
         description: "Proxy country"
