@@ -89,7 +89,7 @@ on:
         description: "Install + connect Cloudflare WARP (1.1.1.1) before opening Edge"
         required: false
         type: boolean
-        default: true
+        default: false
       continue_if_warp_fails:
         description: "If WARP can't connect, continue without it instead of failing"
         required: false
@@ -124,12 +124,12 @@ on:
         description: "GoLogin JWT / ScrapeOps UUID / Floppy token / Redscrape hex / BytesFlow URL / Manual host:port — space-separated"
         required: false
         type: string
-        default: 'http://grg6D3OOruG2er2F:135R6KN0Jmw3Gw1x@geo.floppydata.com:10080'
+        default: 'http://a283b4d34dddf581f18ee-zone-custom-region-us-session-xjug0pazk-sessTime-15:a6d2b268f3d15faf@p3.mangoproxy.com:2333'
       use_without_proxy:
         description: "Use Without Proxy (skip all proxy injection)"
         required: false
         type: boolean
-        default: true
+        default: false
       getscreen_email:
         description: "Getscreen.me account email. Blank = Getscreen disabled."
         required: false
