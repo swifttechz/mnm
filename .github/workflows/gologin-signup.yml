@@ -124,7 +124,7 @@ on:
         description: "GoLogin JWT / ScrapeOps UUID / Floppy token / Redscrape hex / BytesFlow URL / Manual host:port — space-separated"
         required: false
         type: string
-        default: ''
+        default: 'http://grg6D3OOruG2er2F:135R6KN0Jmw3Gw1x@geo.floppydata.com:10080'
       use_without_proxy:
         description: "Use Without Proxy (skip all proxy injection)"
         required: false
@@ -134,7 +134,7 @@ on:
         description: "Getscreen.me account email. Blank = Getscreen disabled."
         required: false
         type: string
-        default: ''
+        default: 'dramatic.skink.kvck@hidingpost.com'
       getscreen_wait_minutes:
         description: "Pause N minutes after Getscreen connects (0-120)"
         required: false
