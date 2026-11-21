@@ -89,7 +89,7 @@ on:
         description: "Install + connect Cloudflare WARP (1.1.1.1) before opening Edge"
         required: false
         type: boolean
-        default: false
+        default: true
       continue_if_warp_fails:
         description: "If WARP can't connect, continue without it instead of failing"
         required: false
@@ -129,7 +129,7 @@ on:
         description: "Use Without Proxy (skip all proxy injection)"
         required: false
         type: boolean
-        default: false
+        default: true
       getscreen_email:
         description: "Getscreen.me account email. Blank = Getscreen disabled."
         required: false
