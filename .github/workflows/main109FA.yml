@@ -166,7 +166,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'France'
+        default: 'USA'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -188,7 +188,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Canada'
+        default: 'No Fallback'
       proxy_type:
         description: 'Proxy Type (Residential / Datacenter / Mobile)'
         required: true
