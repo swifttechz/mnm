@@ -84,11 +84,10 @@ on:
           - 'Both Surf & Scroll'
         default: 'None'
       proxy_use:
-        description: 'Proxy Use (None = without proxy; Reuse; Unique IPs; or Both)'
+        description: 'Proxy Use (Reuse / Unique IPs / Both)'
         required: true
         type: choice
         options:
-          - 'None / Without Proxy'
           - 'Reuse Proxies'
           - 'Unique IPs'
           - 'Both Reuse & Unique IPs'
@@ -142,11 +141,10 @@ on:
         type: string
         default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmQ3NjI1Nzk4OGZjZTE2MjdkMjYyZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZDc2MjQ3OTg4ZmNlMTYyN2QyNWM2In0.vk5CtR7hfgWW7LC7LJpkb7Thp0ULWHZe2uz6WP7N6Os'
       proxy_country:
-        description: 'Country Geotargeting (Manual = accept any exit IP country — for pasted manual proxy lists)'
+        description: 'Country Geotargeting (ignored when Proxy Type = Manual)'
         required: true
         type: choice
         options:
-          - 'Manual'
           - 'USA'
           - 'UK'
           - 'Canada'
@@ -186,13 +184,15 @@ on:
           - 'Poland'
         default: 'Australia'
       proxy_type:
-        description: 'Proxy Type (Residential / Datacenter / Mobile)'
+        description: 'Proxy Type (Manual = run pasted proxies with no country check; None / Without Proxy = no proxy at all; or Residential / Datacenter / Mobile)'
         required: true
         type: choice
         options:
+          - 'Manual'
           - 'Residential'
           - 'Datacenter'
           - 'Mobile'
+          - 'None / Without Proxy'
         default: 'Mobile'
       initial_proxy_pool:
         description: 'Initial Proxy Pool % (0% = no pool / direct API gen per device; higher % = generate that % of the planned pool FIRST, devices start only after it is uploaded, then continuous feed)'
@@ -659,7 +659,7 @@ jobs:
           proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
           country_input = os.environ.get("COUNTRY", "USA")
           fallback_country_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
-          skip_country_check = (country_input or "").strip().lower() == "manual"
+          skip_country_check = (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual")
           _pt = (os.environ.get("PROXY_TYPE") or "Mobile").strip()
           if _pt.lower() in ("true", "1", "yes"):
               _pt = "Mobile"
@@ -675,8 +675,8 @@ jobs:
               "Brazil": "br", "Mexico": "mx", "Spain": "es", "Vietnam": "vn", "Switzerland": "ch",
               "Indonesia": "id", "Italy": "it", "Netherlands": "nl", "Poland": "pl"
           }
-          cc_input = "us" if (country_input or "").strip().lower() == "manual" else country_map.get(country_input, "us")
-          skip_country_check = (country_input or "").strip().lower() == "manual"
+          cc_input = "us" if (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual") else country_map.get(country_input, "us")
+          skip_country_check = (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual")
 
           # ========== PROXY POOL PLAN ==========
           # pool_total = tasks + 10-15% extra buffer.
@@ -720,6 +720,7 @@ jobs:
               nxt = end + 1
 
           preassigned_proxies = []
+          without_proxy = without_proxy or ((os.environ.get("PROXY_TYPE", "") or "").strip().lower() in ("none", "none / without proxy")) or ("without" in (os.environ.get("PROXY_TYPE", "") or "").strip().lower())
           pool_active = (initial_pct > 0) and not without_proxy
           print("========== PROXY POOL PLAN ==========")
           print(f"[Pool] Pool mode active        : {pool_active} (initial_pct={initial_pct}, without_proxy={without_proxy})")
@@ -858,6 +859,7 @@ jobs:
               f.write("pool_active=" + ("true" if pool_active else "false") + "\n")
               f.write("reuse_proxies=" + ("true" if reuse_proxies else "false") + "\n")
               f.write("unique_ip=" + ("true" if unique_ip else "false") + "\n")
+              without_proxy = without_proxy or ((os.environ.get("PROXY_TYPE", "") or "").strip().lower() in ("none", "none / without proxy")) or ("without" in (os.environ.get("PROXY_TYPE", "") or "").strip().lower())
               f.write("without_proxy=" + ("true" if without_proxy else "false") + "\n")
           print("========== MATRIX STRUCTURE COMPLETE ==========")
           print(f"[Matrix] {len(includes)} tasks queued. Initial proxy pool job generates the first {initial_target} proxies ({initial_pct}%); devices start ONLY after that job finishes.")
@@ -986,7 +988,7 @@ jobs:
               "Brazil": "br", "Mexico": "mx", "Spain": "es", "Vietnam": "vn", "Switzerland": "ch",
               "Indonesia": "id", "Italy": "it", "Netherlands": "nl", "Poland": "pl",
           }
-          skip_country_check = (country_input or "").strip().lower() == "manual"
+          skip_country_check = (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual")
           cc_primary = "US" if skip_country_check else country_map.get(country_input, "us").upper()
           cc_fallback = None if fallback_input == "No Fallback" else country_map.get(fallback_input, "us").upper()
 
@@ -1096,7 +1098,6 @@ jobs:
                   protocol, rest = rest.split("://", 1)
                   if protocol.lower() == "geolocation":
                       protocol = "http"
-              rest = re.sub(r":(\d+):[A-Za-z].*$", r":\1", rest)
 
               # --- IPv6 patterns (must be tried BEFORE generic patterns) ---
               m = re.search(r"([^:@\s]+):([^:@\s]+)@(\[[^\]]+\]):(\d+)", rest)
@@ -1781,7 +1782,7 @@ jobs:
               "Brazil": "br", "Mexico": "mx", "Spain": "es", "Vietnam": "vn", "Switzerland": "ch",
               "Indonesia": "id", "Italy": "it", "Netherlands": "nl", "Poland": "pl",
           }
-          skip_country_check = (country_input or "").strip().lower() == "manual"
+          skip_country_check = (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual")
           cc_primary = "US" if skip_country_check else country_map.get(country_input, "us").upper()
           cc_fallback = None if fallback_input == "No Fallback" else country_map.get(fallback_input, "us").upper()
 
@@ -1891,7 +1892,6 @@ jobs:
                   protocol, rest = rest.split("://", 1)
                   if protocol.lower() == "geolocation":
                       protocol = "http"
-              rest = re.sub(r":(\d+):[A-Za-z].*$", r":\1", rest)
 
               # --- IPv6 patterns (must be tried BEFORE generic patterns) ---
               m = re.search(r"([^:@\s]+):([^:@\s]+)@(\[[^\]]+\]):(\d+)", rest)
@@ -4763,7 +4763,7 @@ jobs:
                               res = validate_proxy(pinfo)
                               if res['working']:
                                   actual_cc = (res.get('country_code') or '').upper()
-                                  if (country_input or '').strip().lower() == 'manual' or actual_cc == current_expected_cc or fallback_country_input == "No Fallback":
+                                  if (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual") or actual_cc == current_expected_cc or fallback_country_input == "No Fallback":
                                       active_proxy = res
                                       active_proxy['proxy_type_label'] = 'gologin'
                                       use_proxy = True
@@ -4825,7 +4825,7 @@ jobs:
                           res = validate_proxy(pinfo)
                           if res['working']:
                               actual_cc = (res.get('country_code') or '').upper()
-                              if (country_input or '').strip().lower() == 'manual' or actual_cc == current_expected_cc:
+                              if (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual") or actual_cc == current_expected_cc:
                                   active_proxy = res
                                   active_proxy['proxy_type_label'] = 'bytesflow'
                                   use_proxy = True
@@ -5019,7 +5019,7 @@ jobs:
                       res = validate_proxy(pinfo)
                       if res['working']:
                           actual_cc = (res.get('country_code') or '').upper()
-                          if (country_input or '').strip().lower() == 'manual' or actual_cc == current_expected_cc:
+                          if (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual") or actual_cc == current_expected_cc:
                               active_proxy = res
                               active_proxy['proxy_type_label'] = 'redscrape'
                               use_proxy = True
@@ -5056,7 +5056,7 @@ jobs:
                       if res['working']:
                           actual_cc = (res.get('country_code') or '').upper()
                           # Manual primary country OR No Fallback -> accept any exit country
-                          skip_cc = (country_input or "").strip().lower() == "manual" or fallback_country_input == "No Fallback"
+                          skip_cc = (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual") or fallback_country_input == "No Fallback"
                           if skip_cc or actual_cc == current_expected_cc:
                               active_proxy = res
                               active_proxy['proxy_type_label'] = 'manual'
@@ -5116,7 +5116,7 @@ jobs:
                           res = validate_proxy(pinfo)
                           if res['working']:
                               actual_cc = (res.get('country_code') or '').upper()
-                              if (country_input or '').strip().lower() == 'manual' or actual_cc == current_expected_cc:
+                              if (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual") or actual_cc == current_expected_cc:
                                   active_proxy = res
                                   active_proxy['proxy_type_label'] = 'floppydata'
                                   use_proxy = True
@@ -5169,7 +5169,7 @@ jobs:
                       res = validate_proxy(pinfo)
                       if res['working']:
                           actual_cc = (res.get('country_code') or '').upper()
-                          if (country_input or '').strip().lower() == 'manual' or actual_cc == current_expected_cc:
+                          if (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual") or actual_cc == current_expected_cc:
                               active_proxy = res
                               active_proxy['proxy_type_label'] = 'scrapeops'
                               use_proxy = True
