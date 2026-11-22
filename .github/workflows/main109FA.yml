@@ -57,17 +57,17 @@ on:
           - '10 minutes'
           - '11 minutes'
           - '12 minutes'
-        default: '10 minutes'
+        default: '9 minutes'
       num_installs:
         description: 'Installs'
         required: true
         type: string
-        default: '10'
+        default: '5'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '240'
+        default: '245'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -92,7 +92,7 @@ on:
           - 'Reuse Proxies'
           - 'Unique IPs'
           - 'Both Reuse & Unique IPs'
-        default: 'None / Without Proxy'
+        default: 'Both Reuse & Unique IPs'
       software_choice:
         description: 'Software & Link'
         required: true
@@ -135,12 +135,12 @@ on:
         description: 'Apply Fingerprint Masking'
         required: true
         type: boolean
-        default: true
+        default: false
       scrapeops_api_key:
         description: 'ScrapeOps / Floppy / BytesFlow / Redscrape / GoLogin / Manual'
         required: false
         type: string
-        default: 'a5fceycylr-session-hdqp028myr-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-h6zu2wxjx5-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-p2lnd20qjy-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-384dq5pq8u-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-swkuuqbkjo-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-4enfzrlnry-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-zrtvk8jhie-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-i92mfixopn-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-ivmziinbrn-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-2n65xqf9sn-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-sbtdhokr55-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-l1q324bhy5-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-b08s6smdat-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-r5g3omqq1v-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-4kypvoe891-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-5yfa7gtksp-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-0csu1hgpcm-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-hicj5ph4ha-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-woftrcr2ul-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-pbiljxxtyf-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-wnhw4m5o19-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-gjol0pwyup-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-c7ktazgmsj-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-9ns5cfcwq3-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-84xooyb96q-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-3i9jujxm8x-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-5mry9vi2li-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-dgeudf3b8i-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-rge4lmluqk-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-wtdc9xbypm-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-uq5u851nm3-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-twxf7z18cn-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-0re2l7z0oc-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-31h0i82pk5-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-c3szlc2dp4-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-4sduvc0ho1-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-p93hq3c3az-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-tuenntve55-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-686mlqjwfi-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-3jirtdu7lr-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-9iqo3rjecb-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-25fkuge0xw-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-7vcf4142gh-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-bqvvsjvs6i-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-9zblzzknm8-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-b0v7ee03db-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-1iukgyr1ii-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-9uc8czkxar-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-heip1m2hr2-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-hjitqx3iiw-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-kas20hiwgz-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-lq2czwjc5b-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-t7w8b2b6dk-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-338dmzreac-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-82knux5y7o-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-f9aqzg8dal-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-17nzb1aeg2-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-i2uvy62are-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-952eopo9w7-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-8u7hi2th0s-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-iy4qlg5agg-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-sl35l4s5cr-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-3gb0786h4g-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-axrby0u541-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-4uttpmf1y4-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-0zl2wi67gf-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-9s3hw28e6h-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-uwmsib8die-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-yrz2ixh3k2-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-pjtj77klw1-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-pf4yqaip90-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-mtpvuxbkte-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-par9vwsisx-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-9tt1wlwdmi-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-lqnrpkf0hv-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-a628lyifax-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-yleihiwsgh-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-sryoojr8pf-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-r1wu21rtwt-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-m4rwxc5n3q-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-jmx9kvz1ip-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-qy3pswzicf-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-xpxep1rvjq-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-a4zhtgf73w-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-ehy7vaxx72-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-qt7wf28mnt-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-qag78o9khs-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-ohwtveyu0r-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-ralhw5gcfn-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-rq5tw2s80m-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-cggm48j21q-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-xs0cdcwiu3-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-iwbmwqz7k7-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-smbl0pfucx-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-bibjy2u51b-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-ejnomkogsz-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-mnwaermtv5-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-txm2b06dis-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-bc9t5295iz-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-29i0nkzwmw-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-xr678b4m2x-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-nvcoyzswb5-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-z5whjjiuqa-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-25l9gwbjay-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-2l8kmpfzm0-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-y1kk9nm3yv-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-0hhirzeu6m-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-cjc27ldeyt-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-dr5hds7p0m-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-n9c3t73i9f-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-vg4b00cpq1-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-2evzape4fg-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-9jr8krq4mm-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-w6b70l54nb-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-ow2gmia9p8-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-zd5wwat7od-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-gmqf19mng5-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-9ujbjc5tzj-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-z73rrtdbcl-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-1c28yex6tu-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-rvw7l8y14v-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-crppqun9z2-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-dbrvherb7l-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-ucwctxvp91-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-ml09vy3cmf-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-lvnq3gz0y7-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-uoeli2dlqm-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-9jfwpe95ne-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-y51mgnkpdq-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-y9qbt61wu3-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-056koprzyj-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-fslnbp8353-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-n8gltiqexz-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-tmlehfq32o-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-ywdpvz1pxj-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-v3addduoib-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-jluc64ycid-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-onr7e5thnk-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-v3scpio2t7-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-0fdktwhac5-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-w5qho2xprz-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-m92dwx3gaj-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-0f3k2b7s8j-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-y26u47i4o3-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-rprkqrxckc-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-d7hp5t0no1-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-09skl1oua0-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-hzj8v1cy7p-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-x42z2inho3-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-jds4aa507p-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-fg7fu3wamx-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-31wqwymhy1-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-21aryuz56m-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-zkw2huz423-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-mpqwh7x37a-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-bl9wqgts23-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-4bl6n9hd68-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-6rhe33di23-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-ah73wsnqzq-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-15dr494hn3-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-lz7rksxii8-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-tb34iwzqqo-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-5ju7sk7ldp-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-us42vq0qzw-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-3141wyicna-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-cvvyyp0bgc-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-qgqg1iw25l-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-4aucokam26-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-xkm4i2xhf4-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-m2pffml6w5-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-fphxxg5b8l-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-qwvoc0eg96-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-l81hgoyg7g-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-m7akkskfye-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-4xfna13sis-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-bvry81cvqa-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-zbikkvl5r0-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-9jlvfya17s-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-jqu4hy5d40-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-jxve63v38t-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-43u9lbe2cj-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-6s2mq05eoq-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-mp0o1l4hxc-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-vcxsvjwt9m-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-g9b9ra3sw0-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-16fxaeyyig-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-6bb04civ1h-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-86hnfuwjr0-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-6qg6fj6tux-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-xi8rr6uurf-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-vd18zrtkbi-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-5c4ectcde0-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-51ob54p1xa-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-c0veaxa3db-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-c01l1yzosl-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-x6mm3r1uco-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-nklr1pions-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-3t94vi7u07-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-u434m7qawg-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-vxvlp8lbsq-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-g852sqln0o-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-cnojiqqlim-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-dm2yew5kbg-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-2u76fa2uyb-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-xpztfzjmel-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-n4wo2kteea-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-5xak1oe6ij-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-5xmlu4cpkz-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-bx2ompnaxp-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-k1gx0nebsl-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-zvfhq5aszl-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-6xaivtmfa6-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-g0qpzbv2ih-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-uf9jzznqkh-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-m5y3k8jtcm-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-8arzjznjfx-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-v06fdvlj7g-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-b7jgkxmjt1-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-bh92u35wse-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-k4limd7hb1-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-kjj1stlleq-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-dz57j2utpp-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-4a3f1szp3b-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-tmn57tfgp1-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-3in3ew885x-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-7pcdzml7o0-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-u5w2xw9uex-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-kuu0b7zk0t-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-8h0yrgh74d-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-tmwqzjnfe5-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-dx2kt9l6vw-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-onn3brxyzo-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-0qdwl17q2w-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-zpsrzjhpxn-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-17k7awq5bi-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-myru644v51-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-m7s4l0ujy4-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-jnuhawbe90-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-7woiko3gx8-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-kywyr5srwf-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-7s6s9gfmvp-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-33p1zm62b2-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-5nyqb6wmfm-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-duq0xxqz5w-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-xzbyeh046u-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-78z7p01xzz-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-q8tzzruc2p-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-xyvkhua42l-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-11jc2af7iq-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-e1uye9es8r-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-alh56h2uyl-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-a39yaq2jj8-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-raajyolj1m-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-qpycr7jisn-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-n0j70zyssr-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-10v9kmlmgl-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-12s4ahkoxc-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-p4g0l9n9hk-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-86i1iirdzs-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30 a5fceycylr-session-emfhytds4l-time-30:9vwvwpi7vt@ipv6-residential.serpproxies.com:30'
+        default: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqd3RpZCI6IjZhZmQ3NjI1Nzk4OGZjZTE2MjdkMjYyZSIsInR5cGUiOiJ1c2VyIiwic3ViIjoiNmFmZDc2MjQ3OTg4ZmNlMTYyN2QyNWM2In0.vk5CtR7hfgWW7LC7LJpkb7Thp0ULWHZe2uz6WP7N6Os'
       proxy_country:
         description: 'Country Geotargeting (Manual = accept any exit IP country — for pasted manual proxy lists)'
         required: true
@@ -162,7 +162,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Manual'
+        default: 'France'
       fallback_country:
         description: 'Fallback Country'
         required: true
@@ -184,7 +184,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'No Fallback'
+        default: 'Australia'
       proxy_type:
         description: 'Proxy Type (Residential / Datacenter / Mobile)'
         required: true
@@ -193,7 +193,7 @@ on:
           - 'Residential'
           - 'Datacenter'
           - 'Mobile'
-        default: 'Residential'
+        default: 'Mobile'
       initial_proxy_pool:
         description: 'Initial Proxy Pool % (0% = no pool / direct API gen per device; higher % = generate that % of the planned pool FIRST, devices start only after it is uploaded, then continuous feed)'
         required: true
@@ -206,7 +206,7 @@ on:
           - '30%'
           - '40%'
           - '50%'
-        default: '0%'
+        default: '10%'
 
 permissions:
   actions: write
@@ -1077,6 +1077,16 @@ jobs:
                   manual_proxies.append(item)
 
 
+
+          def _normalise_ipv6_host(h):
+              """Return IPv6 addresses bracket-enclosed for use in URLs/proxy args."""
+              h = h.strip()
+              if h.startswith("[") and h.endswith("]"):
+                  return h
+              if ":" in h and not h.startswith("["):
+                  return f"[{h}]"
+              return h
+
           def parse_generic_proxy(proxy_str):
               original = proxy_str.strip()
               if not original:
@@ -1087,6 +1097,30 @@ jobs:
                   if protocol.lower() == "geolocation":
                       protocol = "http"
               rest = re.sub(r":(\d+):[A-Za-z].*$", r":\1", rest)
+
+              # --- IPv6 patterns (must be tried BEFORE generic patterns) ---
+              m = re.search(r"([^:@\s]+):([^:@\s]+)@(\[[^\]]+\]):(\d+)", rest)
+              if m:
+                  u, p, h, pt = m.groups()
+                  return {"username": u, "password": p, "host": h, "port": int(pt)}
+              m = re.search(r"^(\[[^\]]+\]):(\d+):([^:@\s]+):([^:@\s]+)", rest)
+              if m:
+                  h, pt, u, p = m.groups()
+                  return {"username": u, "password": p, "host": h, "port": int(pt)}
+              m = re.search(r"^(\[[^\]]+\]):(\d+)", rest)
+              if m:
+                  h, pt = m.groups()
+                  return {"username": "", "password": "", "host": h, "port": int(pt)}
+              m = re.search(r"([^:@\s]+):([^:@\s]+)@((?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}):(\d+)$", rest)
+              if m:
+                  u, p, h, pt = m.groups()
+                  return {"username": u, "password": p, "host": f"[{h}]", "port": int(pt)}
+              m = re.match(r"^((?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}):(\d+)$", rest)
+              if m:
+                  h, pt = m.groups()
+                  return {"username": "", "password": "", "host": f"[{h}]", "port": int(pt)}
+
+              # --- IPv4 / hostname patterns ---
               m = re.search(r"([^:@\s]+):([^:@\s]+)@([^:@\s]+):(\d+)", rest)
               if m:
                   u, p, h, pt = m.groups()
@@ -1122,14 +1156,19 @@ jobs:
               host, port = pinfo["host"], pinfo["port"]
               # Prefer scheme hint from provider if present
               hinted = (pinfo.get("scheme") or pinfo.get("mode") or pinfo.get("protocol") or "").lower()
+              # Detect IPv6 host — IPv6 residential proxies (e.g. SerpProxies) use HTTP CONNECT
+              _is_ipv6_host = pinfo.get("host", "").startswith("[") or (
+                  ":" in str(pinfo.get("host", "")) and not str(pinfo.get("host", "")).startswith("["))
               schemes = []
               if "sock" in hinted:
                   schemes = ["socks5", "http"]
               elif hinted in ("http", "https"):
                   schemes = ["http", "socks5"]
               else:
-                  # Mobile proxies: try socks5 first; residential/dc: http first
-                  if mobile:
+                  # IPv6 residential always try http first (they use HTTP CONNECT tunnelling)
+                  if _is_ipv6_host:
+                      schemes = ["http", "socks5"]
+                  elif mobile:
                       schemes = ["socks5", "http"]
                   else:
                       schemes = ["http", "socks5"]
@@ -1833,6 +1872,16 @@ jobs:
                   manual_proxies.append(item)
 
 
+
+          def _normalise_ipv6_host(h):
+              """Return IPv6 addresses bracket-enclosed for use in URLs/proxy args."""
+              h = h.strip()
+              if h.startswith("[") and h.endswith("]"):
+                  return h
+              if ":" in h and not h.startswith("["):
+                  return f"[{h}]"
+              return h
+
           def parse_generic_proxy(proxy_str):
               original = proxy_str.strip()
               if not original:
@@ -1843,6 +1892,30 @@ jobs:
                   if protocol.lower() == "geolocation":
                       protocol = "http"
               rest = re.sub(r":(\d+):[A-Za-z].*$", r":\1", rest)
+
+              # --- IPv6 patterns (must be tried BEFORE generic patterns) ---
+              m = re.search(r"([^:@\s]+):([^:@\s]+)@(\[[^\]]+\]):(\d+)", rest)
+              if m:
+                  u, p, h, pt = m.groups()
+                  return {"username": u, "password": p, "host": h, "port": int(pt)}
+              m = re.search(r"^(\[[^\]]+\]):(\d+):([^:@\s]+):([^:@\s]+)", rest)
+              if m:
+                  h, pt, u, p = m.groups()
+                  return {"username": u, "password": p, "host": h, "port": int(pt)}
+              m = re.search(r"^(\[[^\]]+\]):(\d+)", rest)
+              if m:
+                  h, pt = m.groups()
+                  return {"username": "", "password": "", "host": h, "port": int(pt)}
+              m = re.search(r"([^:@\s]+):([^:@\s]+)@((?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}):(\d+)$", rest)
+              if m:
+                  u, p, h, pt = m.groups()
+                  return {"username": u, "password": p, "host": f"[{h}]", "port": int(pt)}
+              m = re.match(r"^((?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}):(\d+)$", rest)
+              if m:
+                  h, pt = m.groups()
+                  return {"username": "", "password": "", "host": f"[{h}]", "port": int(pt)}
+
+              # --- IPv4 / hostname patterns ---
               m = re.search(r"([^:@\s]+):([^:@\s]+)@([^:@\s]+):(\d+)", rest)
               if m:
                   u, p, h, pt = m.groups()
@@ -1878,14 +1951,19 @@ jobs:
               host, port = pinfo["host"], pinfo["port"]
               # Prefer scheme hint from provider if present
               hinted = (pinfo.get("scheme") or pinfo.get("mode") or pinfo.get("protocol") or "").lower()
+              # Detect IPv6 host — IPv6 residential proxies (e.g. SerpProxies) use HTTP CONNECT
+              _is_ipv6_host = pinfo.get("host", "").startswith("[") or (
+                  ":" in str(pinfo.get("host", "")) and not str(pinfo.get("host", "")).startswith("["))
               schemes = []
               if "sock" in hinted:
                   schemes = ["socks5", "http"]
               elif hinted in ("http", "https"):
                   schemes = ["http", "socks5"]
               else:
-                  # Mobile proxies: try socks5 first; residential/dc: http first
-                  if mobile:
+                  # IPv6 residential always try http first (they use HTTP CONNECT tunnelling)
+                  if _is_ipv6_host:
+                      schemes = ["http", "socks5"]
+                  elif mobile:
                       schemes = ["socks5", "http"]
                   else:
                       schemes = ["http", "socks5"]
@@ -4415,11 +4493,16 @@ jobs:
               UNIQUE_IP = os.environ.get("UNIQUE_IP_INPUT", "false").lower() == "true"
 
               def build_success_dict(pinfo, proto, cc, cname, ip, city, region, tz):
+                  _scheme = proto if proto in ("http", "socks5") else "http"
+                  _h = pinfo.get("host", "")
+                  _p = pinfo.get("port", 8080)
                   return {
                       **pinfo,
                       'working': True,
                       'working_protocol': proto,
-                      'server_with_proto': f"http://{pinfo['host']}:{pinfo['port']}",
+                      'scheme': _scheme,
+                      'server_with_proto': f"{_scheme}://{_h}:{_p}",
+                      'server': f"{_h}:{_p}",
                       'country_code': cc,
                       'country_name': cname,
                       'ip': ip,
@@ -4432,7 +4515,12 @@ jobs:
                   }
 
               def validate_proxy(pinfo):
-                  protocols_to_test = ['http', 'socks5']
+                  # IPv6 residential proxies (e.g. SerpProxies) use HTTP CONNECT, not SOCKS5.
+                  # Detect an IPv6 host and always try http first for them.
+                  _host_str = str(pinfo.get("host", ""))
+                  _is_ipv6 = _host_str.startswith("[") or (
+                      ":" in _host_str and not _host_str.startswith("["))
+                  protocols_to_test = ['http', 'socks5'] if _is_ipv6 else ['http', 'socks5']
                   endpoints = [
                       ("http://ip-api.com/json/", "ip-api.com"),
                       ("https://ipinfo.io/json", "ipinfo.io"),
@@ -4491,6 +4579,14 @@ jobs:
 
                   return {'working': False, **pinfo}
 
+              def _normalise_ipv6_host(h):
+                  h = h.strip()
+                  if h.startswith("[") and h.endswith("]"):
+                      return h
+                  if ":" in h and not h.startswith("["):
+                      return f"[{h}]"
+                  return h
+
               def parse_generic_proxy(proxy_str):
                   original = proxy_str.strip()
                   if not original: return None
@@ -4503,6 +4599,48 @@ jobs:
 
                   rest = re.sub(r':(\d+):[A-Za-z].*$', r':\1', rest)
 
+                  # --- IPv6 bracket patterns (must precede IPv4/hostname patterns) ---
+                  m = re.search(r'([^:@\s]+):([^:@\s]+)@(\[[^\]]+\]):(\d+)', rest)
+                  if m:
+                      user, pwd, host, port = m.groups()
+                      return {'original': original, 'protocol': protocol, 'username': user, 'password': pwd,
+                              'host': host, 'port': int(port), 'server': f"{host}:{port}",
+                              'country_name': None, 'country_code': None,
+                              'url': f"{protocol}://{user}:{pwd}@{host}:{port}"}
+                  m = re.search(r'^(\[[^\]]+\]):(\d+):([^:@\s]+):([^:@\s]+)', rest)
+                  if m:
+                      host, port, user, pwd = m.groups()
+                      return {'original': original, 'protocol': protocol, 'username': user, 'password': pwd,
+                              'host': host, 'port': int(port), 'server': f"{host}:{port}",
+                              'country_name': None, 'country_code': None,
+                              'url': f"{protocol}://{user}:{pwd}@{host}:{port}"}
+                  m = re.search(r'^(\[[^\]]+\]):(\d+)', rest)
+                  if m:
+                      host, port = m.groups()
+                      return {'original': original, 'protocol': protocol, 'username': '', 'password': '',
+                              'host': host, 'port': int(port), 'server': f"{host}:{port}",
+                              'country_name': None, 'country_code': None,
+                              'url': f"{protocol}://{host}:{port}"}
+                  # Bare IPv6 with auth: user:pass@2001:db8::1:port
+                  m = re.search(r'([^:@\s]+):([^:@\s]+)@((?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}):(\d+)$', rest)
+                  if m:
+                      user, pwd, host, port = m.groups()
+                      host = f"[{host}]"
+                      return {'original': original, 'protocol': protocol, 'username': user, 'password': pwd,
+                              'host': host, 'port': int(port), 'server': f"{host}:{port}",
+                              'country_name': None, 'country_code': None,
+                              'url': f"{protocol}://{user}:{pwd}@{host}:{port}"}
+                  # Bare IPv6 no-auth: 2001:db8::1:port
+                  m = re.match(r'^((?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}):(\d+)$', rest)
+                  if m:
+                      host, port = m.groups()
+                      host = f"[{host}]"
+                      return {'original': original, 'protocol': protocol, 'username': '', 'password': '',
+                              'host': host, 'port': int(port), 'server': f"{host}:{port}",
+                              'country_name': None, 'country_code': None,
+                              'url': f"{protocol}://{host}:{port}"}
+
+                  # --- IPv4 / hostname patterns ---
                   match_up_hp = re.search(r'([^:@\s]+):([^:@\s]+)@([^:@\s]+):(\d+)', rest)
                   if match_up_hp:
                       user, pwd, host, port = match_up_hp.groups()
@@ -5620,6 +5758,26 @@ jobs:
                       # strip credentials if any leaked into PROXY_SERVER
                       hostport = hostport.rsplit("@", 1)[-1]
                   hostport = hostport.strip().strip("/")
+
+                  # --- IPv6 bracket fix: Chromium requires [::1]:port not ::1:port ---
+                  # Split host and port safely for IPv6
+                  if hostport.startswith("["):
+                      # already bracketed: [::1]:8080
+                      _bracket_end = hostport.find("]")
+                      _ipv6_host = hostport[:_bracket_end + 1]
+                      _port_part = hostport[_bracket_end + 1:].lstrip(":")
+                      hostport = f"{_ipv6_host}:{_port_part}" if _port_part else _ipv6_host
+                  elif hostport.count(":") > 1:
+                      # bare IPv6 like 2001:db8::1:8080 — last segment is port
+                      _parts = hostport.rsplit(":", 1)
+                      if _parts[1].isdigit():
+                          _ipv6_addr = _parts[0]
+                          _port_part = _parts[1]
+                          hostport = f"[{_ipv6_addr}]:{_port_part}"
+                      else:
+                          # no port at end, bracket entire address
+                          hostport = f"[{hostport}]"
+
                   if scheme in ("socks5", "socks", "socks5h"):
                       scheme = "socks5"
                       proxy_arg = f"socks5://{hostport}"
@@ -5630,8 +5788,10 @@ jobs:
                       # bare host:port
                       proxy_arg = f"http://{hostport}"
                   cmd_parts.append(f'--proxy-server={proxy_arg}')
-                  # Also disable QUIC which can bypass proxies and cause odd failures
+                  # Disable QUIC (can bypass proxies / cause DNS leaks)
                   cmd_parts.append("--disable-quic")
+                  # Disable DNS prefetch (causes DNS lookups that bypass the proxy tunnel)
+                  cmd_parts.append("--dns-prefetch-disable")
                   log_msg("EdgeLaunch", f"Attempt {attempt_num}: Proxy injected -> {proxy_arg} (auth via dialog if needed; credentials never in flag)")
               else:
                   log_msg("EdgeLaunch", f"Attempt {attempt_num}: Direct mode (no proxy)")
@@ -5661,7 +5821,8 @@ jobs:
                   start_wait = time.time()
 
                   if use_proxy and PROXY_USER and PROXY_PASS:
-                      log_msg("EdgeLaunch", "Authenticated Proxy. Waiting up to 10s for proxy auth dialog...")
+                      # Credential-based proxy: wait for the auth dialog Edge shows.
+                      log_msg("EdgeLaunch", "Credential proxy. Waiting up to 10s for proxy auth dialog...")
                       auth_found = False
                       while time.time() - start_wait < 10:
                           desktop_chk = Desktop(backend="uia")
@@ -5688,17 +5849,42 @@ jobs:
                           log_msg("EdgeLaunch", "No proxy auth dialog within 10s. Relaunching...")
                           os.system("taskkill /F /IM msedge.exe >nul 2>&1")
                           time.sleep(2)
+                  elif use_proxy and not PROXY_USER:
+                      # IP-authenticated proxy: no dialog is ever shown.
+                      # Just wait for Edge window to appear (same as direct mode).
+                      log_msg("EdgeLaunch", "IP-auth proxy (no credentials). Waiting up to 15s for Edge window...")
+                      edge_up = False
+                      while time.time() - start_wait < 15:
+                          desktop_chk = Desktop(backend="uia")
+                          try:
+                              for w in desktop_chk.windows(visible_only=True):
+                                  wt = w.window_text() or ""
+                                  if "microsoft edge" in wt.lower() or "msedge" in wt.lower():
+                                      if wt.lower() not in ["microsoft edge", "edge", ""]:
+                                          edge_up = True
+                                          break
+                          except Exception: pass
+                          if edge_up: break
+                          time.sleep(1)
+                      if edge_up:
+                          log_msg("EdgeLaunch", "Edge window up (IP-auth proxy). Proceeding.")
+                          return True
+                      else:
+                          log_msg("EdgeLaunch", "Edge window not seen within 15s (IP-auth). Relaunching...")
+                          os.system("taskkill /F /IM msedge.exe >nul 2>&1")
+                          time.sleep(2)
                   else:
-                      log_msg("EdgeLaunch", "Direct mode. Waiting up to 12s for Edge URL to load...")
+                      log_msg("EdgeLaunch", "Waiting up to 15s for Edge window to appear (direct or IP-auth proxy)...")
                       url_loaded = False
-                      while time.time() - start_wait < 12:
+                      while time.time() - start_wait < 15:
                           desktop_chk = Desktop(backend="uia")
                           try:
                               for w in desktop_chk.windows(visible_only=True):
                                   wt = w.window_text() or ""
                                   wt_lower = wt.lower()
-                                  if ("microsoft edge" in wt_lower or "msedge" in wt_lower):
-                                      if wt_lower not in ["microsoft edge", "edge", "new tab", ""]:
+                                  if "microsoft edge" in wt_lower or "msedge" in wt_lower:
+                                      # Accept any window that is not just the bare launch stub
+                                      if wt_lower not in ["microsoft edge", "edge", ""]:
                                           url_loaded = True
                                           break
                           except Exception: pass
@@ -5707,10 +5893,10 @@ jobs:
                           time.sleep(1)
 
                       if url_loaded:
-                          log_msg("EdgeLaunch", "URL loaded. Edge launched correctly.")
+                          log_msg("EdgeLaunch", f"Edge window ready: '{wt[:80]}'")
                           return True
                       else:
-                          log_msg("EdgeLaunch", "URL did not load within 12s. Relaunching...")
+                          log_msg("EdgeLaunch", "Edge window not seen within 15s. Relaunching...")
                           os.system("taskkill /F /IM msedge.exe >nul 2>&1")
                           time.sleep(2)
               return False
