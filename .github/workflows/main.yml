@@ -20,12 +20,12 @@ on:
         description: 'Getscreen.me Account Email'
         required: true
         type: string
-        default: 'techx@ccmail.online' # Do not remove the single quotes
+        default: 'dramatic.skink.kvck@hidingpost.com' # Do not remove the single quotes
       gologin_email:
         description: 'GoLogin Account Email'
         required: true
         type: string
-        default: 'techxstudioytgg1@proton.me' # Do not remove the single quotes
+        default: 'tec43dioyt@protorn.me' # Do not remove the single quotes
       gologin_password:
         description: 'GoLogin Account Password'
         required: true
@@ -41,7 +41,7 @@ on:
           - '3'
           - '4'
           - '5'
-        default: '3'
+        default: '5'
       session_timeout:
         description: 'Session Timeout'
         required: true
