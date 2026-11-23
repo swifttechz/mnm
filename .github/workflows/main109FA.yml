@@ -184,11 +184,12 @@ on:
           - 'Poland'
         default: 'Australia'
       proxy_type:
-        description: 'Proxy Type (Manual = run pasted proxies with no country check; None / Without Proxy = no proxy at all; or Residential / Datacenter / Mobile)'
+        description: 'Proxy Type (Manual = pasted proxies with country skip; Manual no verify = pasted proxies with ZERO validation/IP/country checks; None / Without Proxy = no proxy; or Residential / Datacenter / Mobile)'
         required: true
         type: choice
         options:
           - 'Manual'
+          - 'Manual no verify'
           - 'Residential'
           - 'Datacenter'
           - 'Mobile'
@@ -207,6 +208,18 @@ on:
           - '40%'
           - '50%'
         default: '0%'
+      consecutive_failures_cancel:
+        description: 'Cancel whole workflow after N consecutive device failures at the same step (e.g. Proxy Provision)'
+        required: true
+        type: choice
+        options:
+          - '1 Consecutive Failure'
+          - '2 Consecutive Failures'
+          - '3 Consecutive Failures'
+          - '4 Consecutive Failures'
+          - '5 Consecutive Failures'
+          - 'Disabled'
+        default: '3 Consecutive Failures'
 
 permissions:
   actions: write
@@ -244,6 +257,7 @@ jobs:
           IN_INITIAL_POOL: ${{ inputs.initial_proxy_pool }}
           IN_BEHAVIOUR: ${{ inputs.behaviour }}
           IN_PROXY_USE: ${{ inputs.proxy_use }}
+          IN_FAIL_CANCEL: ${{ inputs.consecutive_failures_cancel }}
         run: |
           import os, re, glob
 
@@ -285,7 +299,8 @@ jobs:
               "proxy_type": os.getenv("IN_PROXY_TYPE"),
               "initial_proxy_pool": os.getenv("IN_INITIAL_POOL"),
               "behaviour": os.getenv("IN_BEHAVIOUR"),
-              "proxy_use": os.getenv("IN_PROXY_USE")
+              "proxy_use": os.getenv("IN_PROXY_USE"),
+              "consecutive_failures_cancel": os.getenv("IN_FAIL_CANCEL")
           }
 
           raw_proxies = os.getenv("IN_PROXY_INPUT", "").split()
@@ -659,7 +674,8 @@ jobs:
           proxy_input = os.environ.get("API_KEY_INPUT", "").strip()
           country_input = os.environ.get("COUNTRY", "USA")
           fallback_country_input = os.environ.get("FALLBACK_COUNTRY", "No Fallback")
-          skip_country_check = (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual")
+          skip_country_check = (os.environ.get("PROXY_TYPE", "").strip().lower() in ("manual", "manual no verify"))
+          no_verify = (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual no verify")
           _pt = (os.environ.get("PROXY_TYPE") or "Mobile").strip()
           if _pt.lower() in ("true", "1", "yes"):
               _pt = "Mobile"
@@ -675,8 +691,9 @@ jobs:
               "Brazil": "br", "Mexico": "mx", "Spain": "es", "Vietnam": "vn", "Switzerland": "ch",
               "Indonesia": "id", "Italy": "it", "Netherlands": "nl", "Poland": "pl"
           }
-          cc_input = "us" if (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual") else country_map.get(country_input, "us")
-          skip_country_check = (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual")
+          cc_input = "us" if (os.environ.get("PROXY_TYPE", "").strip().lower() in ("manual", "manual no verify")) else country_map.get(country_input, "us")
+          skip_country_check = (os.environ.get("PROXY_TYPE", "").strip().lower() in ("manual", "manual no verify"))
+          no_verify = (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual no verify")
 
           # ========== PROXY POOL PLAN ==========
           # pool_total = tasks + 10-15% extra buffer.
@@ -988,7 +1005,8 @@ jobs:
               "Brazil": "br", "Mexico": "mx", "Spain": "es", "Vietnam": "vn", "Switzerland": "ch",
               "Indonesia": "id", "Italy": "it", "Netherlands": "nl", "Poland": "pl",
           }
-          skip_country_check = (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual")
+          skip_country_check = (os.environ.get("PROXY_TYPE", "").strip().lower() in ("manual", "manual no verify"))
+          no_verify = (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual no verify")
           cc_primary = "US" if skip_country_check else country_map.get(country_input, "us").upper()
           cc_fallback = None if fallback_input == "No Fallback" else country_map.get(fallback_input, "us").upper()
 
@@ -1122,19 +1140,38 @@ jobs:
                   return {"username": "", "password": "", "host": f"[{h}]", "port": int(pt)}
 
               # --- IPv4 / hostname patterns ---
+              # user:pass@host:port
               m = re.search(r"([^:@\s]+):([^:@\s]+)@([^:@\s]+):(\d+)", rest)
               if m:
                   u, p, h, pt = m.groups()
                   return {"username": u, "password": p, "host": h, "port": int(pt)}
+              # host:port:user:pass
               m = re.search(r"^([^:@\s]+):(\d+):([^:@\s]+):([^:@\s]+)", rest)
               if m:
                   h, pt, u, p = m.groups()
                   return {"username": u, "password": p, "host": h, "port": int(pt)}
+              # user:pass:host:port
               m = re.search(r"^([^:@\s]+):([^:@\s]+):([^:@\s]+):(\d+)", rest)
               if m:
                   u, p, h, pt = m.groups()
                   return {"username": u, "password": p, "host": h, "port": int(pt)}
-              m = re.search(r"^([^:@\s]+):(\d+)", rest)
+              # host:port@user:pass   (from image)
+              m = re.search(r"^([^:@\s]+):(\d+)@([^:@\s]+):([^:@\s]+)", rest)
+              if m:
+                  h, pt, u, p = m.groups()
+                  return {"username": u, "password": p, "host": h, "port": int(pt)}
+              # user@host:port  (password empty)
+              m = re.search(r"^([^:@\s]+)@([^:@\s]+):(\d+)$", rest)
+              if m:
+                  u, h, pt = m.groups()
+                  return {"username": u, "password": "", "host": h, "port": int(pt)}
+              # host:port:user  (password empty)
+              m = re.search(r"^([^:@\s]+):(\d+):([^:@\s]+)$", rest)
+              if m:
+                  h, pt, u = m.groups()
+                  return {"username": u, "password": "", "host": h, "port": int(pt)}
+              # host:port
+              m = re.search(r"^([^:@\s]+):(\d+)$", rest)
               if m:
                   h, pt = m.groups()
                   return {"username": "", "password": "", "host": h, "port": int(pt)}
@@ -1147,6 +1184,9 @@ jobs:
           def validate_proxy(pinfo):
               """Validate proxy and detect which scheme Edge can use (http vs socks5).
               Mobile/residential providers often expose SOCKS5; forcing http:// causes ERR_NO_SUPPORTED_PROXIES in Edge."""
+              # Manual no verify: skip all network/IP/country checks, accept parsed proxy as-is
+              if (os.environ.get("PROXY_TYPE", "") or "").strip().lower() == "manual no verify":
+                  return {"ok": True, "scheme": "http", "cc": "XX", "ip": "0.0.0.0", "latency": 0, "no_verify": True}
               endpoints = [
                   ("http://ip-api.com/json/", "ip-api.com"),
                   ("https://ipinfo.io/json", "ipinfo.io"),
@@ -1782,7 +1822,8 @@ jobs:
               "Brazil": "br", "Mexico": "mx", "Spain": "es", "Vietnam": "vn", "Switzerland": "ch",
               "Indonesia": "id", "Italy": "it", "Netherlands": "nl", "Poland": "pl",
           }
-          skip_country_check = (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual")
+          skip_country_check = (os.environ.get("PROXY_TYPE", "").strip().lower() in ("manual", "manual no verify"))
+          no_verify = (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual no verify")
           cc_primary = "US" if skip_country_check else country_map.get(country_input, "us").upper()
           cc_fallback = None if fallback_input == "No Fallback" else country_map.get(fallback_input, "us").upper()
 
@@ -1916,19 +1957,38 @@ jobs:
                   return {"username": "", "password": "", "host": f"[{h}]", "port": int(pt)}
 
               # --- IPv4 / hostname patterns ---
+              # user:pass@host:port
               m = re.search(r"([^:@\s]+):([^:@\s]+)@([^:@\s]+):(\d+)", rest)
               if m:
                   u, p, h, pt = m.groups()
                   return {"username": u, "password": p, "host": h, "port": int(pt)}
+              # host:port:user:pass
               m = re.search(r"^([^:@\s]+):(\d+):([^:@\s]+):([^:@\s]+)", rest)
               if m:
                   h, pt, u, p = m.groups()
                   return {"username": u, "password": p, "host": h, "port": int(pt)}
+              # user:pass:host:port
               m = re.search(r"^([^:@\s]+):([^:@\s]+):([^:@\s]+):(\d+)", rest)
               if m:
                   u, p, h, pt = m.groups()
                   return {"username": u, "password": p, "host": h, "port": int(pt)}
-              m = re.search(r"^([^:@\s]+):(\d+)", rest)
+              # host:port@user:pass   (from image)
+              m = re.search(r"^([^:@\s]+):(\d+)@([^:@\s]+):([^:@\s]+)", rest)
+              if m:
+                  h, pt, u, p = m.groups()
+                  return {"username": u, "password": p, "host": h, "port": int(pt)}
+              # user@host:port  (password empty)
+              m = re.search(r"^([^:@\s]+)@([^:@\s]+):(\d+)$", rest)
+              if m:
+                  u, h, pt = m.groups()
+                  return {"username": u, "password": "", "host": h, "port": int(pt)}
+              # host:port:user  (password empty)
+              m = re.search(r"^([^:@\s]+):(\d+):([^:@\s]+)$", rest)
+              if m:
+                  h, pt, u = m.groups()
+                  return {"username": u, "password": "", "host": h, "port": int(pt)}
+              # host:port
+              m = re.search(r"^([^:@\s]+):(\d+)$", rest)
               if m:
                   h, pt = m.groups()
                   return {"username": "", "password": "", "host": h, "port": int(pt)}
@@ -1941,6 +2001,9 @@ jobs:
           def validate_proxy(pinfo):
               """Validate proxy and detect which scheme Edge can use (http vs socks5).
               Mobile/residential providers often expose SOCKS5; forcing http:// causes ERR_NO_SUPPORTED_PROXIES in Edge."""
+              # Manual no verify: skip all network/IP/country checks, accept parsed proxy as-is
+              if (os.environ.get("PROXY_TYPE", "") or "").strip().lower() == "manual no verify":
+                  return {"ok": True, "scheme": "http", "cc": "XX", "ip": "0.0.0.0", "latency": 0, "no_verify": True}
               endpoints = [
                   ("http://ip-api.com/json/", "ip-api.com"),
                   ("https://ipinfo.io/json", "ipinfo.io"),
@@ -4515,6 +4578,9 @@ jobs:
                   }
 
               def validate_proxy(pinfo):
+                  # Manual no verify: skip all network/IP/country checks, accept parsed proxy as-is
+                  if (os.environ.get("PROXY_TYPE", "") or "").strip().lower() == "manual no verify":
+                      return {"ok": True, "scheme": "http", "cc": "XX", "ip": "0.0.0.0", "latency": 0, "no_verify": True}
                   # IPv6 residential proxies (e.g. SerpProxies) use HTTP CONNECT, not SOCKS5.
                   # Detect an IPv6 host and always try http first for them.
                   _host_str = str(pinfo.get("host", ""))
@@ -4641,6 +4707,7 @@ jobs:
                               'url': f"{protocol}://{host}:{port}"}
 
                   # --- IPv4 / hostname patterns ---
+                  # user:pass@host:port
                   match_up_hp = re.search(r'([^:@\s]+):([^:@\s]+)@([^:@\s]+):(\d+)', rest)
                   if match_up_hp:
                       user, pwd, host, port = match_up_hp.groups()
@@ -4649,6 +4716,7 @@ jobs:
                               'country_name': None, 'country_code': None,
                               'url': f"{protocol}://{user}:{pwd}@{host}:{port}"}
 
+                  # host:port:user:pass
                   match_hp_up = re.search(r'^([^:@\s]+):(\d+):([^:@\s]+):([^:@\s]+)', rest)
                   if match_hp_up:
                       host, port, user, pwd = match_hp_up.groups()
@@ -4657,6 +4725,7 @@ jobs:
                               'country_name': None, 'country_code': None,
                               'url': f"{protocol}://{user}:{pwd}@{host}:{port}"}
 
+                  # user:pass:host:port
                   match_up_hp2 = re.search(r'^([^:@\s]+):([^:@\s]+):([^:@\s]+):(\d+)', rest)
                   if match_up_hp2:
                       user, pwd, host, port = match_up_hp2.groups()
@@ -4665,7 +4734,35 @@ jobs:
                               'country_name': None, 'country_code': None,
                               'url': f"{protocol}://{user}:{pwd}@{host}:{port}"}
 
-                  match_hp = re.search(r'^([^:@\s]+):(\d+)', rest)
+                  # host:port@user:pass  (from image)
+                  match_hp_at_up = re.search(r'^([^:@\s]+):(\d+)@([^:@\s]+):([^:@\s]+)', rest)
+                  if match_hp_at_up:
+                      host, port, user, pwd = match_hp_at_up.groups()
+                      return {'original': original, 'protocol': protocol, 'username': user, 'password': pwd,
+                              'host': host, 'port': int(port), 'server': f"{host}:{port}",
+                              'country_name': None, 'country_code': None,
+                              'url': f"{protocol}://{user}:{pwd}@{host}:{port}"}
+
+                  # user@host:port (empty password)
+                  match_u_at_hp = re.search(r'^([^:@\s]+)@([^:@\s]+):(\d+)$', rest)
+                  if match_u_at_hp:
+                      user, host, port = match_u_at_hp.groups()
+                      return {'original': original, 'protocol': protocol, 'username': user, 'password': '',
+                              'host': host, 'port': int(port), 'server': f"{host}:{port}",
+                              'country_name': None, 'country_code': None,
+                              'url': f"{protocol}://{user}@{host}:{port}"}
+
+                  # host:port:user (empty password)
+                  match_hp_u = re.search(r'^([^:@\s]+):(\d+):([^:@\s]+)$', rest)
+                  if match_hp_u:
+                      host, port, user = match_hp_u.groups()
+                      return {'original': original, 'protocol': protocol, 'username': user, 'password': '',
+                              'host': host, 'port': int(port), 'server': f"{host}:{port}",
+                              'country_name': None, 'country_code': None,
+                              'url': f"{protocol}://{user}@{host}:{port}"}
+
+                  # host:port
+                  match_hp = re.search(r'^([^:@\s]+):(\d+)$', rest)
                   if match_hp:
                       host, port = match_hp.groups()
                       return {'original': original, 'protocol': protocol, 'username': '', 'password': '',
@@ -4763,7 +4860,7 @@ jobs:
                               res = validate_proxy(pinfo)
                               if res['working']:
                                   actual_cc = (res.get('country_code') or '').upper()
-                                  if (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual") or actual_cc == current_expected_cc or fallback_country_input == "No Fallback":
+                                  if (os.environ.get("PROXY_TYPE", "").strip().lower() in ("manual", "manual no verify")) or actual_cc == current_expected_cc or fallback_country_input == "No Fallback":
                                       active_proxy = res
                                       active_proxy['proxy_type_label'] = 'gologin'
                                       use_proxy = True
@@ -4825,7 +4922,7 @@ jobs:
                           res = validate_proxy(pinfo)
                           if res['working']:
                               actual_cc = (res.get('country_code') or '').upper()
-                              if (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual") or actual_cc == current_expected_cc:
+                              if (os.environ.get("PROXY_TYPE", "").strip().lower() in ("manual", "manual no verify")) or actual_cc == current_expected_cc:
                                   active_proxy = res
                                   active_proxy['proxy_type_label'] = 'bytesflow'
                                   use_proxy = True
@@ -5019,7 +5116,7 @@ jobs:
                       res = validate_proxy(pinfo)
                       if res['working']:
                           actual_cc = (res.get('country_code') or '').upper()
-                          if (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual") or actual_cc == current_expected_cc:
+                          if (os.environ.get("PROXY_TYPE", "").strip().lower() in ("manual", "manual no verify")) or actual_cc == current_expected_cc:
                               active_proxy = res
                               active_proxy['proxy_type_label'] = 'redscrape'
                               use_proxy = True
@@ -5056,7 +5153,7 @@ jobs:
                       if res['working']:
                           actual_cc = (res.get('country_code') or '').upper()
                           # Manual primary country OR No Fallback -> accept any exit country
-                          skip_cc = (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual") or fallback_country_input == "No Fallback"
+                          skip_cc = (os.environ.get("PROXY_TYPE", "").strip().lower() in ("manual", "manual no verify")) or fallback_country_input == "No Fallback"
                           if skip_cc or actual_cc == current_expected_cc:
                               active_proxy = res
                               active_proxy['proxy_type_label'] = 'manual'
@@ -5116,7 +5213,7 @@ jobs:
                           res = validate_proxy(pinfo)
                           if res['working']:
                               actual_cc = (res.get('country_code') or '').upper()
-                              if (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual") or actual_cc == current_expected_cc:
+                              if (os.environ.get("PROXY_TYPE", "").strip().lower() in ("manual", "manual no verify")) or actual_cc == current_expected_cc:
                                   active_proxy = res
                                   active_proxy['proxy_type_label'] = 'floppydata'
                                   use_proxy = True
@@ -5169,7 +5266,7 @@ jobs:
                       res = validate_proxy(pinfo)
                       if res['working']:
                           actual_cc = (res.get('country_code') or '').upper()
-                          if (os.environ.get("PROXY_TYPE", "").strip().lower() == "manual") or actual_cc == current_expected_cc:
+                          if (os.environ.get("PROXY_TYPE", "").strip().lower() in ("manual", "manual no verify")) or actual_cc == current_expected_cc:
                               active_proxy = res
                               active_proxy['proxy_type_label'] = 'scrapeops'
                               use_proxy = True
@@ -9132,27 +9229,106 @@ jobs:
               exit 0
           }
 
-      - name: "Failure Guard (cancel run if 3+ devices fail at the same step)"
-        if: ${{ failure() }}
+      - name: "Failure Guard (cancel run if N consecutive devices fail at the same step)"
+        if: ${{ failure() && inputs.consecutive_failures_cancel != 'Disabled' }}
         shell: python
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
           JOB_DISPLAY_NAME: ${{ matrix.display_name }}
-          FAIL_CANCEL_THRESHOLD: '3'
+          FAIL_CANCEL_INPUT: ${{ inputs.consecutive_failures_cancel }}
         run: |
           import os, sys, json, time, urllib.request, urllib.error
-          from collections import Counter
+          from collections import Counter, defaultdict
 
-          TH = int(os.environ.get("FAIL_CANCEL_THRESHOLD", "3"))
+          raw = (os.environ.get("FAIL_CANCEL_INPUT") or "3 Consecutive Failures").strip()
+          if raw.lower().startswith("disabled"):
+              print("Failure Guard disabled by input. Skipping.")
+              sys.exit(0)
+          try:
+              TH = int("".join(c for c in raw if c.isdigit()) or "3")
+          except ValueError:
+              TH = 3
+          TH = max(1, min(5, TH))
+          print(f"Failure Guard active. Threshold = {TH} consecutive device failures at the same step.")
+
           REPO = os.environ["REPO"]
           RUN_ID = os.environ["RUN_ID"]
           ME = os.environ.get("JOB_DISPLAY_NAME", "")
           API = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
-          HDR = {"Authorization": f"Bearer {os.environ.get('GH_TOKEN', '')}", "Accept": "application/vnd.github+json",
-                 "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "failure-guard"}
-          GUARD_STEP = "Failure Guard"
+          HDR = {
+              "Authorization": f"Bearer {os.environ.get('GH_TOKEN', '')}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "failure-guard"
+          }
+
+          def api(method, path, data=None):
+              req = urllib.request.Request(
+                  API + path, method=method, headers=HDR,
+                  data=(json.dumps(data).encode() if data is not None else None)
+              )
+              if data is not None:
+                  req.add_header("Content-Type", "application/json")
+              try:
+                  with urllib.request.urlopen(req, timeout=45) as r:
+                      return r.status, json.loads(r.read().decode() or "{}")
+              except urllib.error.HTTPError as e:
+                  body = e.read().decode() if e.fp else ""
+                  try:
+                      return e.code, json.loads(body or "{}")
+                  except Exception:
+                      return e.code, {"message": body}
+              except Exception as e:
+                  return 0, {"message": str(e)}
+
+          # Give other failing jobs a moment to report their status
+          time.sleep(8)
+
+          st, jobs_data = api("GET", f"/repos/{REPO}/actions/runs/{RUN_ID}/jobs?per_page=100")
+          if st != 200:
+              print(f"Could not list jobs (status {st}). Skipping cancel.")
+              sys.exit(0)
+
+          jobs = jobs_data.get("jobs") or []
+          # Collect failed steps: step_name -> list of (job_name, conclusion)
+          failed_by_step = defaultdict(list)
+          for job in jobs:
+              if job.get("conclusion") not in ("failure", "cancelled", "timed_out"):
+                  continue
+              jname = job.get("name") or ""
+              for step in (job.get("steps") or []):
+                  if step.get("conclusion") == "failure":
+                      sname = (step.get("name") or "").strip()
+                      if sname and sname != "Failure Guard (cancel run if N consecutive devices fail at the same step)":
+                          failed_by_step[sname].append(jname)
+
+          # Count how many distinct devices failed on each step
+          cancel = False
+          trigger_step = None
+          for step_name, job_names in failed_by_step.items():
+              unique_jobs = list(dict.fromkeys(job_names))  # preserve order, dedupe
+              print(f"  Step '{step_name}': {len(unique_jobs)} failed device job(s) -> {unique_jobs[:8]}{'...' if len(unique_jobs)>8 else ''}")
+              if len(unique_jobs) >= TH:
+                  cancel = True
+                  trigger_step = step_name
+                  break
+
+          if not cancel:
+              print(f"No step has reached the threshold of {TH} device failures. Continuing.")
+              sys.exit(0)
+
+          print("=" * 60)
+          print(f"CANCEL TRIGGERED: {len(failed_by_step.get(trigger_step, []))} devices failed at step '{trigger_step}' (threshold={TH})")
+          print("=" * 60)
+
+          # Cancel the entire workflow run
+          st, res = api("POST", f"/repos/{REPO}/actions/runs/{RUN_ID}/cancel")
+          if st in (202, 200):
+              print("Successfully requested cancellation of the workflow run.")
+          else:
+              print(f"Cancel request returned status {st}: {res}")
       - name: Keep Runner Alive
         if: always() && matrix.action_mode == 'install' && env.SOFTWARE_DOWNLOADED == 'true'
         shell: pwsh
