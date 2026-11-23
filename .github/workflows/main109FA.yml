@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '5'
+        default: '10'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '100'
+        default: '240'
       num_surfs:
         description: 'Surfs'
         required: true
