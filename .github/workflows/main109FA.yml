@@ -16,7 +16,7 @@ on:
         description: 'Getscreen.me Account Email'
         required: true
         type: string
-        default: 'dramatic.skink.kvck@hidingpost.com'
+        default: 'techx@ccmail.online'
       num_devices:
         description: 'Number of Devices'
         required: true
@@ -62,7 +62,7 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '5'
+        default: '3'
       num_clicks:
         description: 'Clicks'
         required: true
@@ -182,7 +182,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Australia'
+        default: 'Canada'
       proxy_type:
         description: 'Proxy Type (Manual = pasted proxies with country skip; Manual no verify = pasted proxies with ZERO validation/IP/country checks; None / Without Proxy = no proxy; or Residential / Datacenter / Mobile)'
         required: true
