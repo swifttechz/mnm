@@ -194,7 +194,7 @@ on:
           - 'Datacenter'
           - 'Mobile'
           - 'None / Without Proxy'
-        default: 'Manual'
+        default: 'Manual no verify'
       initial_proxy_pool:
         description: 'Initial Proxy Pool % (0% = no pool / direct API gen per device; higher % = generate that % of the planned pool FIRST, devices start only after it is uploaded, then continuous feed)'
         required: true
