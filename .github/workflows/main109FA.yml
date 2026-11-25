@@ -62,7 +62,7 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '4'
+        default: '1'
       num_clicks:
         description: 'Clicks'
         required: true
