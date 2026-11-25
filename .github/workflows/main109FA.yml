@@ -16,7 +16,7 @@ on:
         description: 'Getscreen.me Account Email'
         required: true
         type: string
-        default: 'techx@ccmail.online'
+        default: 'dramatic.skink.kvck@hidingpost.com'
       num_devices:
         description: 'Number of Devices'
         required: true
@@ -44,7 +44,7 @@ on:
           - '3-6 minutes'
           - '4-8 minutes'
           - '5-10 minutes'
-        default: '0 minutes'
+        default: '5-10 minutes'
       keep_alive_duration:
         description: 'Timeout / Keep Runner Alive'
         required: true
@@ -62,12 +62,12 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '10'
+        default: '3'
       num_clicks:
         description: 'Clicks'
         required: true
         type: string
-        default: '240'
+        default: '0'
       num_surfs:
         description: 'Surfs'
         required: true
@@ -182,7 +182,7 @@ on:
           - 'Italy'
           - 'Netherlands'
           - 'Poland'
-        default: 'Canada'
+        default: 'Australia'
       proxy_type:
         description: 'Proxy Type (Manual = pasted proxies with country skip; Manual no verify = pasted proxies with ZERO validation/IP/country checks; None / Without Proxy = no proxy; or Residential / Datacenter / Mobile)'
         required: true
