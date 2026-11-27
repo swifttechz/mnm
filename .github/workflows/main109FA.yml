@@ -136,7 +136,7 @@ on:
         type: boolean
         default: false
       scrapeops_api_key:
-        description: 'ScrapeOps /Floppy /BytesFlow /Redscrape /GoLogin /Manual'
+        description: 'ScrapeOps /Floppy /Redscrape /GoLogin /Manual'
         required: false
         type: string
         default: ''
