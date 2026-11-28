@@ -62,7 +62,7 @@ on:
         description: 'Installs'
         required: true
         type: string
-        default: '2'
+        default: '1'
       num_clicks:
         description: 'Clicks'
         required: true
@@ -134,7 +134,7 @@ on:
         description: 'Fingerprint Masking'
         required: true
         type: boolean
-        default: true
+        default: false
       scrapeops_api_key:
         description: 'ScrapeOps /Floppy /Redscrape /GoLogin /Manual'
         required: false
